@@ -1,6 +1,6 @@
-(ns crdt.util-test
+(ns crdt.gset-test
   (:require [clojure.test :refer :all]
-            [crdt.util :refer :all]))
+            [crdt.gset :refer :all]))
 
 (deftest a-test
   (testing "FIXME, I fail."
