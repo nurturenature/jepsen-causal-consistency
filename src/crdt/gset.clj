@@ -45,31 +45,47 @@
          :value #{}}]
        (h/history)))
 
-(defrecord RYWExplainer []
-  ec/DataExplainer
-  (explain-pair-data [_ a b]
-    (when (and (= (.process a) (.process b))
-               ((h/has-f? :r) a)
-               ((h/has-f? :a) b)
-               (not (contains? (.value a) (.value b))))
-      {:type    :read-your-writes
-       :process (.process a)
-       :read    (.value a)
-       :add     (.value b)}))
+(defn gset-mono-w-anomaly-history
+  "Generate a sample history of gset ops with a monotonic-writes anomaly."
+  []
+  (->> [{:process 0
+         :type :ok
+         :f :a
+         :value 0}
+        {:process 0
+         :type :ok
+         :f :a
+         :value 1}
+        {:process 1
+         :type :ok
+         :f :r
+         :value #{1}}
+        {:process 1
+         :type :ok
+         :f :r
+         :value #{0 1}}]
+       (h/history)))
 
-  (render-explanation [_ {:keys [process read add]} a-name b-name]
-    (str "In process " process " " a-name " read of " (pr-str read)
-         " did not observe " b-name " add of " (pr-str add))))
+;; (defn processes
+;;   "Given a history, returns a set of all processes in the history."
+;;   [history]
+;;   (let [fold (f/make-fold {:name :processes
+;;                            :reducer-identity (constantly #{})
+;;                            :reducer conj
+;;                            :combiner-identity (constantly #{})
+;;                            :combiner set/union})]
+;;     (-> history
+;;         (h/fold fold))))
 
-(defn ryw-graph
-  "Given a history, builds a graph of rw-antidependency relationships within each process.
-   A ryw anomaly will cycle rw-antidependency and process order graphs."
+(defn analyze-adds
+  "Given a history, filters for adds and returns 
+   ```
+   [{:process :set-of-values-added}
+    {:value :add-op}]
+   ```"
   [history]
-  (let [history (->> history
-                     (h/client-ops)
-                     (h/oks))
-        adds  (->> history (h/filter-f :a))
-        reads (->> history (h/filter-f :r))
+  (let [adds (->> history
+                  (h/filter-f :a))
         fused_folds (->> [(f/make-fold {:name :adds-by-process
                                         :reducer-identity (constantly {})
                                         :reducer (fn [acc op]
@@ -96,32 +112,76 @@
                          :fused)
         [adds-by-process
          add-by-value]   (-> adds
-                             (h/fold fused_folds))
-        graph (-> reads
-                  (h/fold (f/make-fold {:name :read-your-writes
-                                        :reducer-identity (fn []
-                                                            (g/linear (g/named-graph :read-your-writes (g/digraph)))) ; TODO: op-digraph
-                                        :reducer (fn [g op]
-                                                   (let [process (.process op)
-                                                         value   (.value op)
-                                                         unread  (set/difference (get adds-by-process process) value)
-                                                         first-unread (->> unread
-                                                                           (apply min) ; add values are monotonic per process
-                                                                           (get add-by-value))]
-                                                     (g/link g op first-unread)))
-                                        :post-reducer g/forked
-                                        :combiner-identity (fn []
-                                                             (g/linear (g/named-graph :read-your-writes (g/digraph)))) ; TODO: op-digraph
-                                        :combiner (fn [acc chunk-result]
-                                                    (g/named-graph-union acc chunk-result))
-                                        :post-combiner g/forked})))]
+                             (h/fold fused_folds))]
 
-    {:graph     graph
-     :explainer (RYWExplainer.)}))
+    [adds-by-process
+     add-by-value]))
 
-(defn ryw-check
-  "Checks a history for read your writes anomalies."
+(defrecord RW-Anti-Explainer []
+  ec/DataExplainer
+  (explain-pair-data [_ a b]
+    (when (and ((h/has-f? :r) a)
+               ((h/has-f? :a) b)
+               (not (contains? (.value a) (.value b))))
+      {:type   :rw-anti
+       :read-p (.process a)
+       :add-p  (.process b)
+       :read   (.value a)
+       :add    (.value b)}))
+
+  (render-explanation [_ {:keys [read-p add-p read add]} a-name b-name]
+    (if (= read-p add-p)
+      (str "In the same process " read-p " " a-name "'s read of " (pr-str read)
+           " did not observe " b-name "'s add of " (pr-str add))
+      (str a-name "'s read of " (pr-str read)
+           " did not observe " b-name "'s add of " (pr-str add)))))
+
+(defn rw-anti-graph
+  "For every read, link to the first add in each process that wasn't read, if any."
+  [history [adds-by-process add-by-value]]
+  (let [reads (->> history
+                   (h/filter-f :r))]
+    (-> reads
+        (h/fold (f/make-fold {:name :rw-anti
+                              :reducer-identity (fn []
+                                                  (g/linear (g/named-graph :rw-anti (g/digraph)))) ; TODO: op-digraph
+                              :reducer (fn [g op]
+                                         ; link to the first add in each process that wasn't read by op
+                                         (let [value (.value op)]
+                                           (->> adds-by-process
+                                                vals
+                                                (reduce (fn [g adds]
+                                                          (let [unread (set/difference adds value)]
+                                                            (if (seq unread)
+                                                              (let [first-unread (->> unread
+                                                                                      (apply min) ; add values are monotonic per process
+                                                                                      (get add-by-value))]
+                                                                (g/link g op first-unread))
+                                                              g)))
+                                                        g))))
+                              :post-reducer g/forked
+                              :combiner-identity (fn []
+                                                   (g/linear (g/named-graph :rw-anti (g/digraph)))) ; TODO: op-digraph
+                              :combiner (fn [acc chunk-result]
+                                          (g/named-graph-union acc chunk-result))
+                              :post-combiner g/forked})))))
+
+(defn rw-anti-analysis
+  "Given a history, builds a graph of rw-anti(dependency) relationships."
+  [history]
+  (let [oks (->> history
+                 (h/client-ops)
+                 (h/oks))
+        analyze-adds (h/task oks analyze-adds [] (analyze-adds oks))
+        graph        (h/task oks rw-anti-graph [analyze-adds analyze-adds] (rw-anti-graph oks analyze-adds))]
+
+    {:graph     @graph
+     :explainer (RW-Anti-Explainer.)}))
+
+(defn causal-check
+  "Checks a history for causal consistency:
+     - read your writes"
   [history]
   (->> history
-       (ec/check {:analyzer (ec/combine ryw-graph ec/process-graph)
+       (ec/check {:analyzer (ec/combine rw-anti-analysis ec/process-graph)
                   :directory "./target/out"})))
