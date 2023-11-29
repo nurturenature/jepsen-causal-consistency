@@ -60,16 +60,34 @@
         {:process 1 :type :ok :f :r :value #{0 1}}]
        (h/history)))
 
-;; (defn processes
-;;   "Given a history, returns a set of all processes in the history."
-;;   [history]
-;;   (let [fold (f/make-fold {:name :processes
-;;                            :reducer-identity (constantly #{})
-;;                            :reducer conj
-;;                            :combiner-identity (constantly #{})
-;;                            :combiner set/union})]
-;;     (-> history
-;;         (h/fold fold))))
+(def gset-mono-r-history
+  "Generate a sample history of gset ops with monotonic-reads."
+  (->> [{:process 0 :type :ok :f :a :value 0}
+        {:process 1 :type :ok :f :a :value 1}
+        {:process 2 :type :ok :f :a :value 2}
+        {:process 3 :type :ok :f :r :value #{1}}
+        {:process 3 :type :ok :f :r :value #{0 1}}
+        {:process 3 :type :ok :f :r :value #{0 1 2}}]
+       (h/history)))
+
+(def gset-mono-r-anomaly-history
+  "Generate a sample history of gset ops with a monotonic-reads anomaly."
+  (->> [{:process 0 :type :ok :f :a :value 0}
+        {:process 2 :type :ok :f :r :value #{0}}
+        {:process 2 :type :ok :f :r :value #{}}]
+       (h/history)))
+
+(defn processes
+  "Given a history, returns a set of all processes in the history."
+  [history]
+  (let [fold (f/make-fold {:name :processes
+                           :reducer-identity (constantly #{})
+                           :reducer (fn [acc op]
+                                      (conj acc (.process op)))
+                           :combiner-identity (constantly #{})
+                           :combiner set/union})]
+    (-> history
+        (h/fold fold))))
 
 (defn analyze-adds
   "Given a history, filters for adds and returns 
@@ -132,25 +150,6 @@
                      [{} {}]))]
     first-reads))
 
-(defrecord RW-Anti-Explainer []
-  ec/DataExplainer
-  (explain-pair-data [_ a b]
-    (when (and ((h/has-f? :r) a)
-               ((h/has-f? :a) b)
-               (not (contains? (.value a) (.value b))))
-      {:type   :rw-anti
-       :read-p (.process a)
-       :add-p  (.process b)
-       :read   (.value a)
-       :add    (.value b)}))
-
-  (render-explanation [_ {:keys [read-p add-p read add]} a-name b-name]
-    (if (= read-p add-p)
-      (str "In the same process " read-p " " a-name "'s read of " (pr-str read)
-           " did not observe " b-name "'s add of " (pr-str add))
-      (str a-name "'s read of " (pr-str read)
-           " did not observe " b-name "'s add of " (pr-str add)))))
-
 (defn rw-anti-graph
   "For every read, link to the first add in each process that wasn't read, if any."
   [history [adds-by-process add-by-value]]
@@ -181,19 +180,33 @@
                                           (g/named-graph-union acc chunk-result))
                               :post-combiner g/forked})))))
 
-(defrecord WR-Causal-Explainer []
+(defrecord RW-Anti-Explainer []
   ec/DataExplainer
   (explain-pair-data [_ a b]
-    (when (and ((h/has-f? :a) a)
-               ((h/has-f? :r) b)
-               (contains? (.value b) (.value a)))
-      {:type   :wr-causal
-       :add    (.value a)
-       :read   (.value b)}))
+    (when (and ((h/has-f? :r) a)
+               ((h/has-f? :a) b)
+               (not (contains? (.value a) (.value b))))
+      {:type   :rw-anti
+       :read-p (.process a)
+       :add-p  (.process b)
+       :read   (.value a)
+       :add    (.value b)}))
 
-  (render-explanation [_ {:keys [add read]} a-name b-name]
-    (str a-name "'s add of " (pr-str add)
-         " was observed by " b-name "'s read of " (pr-str read))))
+  (render-explanation [_ {:keys [read-p add-p read add]} a-name b-name]
+    (if (= read-p add-p)
+      (str "In the same process " read-p " " a-name "'s read of " (pr-str read)
+           " did not observe " b-name "'s add of " (pr-str add))
+      (str a-name "'s read of " (pr-str read)
+           " did not observe " b-name "'s add of " (pr-str add)))))
+
+(defn rw-anti-analysis
+  "Given a history, builds a graph of rw-anti(dependency) relationships."
+  [history]
+  (let [analyze-adds (h/task history analyze-adds [] (analyze-adds history))
+        graph        (h/task history rw-anti-graph [analyzed-adds analyze-adds] (rw-anti-graph history analyzed-adds))]
+
+    {:graph     @graph
+     :explainer (RW-Anti-Explainer.)}))
 
 (defn wr-causal-graph
   "For every add, link to the first read in each process that contains that add, if any."
@@ -220,15 +233,19 @@
                                           (g/named-graph-union acc chunk-result))
                               :post-combiner g/forked})))))
 
+(defrecord WR-Causal-Explainer []
+  ec/DataExplainer
+  (explain-pair-data [_ a b]
+    (when (and ((h/has-f? :a) a)
+               ((h/has-f? :r) b)
+               (contains? (.value b) (.value a)))
+      {:type   :wr-causal
+       :add    (.value a)
+       :read   (.value b)}))
 
-(defn rw-anti-analysis
-  "Given a history, builds a graph of rw-anti(dependency) relationships."
-  [history]
-  (let [analyze-adds (h/task history analyze-adds [] (analyze-adds history))
-        graph        (h/task history rw-anti-graph [analyzed-adds analyze-adds] (rw-anti-graph history analyzed-adds))]
-
-    {:graph     @graph
-     :explainer (RW-Anti-Explainer.)}))
+  (render-explanation [_ {:keys [add read]} a-name b-name]
+    (str a-name "'s add of " (pr-str add)
+         " was observed by " b-name "'s read of " (pr-str read))))
 
 (defn wr-causal-analysis
   "Given a history, builds a graph of wr-causal relationships."
@@ -239,13 +256,57 @@
     {:graph     @graph
      :explainer (WR-Causal-Explainer.)}))
 
+(defn rr-mono-graph
+  "Within a process, order reads by monotonic values, if any."
+  [history processes]
+  (let [reads (->> history
+                   (h/filter-f :r))]
+    (->> processes
+         (reduce (fn [g process]
+                   (->> reads
+                        (h/filter (comp #{process} :process))
+                        (group-by :value)
+                        (sort-by (fn [[v _ops]]
+                                   (count v)))  ; TODO richer semantics, e.g. superset
+                        (partition 2 1)
+                        (reduce (fn [g [[_v1 ops1] [_v2 ops2]]]
+                                  (g/link-all-to-all g ops1 ops2))
+                                g)))
+                 (g/linear (g/named-graph :rr-mono (g/digraph)))) ; TODO: op-digraph
+         g/forked)))
+
+(defrecord RR-Mono-Explainer []
+  ec/DataExplainer
+  (explain-pair-data [_ a b]
+    (when (and (= (.process a) (.process b))
+               ((h/has-f? :r) a)
+               ((h/has-f? :r) b)
+               (< (count (.value a)) (count (.value b))))
+      {:type   :rr-mono
+       :read    (.value a)
+       :read'   (.value b)}))
+
+  (render-explanation [_ {:keys [read read']} a-name b-name]
+    (str a-name "'s read of " (pr-str read)
+         " has less elements than " b-name "'s read of " (pr-str read'))))
+
+(defn rr-mono-analysis
+  "Given a history, builds a graph of rr-mono relationships."
+  [history]
+  (let [processes (h/task history processes [] (processes history))
+        graph     (h/task history rr-mono-graph [ps processes] (rr-mono-graph history ps))]
+
+    {:graph     @graph
+     :explainer (RR-Mono-Explainer.)}))
+
 (defn causal-check
   "Checks a history for causal consistency:
      - read your writes anomalies cycle rw-anti and process orders
-     - monotonic writes anomalies cycle wr-causal, rw-anti, and process orders"
+     - monotonic writes anomalies cycle wr-causal, rw-anti, and process orders
+     - monotonic reads  anomalies cycle rr-mono, or wr-causal, rw-anti, and process orders"
   [history]
   (->> history
        (h/client-ops)
        (h/oks)
-       (ec/check {:analyzer (ec/combine rw-anti-analysis wr-causal-analysis ec/process-graph)
+       (ec/check {:analyzer (ec/combine rw-anti-analysis wr-causal-analysis rr-mono-analysis ec/process-graph)
                   :directory "./target/out"})))
