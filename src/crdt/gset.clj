@@ -77,6 +77,22 @@
         {:process 2 :type :ok :f :r :value #{}}]
        (h/history)))
 
+(def gset-wfr-history
+  "Generate a sample history of gset ops with writes-follow-reads."
+  (->> [{:process 0 :type :ok :f :a :value 0}
+        {:process 1 :type :ok :f :r :value #{0}}
+        {:process 1 :type :ok :f :a :value 1}
+        {:process 2 :type :ok :f :r :value #{0 1}}]
+       (h/history)))
+
+(def gset-wfr-anomaly-history
+  "Generate a sample history of gset ops with a writes-follow-reads anomaly."
+  (->> [{:process 0 :type :ok :f :a :value 0}
+        {:process 1 :type :ok :f :r :value #{0}}
+        {:process 1 :type :ok :f :a :value 1}
+        {:process 2 :type :ok :f :r :value #{1}}]
+       (h/history)))
+
 (defn processes
   "Given a history, returns a set of all processes in the history."
   [history]
@@ -299,14 +315,73 @@
     {:graph     @graph
      :explainer (RR-Mono-Explainer.)}))
 
+(defn ww-wfr-order
+  "For a process, return a writes-follow-reads graph."
+  [history process processes [adds-by-process add-by-value]]
+  (let [history (->> history
+                     (h/filter (comp #{process} :process)))
+        [g _] (->> history
+                   (reduce (fn [[g seen] op]
+                             (let [f     (.f op)
+                                   value (.value op)]
+                               (case f
+                                 :r [g
+                                     (set/union seen value)]
+                                 :a [(->> processes
+                                          (reduce (fn [g p]
+                                                    (let [seen-by-p (set/intersection seen (get adds-by-process p))]
+                                                      (if (seq seen-by-p)
+                                                        (let [last-seen-add (->> seen-by-p
+                                                                                 (apply max)
+                                                                                 (get add-by-value))]
+                                                          (g/link g last-seen-add op))
+                                                        g)))
+                                                  g))
+                                     seen])))
+                           [(g/linear (g/named-graph :ww-wfr (g/digraph))) ; TODO: op-digraph
+                            #{}]))]
+    (g/forked g)))
+
+(defn ww-wfr-graph
+  "Combined graph of each process's writes-follow-reads graph."
+  [history processes [adds-by-process add-by-value]]
+  (->> processes
+       (map #(ww-wfr-order history % processes [adds-by-process add-by-value]))
+       (reduce g/named-graph-union (g/linear (g/named-graph :ww-wfr (g/digraph))))
+       g/forked))
+
+(defrecord WW-WFR-Explainer []
+  ec/DataExplainer
+  (explain-pair-data [_ a b]
+    (when (and ((h/has-f? :a) a)
+               ((h/has-f? :a) b)) ; TODO: encode wfr
+      {:type :ww-wfr
+       :w    (.value a)
+       :w'   (.value b)}))
+
+  (render-explanation [_ {:keys [w w']} a-name b-name]
+    (str a-name "'s add of " (pr-str w)
+         " was observed by " b-name " before its add of " (pr-str w'))))
+
+(defn ww-wfr-analysis
+  "Given a history, builds a graph of ww-wfr relationships."
+  [history]
+  (let [processes    (h/task history processes [] (processes history))
+        analyze-adds (h/task history analyze-adds [] (analyze-adds history))
+        graph        (h/task history ww-wfr-graph [ps processes analyzed-adds analyze-adds] (ww-wfr-graph history ps analyzed-adds))]
+
+    {:graph     @graph
+     :explainer (WW-WFR-Explainer.)}))
+
 (defn causal-check
   "Checks a history for causal consistency:
-     - read your writes anomalies cycle rw-anti and process orders
-     - monotonic writes anomalies cycle wr-causal, rw-anti, and process orders
-     - monotonic reads  anomalies cycle rr-mono, or wr-causal, rw-anti, and process orders"
+     - read your writes    anomalies cycle rw-anti and process orders
+     - monotonic writes    anomalies cycle wr-causal, rw-anti, and process orders
+     - monotonic reads     anomalies cycle rr-mono, or wr-causal, rw-anti, and process orders
+     - writes follow reads anomalies cycle ww-wfr, or wr-causal, rw-anti, and process orders"
   [history]
   (->> history
        (h/client-ops)
        (h/oks)
-       (ec/check {:analyzer (ec/combine rw-anti-analysis wr-causal-analysis rr-mono-analysis ec/process-graph)
+       (ec/check {:analyzer (ec/combine rw-anti-analysis wr-causal-analysis rr-mono-analysis ww-wfr-analysis ec/process-graph)
                   :directory "./target/out"})))

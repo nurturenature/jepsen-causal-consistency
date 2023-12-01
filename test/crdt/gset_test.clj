@@ -27,3 +27,10 @@
                       causal-check)))
     (is (not (:valid? (->> gset-mono-r-anomaly-history
                            causal-check))))))
+
+(deftest writes-follow-reads
+  (testing "writes follow reads"
+    (is (:valid? (->> gset-wfr-history
+                      causal-check)))
+    (is (not (:valid? (->> gset-wfr-anomaly-history
+                           causal-check))))))
