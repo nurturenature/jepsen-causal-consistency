@@ -215,15 +215,6 @@
       (str a-name "'s read of " (pr-str read)
            " did not observe " b-name "'s add of " (pr-str add)))))
 
-(defn rw-anti-analysis
-  "Given a history, builds a graph of rw-anti(dependency) relationships."
-  [history]
-  (let [analyze-adds (h/task history analyze-adds [] (analyze-adds history))
-        graph        (h/task history rw-anti-graph [analyzed-adds analyze-adds] (rw-anti-graph history analyzed-adds))]
-
-    {:graph     @graph
-     :explainer (RW-Anti-Explainer.)}))
-
 (defn wr-causal-graph
   "For every add, link to the first read in each process that contains that add, if any."
   [history first-reads]
@@ -263,32 +254,28 @@
     (str a-name "'s add of " (pr-str add)
          " was observed by " b-name "'s read of " (pr-str read))))
 
-(defn wr-causal-analysis
-  "Given a history, builds a graph of wr-causal relationships."
-  [history]
-  (let [first-reads (h/task history first-reads [] (first-reads history))
-        graph       (h/task history wr-causal-graph [analyzed-reads first-reads] (wr-causal-graph history analyzed-reads))]
-
-    {:graph     @graph
-     :explainer (WR-Causal-Explainer.)}))
+(defn rr-mono-order
+  [history p]
+  (->> history
+       (h/filter (comp #{p} :process))
+       (group-by :value)
+       (sort-by (fn [[v _ops]]
+                  (count v)))  ; TODO richer semantics, e.g. superset
+       (partition 2 1)
+       (reduce (fn [g [[_v1 ops1] [_v2 ops2]]]
+                 (g/link-all-to-all g ops1 ops2))
+               (g/linear (g/named-graph :rr-mono (g/digraph))))
+       g/forked))
 
 (defn rr-mono-graph
-  "Within a process, order reads by monotonic values, if any."
+  "For each process, order reads by monotonic values."
   [history processes]
   (let [reads (->> history
                    (h/filter-f :r))]
     (->> processes
-         (reduce (fn [g process]
-                   (->> reads
-                        (h/filter (comp #{process} :process))
-                        (group-by :value)
-                        (sort-by (fn [[v _ops]]
-                                   (count v)))  ; TODO richer semantics, e.g. superset
-                        (partition 2 1)
-                        (reduce (fn [g [[_v1 ops1] [_v2 ops2]]]
-                                  (g/link-all-to-all g ops1 ops2))
-                                g)))
-                 (g/linear (g/named-graph :rr-mono (g/digraph)))) ; TODO: op-digraph
+         (map #(h/task reads (str :rr-mono %) [] (rr-mono-order reads %)))
+         (map deref)
+         (reduce g/named-graph-union (g/linear (g/named-graph :rr-mono (g/digraph))))
          g/forked)))
 
 (defrecord RR-Mono-Explainer []
@@ -305,15 +292,6 @@
   (render-explanation [_ {:keys [read read']} a-name b-name]
     (str a-name "'s read of " (pr-str read)
          " has less elements than " b-name "'s read of " (pr-str read'))))
-
-(defn rr-mono-analysis
-  "Given a history, builds a graph of rr-mono relationships."
-  [history]
-  (let [processes (h/task history processes [] (processes history))
-        graph     (h/task history rr-mono-graph [ps processes] (rr-mono-graph history ps))]
-
-    {:graph     @graph
-     :explainer (RR-Mono-Explainer.)}))
 
 (defn ww-wfr-order
   "For a process, return a writes-follow-reads graph."
@@ -346,7 +324,8 @@
   "Combined graph of each process's writes-follow-reads graph."
   [history processes [adds-by-process add-by-value]]
   (->> processes
-       (map #(ww-wfr-order history % processes [adds-by-process add-by-value]))
+       (map #(h/task history (str :ww-wfr %) [] (ww-wfr-order history % processes [adds-by-process add-by-value])))
+       (map deref)
        (reduce g/named-graph-union (g/linear (g/named-graph :ww-wfr (g/digraph))))
        g/forked))
 
@@ -363,15 +342,22 @@
     (str a-name "'s add of " (pr-str w)
          " was observed by " b-name " before its add of " (pr-str w'))))
 
-(defn ww-wfr-analysis
-  "Given a history, builds a graph of ww-wfr relationships."
+(defn causal-combined-analyzers
+  "Given a history, combines the graphs/explainers for causal into a single analyzer
+   This is necessary to share common `h/task` dependencies."
   [history]
-  (let [processes    (h/task history processes [] (processes history))
-        analyze-adds (h/task history analyze-adds [] (analyze-adds history))
-        graph        (h/task history ww-wfr-graph [ps processes analyzed-adds analyze-adds] (ww-wfr-graph history ps analyzed-adds))]
+  (let [processes       (h/task history processes [] (processes history))
+        analyze-adds    (h/task history analyze-adds [] (analyze-adds history))
+        first-reads     (h/task history first-reads [] (first-reads history))
+        wr-causal-graph (h/task history wr-causal-graph [analyzed-reads first-reads] (wr-causal-graph history analyzed-reads))
+        rr-mono-graph   (h/task history rr-mono-graph [ps processes] (rr-mono-graph history ps))
+        ww-wfr-graph    (h/task history ww-wfr-graph [ps processes analyzed-adds analyze-adds] (ww-wfr-graph history ps analyzed-adds))
+        rw-anti-graph   (h/task history rw-anti-graph [analyzed-adds analyze-adds] (rw-anti-graph history analyzed-adds))]
 
-    {:graph     @graph
-     :explainer (WW-WFR-Explainer.)}))
+    {:graph     (->> [@rr-mono-graph @rw-anti-graph @ww-wfr-graph @wr-causal-graph]
+                     (reduce g/rel-graph-union (g/rel-graph-union))
+                     g/forked)
+     :explainer (ec/->CombinedExplainer [(RR-Mono-Explainer.) (WW-WFR-Explainer.) (WR-Causal-Explainer.) (RW-Anti-Explainer.)])}))
 
 (defn causal-check
   "Checks a history for causal consistency:
@@ -383,5 +369,5 @@
   (->> history
        (h/client-ops)
        (h/oks)
-       (ec/check {:analyzer (ec/combine rw-anti-analysis wr-causal-analysis rr-mono-analysis ww-wfr-analysis ec/process-graph)
+       (ec/check {:analyzer (ec/combine causal-combined-analyzers ec/process-graph)
                   :directory "./target/out"})))
