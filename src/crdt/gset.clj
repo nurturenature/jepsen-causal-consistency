@@ -174,7 +174,7 @@
     (-> reads
         (h/fold (f/make-fold {:name :rw-anti
                               :reducer-identity (fn []
-                                                  (g/linear (g/named-graph :rw-anti (g/digraph)))) ; TODO: op-digraph
+                                                  (g/linear (g/named-graph :rw-anti (g/op-digraph))))
                               :reducer (fn [g op]
                                          ; link to the first add in each process that wasn't read by op
                                          (let [value (.value op)]
@@ -191,7 +191,7 @@
                                                         g))))
                               :post-reducer g/forked
                               :combiner-identity (fn []
-                                                   (g/linear (g/named-graph :rw-anti (g/digraph)))) ; TODO: op-digraph
+                                                   (g/linear (g/named-graph :rw-anti (g/op-digraph))))
                               :combiner (fn [acc chunk-result]
                                           (g/named-graph-union acc chunk-result))
                               :post-combiner g/forked})))))
@@ -223,7 +223,7 @@
     (-> adds
         (h/fold (f/make-fold {:name :wr-causal
                               :reducer-identity (fn []
-                                                  (g/linear (g/named-graph :wr-causal (g/digraph)))) ; TODO: op-digraph
+                                                  (g/linear (g/named-graph :wr-causal (g/op-digraph))))
                               :reducer (fn [g op]
                                          ; link to the first read in each process that contains op's add
                                          (let [value (.value op)
@@ -235,7 +235,7 @@
                                              g)))
                               :post-reducer g/forked
                               :combiner-identity (fn []
-                                                   (g/linear (g/named-graph :wr-causal (g/digraph)))) ; TODO: op-digraph
+                                                   (g/linear (g/named-graph :wr-causal (g/op-digraph))))
                               :combiner (fn [acc chunk-result]
                                           (g/named-graph-union acc chunk-result))
                               :post-combiner g/forked})))))
@@ -264,7 +264,7 @@
        (partition 2 1)
        (reduce (fn [g [[_v1 ops1] [_v2 ops2]]]
                  (g/link-all-to-all g ops1 ops2))
-               (g/linear (g/named-graph :rr-mono (g/digraph))))
+               (g/linear (g/named-graph :rr-mono (g/op-digraph))))
        g/forked))
 
 (defn rr-mono-graph
@@ -275,7 +275,7 @@
     (->> processes
          (map #(h/task reads (str :rr-mono %) [] (rr-mono-order reads %)))
          (map deref)
-         (reduce g/named-graph-union (g/linear (g/named-graph :rr-mono (g/digraph))))
+         (reduce g/named-graph-union (g/linear (g/named-graph :rr-mono (g/op-digraph))))
          g/forked)))
 
 (defrecord RR-Mono-Explainer []
@@ -316,7 +316,7 @@
                                                         g)))
                                                   g))
                                      seen])))
-                           [(g/linear (g/named-graph :ww-wfr (g/digraph))) ; TODO: op-digraph
+                           [(g/linear (g/named-graph :ww-wfr (g/op-digraph))) 
                             #{}]))]
     (g/forked g)))
 
@@ -326,7 +326,7 @@
   (->> processes
        (map #(h/task history (str :ww-wfr %) [] (ww-wfr-order history % processes [adds-by-process add-by-value])))
        (map deref)
-       (reduce g/named-graph-union (g/linear (g/named-graph :ww-wfr (g/digraph))))
+       (reduce g/named-graph-union (g/linear (g/named-graph :ww-wfr (g/op-digraph))))
        g/forked))
 
 (defrecord WW-WFR-Explainer []
@@ -370,4 +370,4 @@
        (h/client-ops)
        (h/oks)
        (ec/check {:analyzer (ec/combine causal-combined-analyzers ec/process-graph)
-                  :directory "./target/out"})))
+                     :directory "./target/out"})))
