@@ -10,10 +10,12 @@
             [elle.rw-register :as rw]
             [elle.txn :as et]
             [jepsen.history :as h]
+            [jepsen.txn :as txn]
             [jepsen.tests.cycle.wr :as wr]))
 
 (defn lww-realtime-graph
-  "The target systems to be tested claim last write == realtime, they do not claim full realtime causal.
+  "The target systems to be tested claim last write == realtime, they do not claim full realtime causal,
+   so we order ww realtime.
    
    Real-time-causal consistency.
    An execution e is said to be real time causally consistent (RTC) if its HB graph satisfies the following check in addition to the checks for causal consistency:
@@ -21,26 +23,24 @@
    _Consistency, Availability, and Convergence (UTCS TR-11-22)_"
   [history]
   (->> history
-       h/possible
-       (h/filter (fn [op]
-                   (->> op
-                        :value
-                        (reduce (fn [_acc [f _k _v]]
-                                  (if (#{:w} f)
-                                    (reduced true)
-                                    false))
-                                false))))
+       (h/filter #(->> %
+                       :value
+                       txn/ext-writes
+                       seq))
        (ec/realtime-graph)))
 
 (def causal-opts
   "Opts to configure Elle for causal consistency."
-  ; w->r done by rw_register
-  {:consistency-models [:consistent-view]     ; Adya formalism for causal consistency
+  ; rw_register provides:
+  ;   - wr, w->r
+  ;   - ww and rw dependencies, as derived from a version order
+  ;   - initial, nil->r value
+  {:consistency-models [:consistent-view]   ; Adya formalism for causal consistency
    :anomalies [:internal]                   ; think Adya requires? add to cm/consistency-models?
    :sequential-keys? true                   ; elle/process-graph
    :wfr-keys? true                          ; rw/wfr-version-graph
-   :additional-graphs [lww-realtime-graph]} ; writes are realtime for lww 
-  )
+   ; TODO: :additional-graphs [lww-realtime-graph]  ; writes are realtime for lww
+   })
 
 (defn test
   "A partial test, including a generator and a checker.
@@ -126,10 +126,19 @@
        (mapcat #(apply op-pair %))
        h/history))
 
-(def causal-anomaly
+(def causal-intra-txn-anomaly
   (->> [[0 "wx0"]
         [1 "rx0wy1"]
         [2 "rx_ry1"]]
+       (mapcat #(apply op-pair %))
+       h/history))
+
+(def causal-inter-txn-anomaly
+  (->> [[0 "wx0"]
+        [1 "rx0"]
+        [1 "wy1"]
+        [2 "ry1"]
+        [2 "rx_"]]
        (mapcat #(apply op-pair %))
        h/history))
 
@@ -184,4 +193,3 @@
         [2 "rx_ry1"]]
        (mapcat #(apply op-pair %))
        h/history))
-
