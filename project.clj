@@ -4,7 +4,8 @@
   :license {:name "Apache License Version 2.0, January 2004"
             :url "http://www.apache.org/licenses/"}
   :dependencies [[org.clojure/clojure "1.11.1"]
-                 [jepsen "0.3.5-SNAPSHOT"]]
+                 [elle "0.2.0"]
+                 [spootnik/unilog "0.7.31"]]
   :repl-options {:init-ns crdt.lww-register}
   :plugins [[lein-codox "0.10.8"]
             [lein-localrepo "0.5.4"]]

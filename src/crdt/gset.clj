@@ -1,9 +1,13 @@
 (ns crdt.gset
-  (:require [clojure.set :as set]
+  (:require [bifurcan-clj [core :as b]
+             [graph :as bg]
+             [set :as bs]]
+            [clojure.set :as set]
             [clojure.tools.logging :refer [info]]
             [elle
              [core :as ec]
-             [graph :as g]]
+             [graph :as g]
+             [rels :as rels]]
             [jepsen.history :as h]
             [jepsen.history.fold :as f]
             [slingshot.slingshot :refer [try+ throw+]]))
@@ -174,7 +178,7 @@
     (-> reads
         (h/fold (f/make-fold {:name :rw-anti
                               :reducer-identity (fn []
-                                                  (g/linear (g/named-graph :rw-anti (g/op-digraph))))
+                                                  (b/linear (g/op-digraph)))
                               :reducer (fn [g op]
                                          ; link to the first add in each process that wasn't read by op
                                          (let [value (.value op)]
@@ -186,15 +190,15 @@
                                                               (let [first-unread (->> unread
                                                                                       (apply min) ; add values are monotonic per process
                                                                                       (get add-by-value))]
-                                                                (g/link g op first-unread))
+                                                                (g/link g op first-unread rels/rw))
                                                               g)))
                                                         g))))
-                              :post-reducer g/forked
+                              :post-reducer b/forked
                               :combiner-identity (fn []
-                                                   (g/linear (g/named-graph :rw-anti (g/op-digraph))))
+                                                   (b/linear (g/op-digraph)))
                               :combiner (fn [acc chunk-result]
-                                          (g/named-graph-union acc chunk-result))
-                              :post-combiner g/forked})))))
+                                          (g/digraph-union acc chunk-result))
+                              :post-combiner b/forked})))))
 
 (defrecord RW-Anti-Explainer []
   ec/DataExplainer
@@ -223,7 +227,7 @@
     (-> adds
         (h/fold (f/make-fold {:name :wr-causal
                               :reducer-identity (fn []
-                                                  (g/linear (g/named-graph :wr-causal (g/op-digraph))))
+                                                  (b/linear (g/op-digraph)))
                               :reducer (fn [g op]
                                          ; link to the first read in each process that contains op's add
                                          (let [value (.value op)
@@ -231,14 +235,14 @@
                                                                 (get first-reads)
                                                                 vals)]
                                            (if (seq first-reads)
-                                             (g/link-to-all g op first-reads)
+                                             (g/link-to-all g op first-reads rels/wr)
                                              g)))
-                              :post-reducer g/forked
+                              :post-reducer b/forked
                               :combiner-identity (fn []
-                                                   (g/linear (g/named-graph :wr-causal (g/op-digraph))))
+                                                   (b/linear (g/op-digraph)))
                               :combiner (fn [acc chunk-result]
-                                          (g/named-graph-union acc chunk-result))
-                              :post-combiner g/forked})))))
+                                          (g/digraph-union acc chunk-result))
+                              :post-combiner b/forked})))))
 
 (defrecord WR-Causal-Explainer []
   ec/DataExplainer
@@ -263,9 +267,9 @@
                   (count v)))  ; TODO richer semantics, e.g. superset
        (partition 2 1)
        (reduce (fn [g [[_v1 ops1] [_v2 ops2]]]
-                 (g/link-all-to-all g ops1 ops2))
-               (g/linear (g/named-graph :rr-mono (g/op-digraph))))
-       g/forked))
+                 (g/link-all-to-all g ops1 ops2)) ; TODO: no rels/rr?
+               (b/linear (g/op-digraph)))
+       b/forked))
 
 (defn rr-mono-graph
   "For each process, order reads by monotonic values."
@@ -275,8 +279,8 @@
     (->> processes
          (map #(h/task reads (str :rr-mono %) [] (rr-mono-order reads %)))
          (map deref)
-         (reduce g/named-graph-union (g/linear (g/named-graph :rr-mono (g/op-digraph))))
-         g/forked)))
+         (reduce g/digraph-union (b/linear (g/op-digraph)))
+         b/forked)))
 
 (defrecord RR-Mono-Explainer []
   ec/DataExplainer
@@ -312,13 +316,13 @@
                                                         (let [last-seen-add (->> seen-by-p
                                                                                  (apply max)
                                                                                  (get add-by-value))]
-                                                          (g/link g last-seen-add op))
+                                                          (g/link g last-seen-add op) rels/ww)
                                                         g)))
                                                   g))
                                      seen])))
-                           [(g/linear (g/named-graph :ww-wfr (g/op-digraph))) 
+                           [(b/linear (g/op-digraph))
                             #{}]))]
-    (g/forked g)))
+    (b/forked g)))
 
 (defn ww-wfr-graph
   "Combined graph of each process's writes-follow-reads graph."
@@ -326,8 +330,8 @@
   (->> processes
        (map #(h/task history (str :ww-wfr %) [] (ww-wfr-order history % processes [adds-by-process add-by-value])))
        (map deref)
-       (reduce g/named-graph-union (g/linear (g/named-graph :ww-wfr (g/op-digraph))))
-       g/forked))
+       (reduce g/digraph-union (b/linear (g/op-digraph)))
+       b/forked))
 
 (defrecord WW-WFR-Explainer []
   ec/DataExplainer
@@ -355,8 +359,8 @@
         rw-anti-graph   (h/task history rw-anti-graph [analyzed-adds analyze-adds] (rw-anti-graph history analyzed-adds))]
 
     {:graph     (->> [@rr-mono-graph @rw-anti-graph @ww-wfr-graph @wr-causal-graph]
-                     (reduce g/rel-graph-union (g/rel-graph-union))
-                     g/forked)
+                     (reduce g/digraph-union (b/linear (g/op-digraph)))
+                     b/forked)
      :explainer (ec/->CombinedExplainer [(RR-Mono-Explainer.) (WW-WFR-Explainer.) (WR-Causal-Explainer.) (RW-Anti-Explainer.)])}))
 
 (defn causal-check
@@ -370,4 +374,4 @@
        (h/client-ops)
        (h/oks)
        (ec/check {:analyzer (ec/combine causal-combined-analyzers ec/process-graph)
-                     :directory "./target/out"})))
+                  :directory "./target/out"})))
