@@ -34,3 +34,8 @@
     (is (not (:valid? (rw/check lww/causal-opts lww/internal-anomaly))))
     ; show that :internal is needed
     (is (:valid? (rw/check (dissoc lww/causal-opts :anomalies) lww/internal-anomaly)))))
+
+(deftest lww
+  (testing "lww"
+    (is (:valid? (rw/check lww/causal-opts lww/lww-ok)))
+    (is (not (:valid? (rw/check lww/causal-opts lww/lww-anomaly))))))

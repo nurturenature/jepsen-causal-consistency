@@ -3,14 +3,18 @@
    Writes are assumed to be unique, but this is the only constraint.
    See jepsen.tests.cycle.wr and elle.rw-register for docs."
   (:refer-clojure :exclude [test])
-  (:require [clojure.pprint :refer [pprint]]
-            [clojure.set :as set]
-            [elle.consistency-model :as cm]
-            [elle.core :as ec]
-            [elle.rw-register :as rw]
-            [elle.txn :as et]
-            [jepsen.history :as h]
-            [jepsen.txn :as txn]))
+  (:require [clojure
+             [pprint :refer [pprint]]
+             [set :as set]]
+            [elle
+             [consistency-model :as cm]
+             [core :as ec]
+             [graph :as g]
+             [rw-register :as rw]
+             [txn :as et]]
+            [jepsen
+             [history :as h]
+             [txn :as txn]]))
 
 (defn lww-realtime-graph
   "The target systems to be tested claim last write == realtime, they do not claim full realtime causal,
@@ -21,12 +25,19 @@
      - CC3 Time doesn’t travel backward. For any operations u, v: u.endT ime < v.startT ime ⇒ v 6 ≺G u
    _Consistency, Availability, and Convergence (UTCS TR-11-22)_"
   [history]
-  (->> history
-       (h/filter #(->> %
-                       :value
-                       txn/ext-writes
-                       seq))
-       (ec/realtime-graph)))
+  (let [ext-write-index (rw/ext-index txn/ext-writes history)
+        graph (->> ext-write-index
+                   (map (fn [[_k vs]]
+                          (let [history' (->> vs vals (apply concat) distinct
+                                              (mapcat (fn [op]
+                                                        [(h/invocation history op) op]))
+                                              (sort-by :index)
+                                              h/history)
+                                graph (ec/realtime-graph history')]
+                            (:graph graph))))
+                   (apply g/digraph-union))]
+    {:graph     graph
+     :explainer (ec/->RealtimeExplainer history)}))
 
 (def causal-opts
   "Opts to configure Elle for causal consistency."
@@ -38,7 +49,7 @@
    :anomalies [:internal]                   ; think Adya requires? add to cm/consistency-models?
    :sequential-keys? true                   ; elle/process-graph
    :wfr-keys? true                          ; rw/wfr-version-graph
-   ; TODO: :additional-graphs [lww-realtime-graph]  ; writes are realtime for lww
+   :additional-graphs [lww-realtime-graph]  ; writes are realtime per key for lww
    })
 
 (defn test
@@ -199,16 +210,46 @@
        h/history))
 
 (def internal-ok
-  (->> (->> [[0 "wx0"]
-             [0 "wx1wx2rx2"]]
-            (mapcat #(apply op-pair %))
-            h/history)
+  (->> [[0 "wx0"]
+        [0 "wx1wx2rx2"]]
+       (mapcat #(apply op-pair %))
        h/history))
 
 ; {:internal ({:op {:index 3, :time -1, :type :ok, :process 0, :f :txn, :value [[:w :x 1] [:w :x 2] [:r :x 1]]}, :mop [:r :x 1], :expected 2})}
 (def internal-anomaly
-  (->> (->> [[0 "wx0"]
-             [0 "wx1wx2rx1"]]
-            (mapcat #(apply op-pair %))
-            h/history)
+  (->> [[0 "wx0"]
+        [0 "wx1wx2rx1"]]
+       (mapcat #(apply op-pair %))
        h/history))
+
+(def lww-ok
+  (let [[p0-wx0 p0-wx0'] (op-pair 0 "wx0")
+        [p1-wx1 p1-wx1'] (op-pair 1 "wx1")
+        [p0-rx0 p0-rx0'] (op-pair 0 "rx0")
+        [p1-rx1 p1-rx1'] (op-pair 1 "rx1")]
+    (->> [p0-wx0
+          p1-wx1
+          p0-wx0'
+          p1-wx1'
+          p0-rx0
+          p0-rx0'
+          p1-rx1
+          p1-rx1']
+         h/history)))
+
+(def lww-anomaly
+  (let [[p0-wx0 p0-wx0'] (op-pair 0 "wx0")
+        [p1-wx1 p1-wx1'] (op-pair 1 "wx1")
+        [p0-rx0 p0-rx0'] (op-pair 0 "rx0")
+        [p0-rx1 p0-rx1'] (op-pair 0 "rx1")
+        [p1-rx0 p1-rx0'] (op-pair 1 "rx0")
+        [p1-rx1 p1-rx1'] (op-pair 1 "rx1")]
+    (->> [p0-wx0
+          p1-wx1
+          p0-wx0'
+          p1-wx1'
+          p0-rx1
+          p0-rx1'
+          p1-rx0
+          p1-rx0']
+         h/history)))
