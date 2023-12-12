@@ -3,18 +3,93 @@
    Writes are assumed to be unique, but this is the only constraint.
    See jepsen.tests.cycle.wr and elle.rw-register for docs."
   (:refer-clojure :exclude [test])
-  (:require [clojure
+  (:require [bifurcan-clj
+             [core :as b]
+             [graph :as bg]
+             [set :as bs]]
+            [clojure
              [pprint :refer [pprint]]
              [set :as set]]
             [elle
              [consistency-model :as cm]
              [core :as ec]
              [graph :as g]
+             [rels :as rels]
              [rw-register :as rw]
-             [txn :as et]]
+             [txn :as et]
+             [util :as eu]]
             [jepsen
              [history :as h]
-             [txn :as txn]]))
+             [txn :as txn]]
+            [slingshot.slingshot :refer [try+ throw+]]))
+
+(defrecord WFRExplainer [graph]
+  ec/DataExplainer
+  (explain-pair-data [_ a b]
+    (when-let [rels  (try+ (bg/edge graph a b)
+                           (catch [] _ nil))]
+      {:type :wfr
+       :rels rels
+       :w's  (txn/ext-writes (:value a))
+       :w's' (txn/ext-writes (:value b))}))
+
+  (render-explanation [_ {:keys [rels]} a-name b-name]
+    (str a-name " < " b-name ", " (pr-str rels) ", due to writes following reads")))
+
+(defn wfr-order
+  "Given a history and a process ID, constructs a partial order graph based on
+  writes follow reads."
+  [history ext-write-index ext-read-index process]
+  (let [[g _observed-vers]
+        (->> history
+             (h/filter (comp #{process} :process))
+             (reduce (fn [[g observed-vers] {:keys [value] :as op}]
+                       (let [writes (txn/ext-writes value)
+                             reads  (txn/ext-reads value)
+                             observed-vers (merge observed-vers reads)]
+                         (if (not (seq writes))
+                           [g observed-vers]
+                           (let [observed-writes (->> observed-vers
+                                                      (mapcat (fn [[k v]]
+                                                                (get-in ext-write-index [k v])))
+                                                      distinct)
+                                 observed-reads  (->> observed-vers
+                                                      (mapcat (fn [[k v]]
+                                                                (get-in ext-read-index [k v])))
+                                                      distinct)
+                                 this-writes     (->> writes
+                                                      (mapcat (fn [[k v]]
+                                                                (get-in ext-write-index [k v])))
+                                                      distinct)
+                                 this-reads      (->> writes
+                                                      (mapcat (fn [[k v]]
+                                                                (get-in ext-read-index [k v])))
+                                                      distinct)
+                                 all-vals  (set (concat observed-writes observed-reads this-writes this-reads))]
+                             [(-> g
+                                  (g/link-all-to-all observed-writes this-writes  rels/ww)
+                                  (g/link-all-to-all observed-writes this-reads   rels/wr)
+                                  (g/link-all-to-all observed-reads  this-writes  rels/rw)
+                                  (g/remove-self-edges all-vals))
+                              observed-vers]))))
+                     [(b/linear (g/op-digraph)) {}]))]
+    (b/forked g)))
+
+(defn wfr-txn-graph
+  "Given a history, creates a graph with writes follow reads ordering, `ww`, for each process.
+   Similar to [[elle.rw_register/version-graphs->transaction-graph]] but creates edges across processes."
+  [history]
+  (let [history (->> history
+                     h/oks)
+        ext-read-index  (rw/ext-index txn/ext-reads  history)
+        ext-write-index (rw/ext-index txn/ext-writes history)
+        graph (->> history
+                   (h/map :process)
+                   distinct
+                   (map (partial wfr-order history ext-write-index ext-read-index))
+                   (apply g/digraph-union))]
+    {:graph     graph
+     :explainer (WFRExplainer. graph)}))
 
 (defn lww-realtime-graph
   "The target systems to be tested claim last write == realtime, they do not claim full realtime causal,
@@ -49,8 +124,10 @@
    :anomalies [:internal]                   ; think Adya requires? add to cm/consistency-models?
    :sequential-keys? true                   ; elle/process-graph
    :wfr-keys? true                          ; rw/wfr-version-graph
-   :additional-graphs [lww-realtime-graph]  ; writes are realtime per key for lww
-   })
+   :additional-graphs [wfr-txn-graph
+                       ec/process-graph
+                       lww-realtime-graph   ; writes are realtime per key for lww
+                       ]})
 
 (defn test
   "A partial test, including a generator and a checker.
@@ -139,14 +216,15 @@
 ; cannot catch
 (def causal-1-mop-anomaly
   (->> [[0 "wx0"]
-        [1 "rx0"]
-        [1 "wy1"]
-        [2 "ry1"]
-        [2 "rx_"]]
+        [0 "wx1"]
+        [1 "rx1"]
+        [1 "wy2"]
+        [2 "ry2"]
+        [2 "rx0"]]
        (mapcat #(apply op-pair %))
        h/history))
 
-; cannot catch
+; {:G-single-item [{:cycle [{:index 7, :time -1, :type :ok, :process 2, :f :txn, :value [[:r :y 1] [:r :x nil]]} {:index 1, :time -1, :type :ok, :process 0, :f :txn, :value [[:w :x 0]]} {:index 7, :time -1, :type :ok, :process 2, :f :txn, :value [[:r :y 1] [:r :x nil]]}], :steps ({:key :x, :value nil, :value' 0, :type :rw, :a-mop-index 1, :b-mop-index 0} {:type :wfr, :rels #object[elle.BitRels 0x4efbc171 "#{wr}"], :w's {:x 0}, :w's' {}}), :type :G-single-item}]}
 (def causal-2-mop-anomaly
   (->> [[0 "wx0"]
         [1 "rx0"]
@@ -198,6 +276,18 @@
         [1 "rx0"]
         [1 "wy1"]
         [2 "ry1rx0"]]
+       (mapcat #(apply op-pair %))
+       h/history))
+
+; cannot detect
+(def wfr-1-mop-anomaly
+  (->> [[0 "wx0"]
+        [0 "wx1"]
+        [1 "rx1"]
+        [1 "wx2"]
+        [1 "wy3"]
+        [2 "ry3"]
+        [2 "rx1"]]
        (mapcat #(apply op-pair %))
        h/history))
 

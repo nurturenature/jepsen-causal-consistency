@@ -9,8 +9,8 @@
 
     ; not possible to catch so expect valid
     (is (:valid? (rw/check lww/causal-opts lww/causal-1-mop-anomaly)))
-    (is (:valid? (rw/check lww/causal-opts lww/causal-2-mop-anomaly)))
 
+    (is (not (:valid? (rw/check lww/causal-opts lww/causal-2-mop-anomaly))))
     (is (not (:valid? (rw/check lww/causal-opts lww/causal-2-mops-anomaly))))))
 
 (deftest read-your-writes
@@ -26,7 +26,10 @@
 (deftest writes-follow-reads
   (testing "writes-follow-reads"
     (is (:valid? (rw/check lww/causal-opts lww/wfr-ok)))
-    (is (not (:valid? (rw/check lww/causal-opts lww/wfr-anomaly))))))
+    (is (not (:valid? (rw/check lww/causal-opts lww/wfr-anomaly))))
+
+    ; not possible to catch so expect valid
+    (is (:valid? (rw/check lww/causal-opts lww/wfr-1-mop-anomaly)))))
 
 (deftest internal
   (testing "internal"
