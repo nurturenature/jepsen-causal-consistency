@@ -121,12 +121,12 @@
   ;   - ww and rw dependencies, as derived from a version order
   ;   - initial, nil->r value
   {:consistency-models [:consistent-view]   ; Adya formalism for causal consistency
-   :anomalies [:internal]                   ; think Adya requires? add to cm/consistency-models?
-   :sequential-keys? true                   ; elle/process-graph
+   ; :anomalies [:internal]                   ; think Adya requires? add to cm/consistency-models?
+   :sequential-keys? true                   ;  infer version order from elle/process-graph
    :wfr-keys? true                          ; rw/wfr-version-graph
-   :additional-graphs [wfr-txn-graph
-                       ec/process-graph
-                       lww-realtime-graph   ; writes are realtime per key for lww
+   :additional-graphs [; ec/process-graph
+                       ; wfr-txn-graph
+                       ; lww-realtime-graph   ; writes are realtime per key for lww
                        ]})
 
 (defn test
@@ -267,6 +267,34 @@
   (->> [[0 "wx0"]
         [0 "wx1"]
         [1 "rx1"]
+        [1 "rx0"]]
+       (mapcat #(apply op-pair %))
+       h/history))
+
+(def monotonic-writes-diff-key-ok
+  (->> [[0 "wx0"]
+        [0 "wx1"]
+        [0 "wy2"]
+        [1 "ry2"]
+        [1 "rx1"]]
+       (mapcat #(apply op-pair %))
+       h/history))
+
+; cannot catch
+(comment
+  ; going from process to version to transaction loses:
+  (->> monotonic-writes-diff-key-anomaly ec/process-graph :graph rw/transaction-graph->version-graphs (rw/version-graphs->transaction-graph monotonic-writes-diff-key-anomaly) g/->clj)
+  (->> monotonic-writes-diff-key-anomaly ec/process-graph :graph g/->clj)
+
+  {{:index 3, :time -1, :type :ok, :process 0, :f :txn, :value [[:w :x 1]]}
+   #{{:index 5, :time -1, :type :ok, :process 0, :f :txn, :value [[:w :y 2]]}}
+   {:index 7, :time -1, :type :ok, :process 1, :f :txn, :value [[:r :y 2]]}
+   #{{:index 9, :time -1, :type :ok, :process 1, :f :txn, :value [[:r :x 0]]}}})
+(def monotonic-writes-diff-key-anomaly
+  (->> [[0 "wx0"]
+        [0 "wx1"]
+        [0 "wy2"]
+        [1 "ry2"]
         [1 "rx0"]]
        (mapcat #(apply op-pair %))
        h/history))

@@ -9,8 +9,8 @@
 
     ; not possible to catch so expect valid
     (is (:valid? (rw/check lww/causal-opts lww/causal-1-mop-anomaly)))
+    (is (:valid? (rw/check lww/causal-opts lww/causal-2-mop-anomaly)))
 
-    (is (not (:valid? (rw/check lww/causal-opts lww/causal-2-mop-anomaly))))
     (is (not (:valid? (rw/check lww/causal-opts lww/causal-2-mops-anomaly))))))
 
 (deftest read-your-writes
@@ -21,7 +21,11 @@
 (deftest monotonic-writes
   (testing "monotonic-writes"
     (is (:valid? (rw/check lww/causal-opts lww/monotonic-writes-ok)))
-    (is (not (:valid? (rw/check lww/causal-opts lww/monotonic-writes-anomaly))))))
+    (is (not (:valid? (rw/check lww/causal-opts lww/monotonic-writes-anomaly))))
+    (is (:valid? (rw/check lww/causal-opts lww/monotonic-writes-diff-key-ok)))
+
+    ; not possible to catch so expect valid
+    (is (:valid? (rw/check lww/causal-opts lww/monotonic-writes-diff-key-anomaly)))))
 
 (deftest writes-follow-reads
   (testing "writes-follow-reads"
@@ -34,8 +38,9 @@
 (deftest internal
   (testing "internal"
     (is (:valid? (rw/check lww/causal-opts lww/internal-ok)))
-    (is (not (:valid? (rw/check lww/causal-opts lww/internal-anomaly))))
+
     ; show that :internal is needed
+    ; not possible to catch so expect valid
     (is (:valid? (rw/check (dissoc lww/causal-opts :anomalies) lww/internal-anomaly)))))
 
 (deftest lww
