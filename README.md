@@ -1,2 +1,5 @@
 # crdt-jepsen
-CRDT Tests for Jepsen.
+
+**Experimental** Jepsen tests for causal consistency.
+
+Designed for testing CRDTs.
