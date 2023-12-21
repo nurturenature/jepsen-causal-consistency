@@ -14,6 +14,7 @@
              [consistency-model :as cm]
              [core :as ec]
              [graph :as g]
+             [list-append :as la]
              [rels :as rels]
              [rw-register :as rw]
              [txn :as et]
@@ -23,7 +24,27 @@
              [txn :as txn]]
             [slingshot.slingshot :refer [try+ throw+]]))
 
-(defrecord WFRTxnExplainer [graph]
+(defn ww+wr-version-links
+  "v < v'
+   v <ww v'
+   v <rw v'"
+  [g v v' ext-read-index ext-write-index]
+  (let [v-writes  (->> v
+                       (mapcat (partial get-in ext-write-index))
+                       (into #{}))
+        v-reads   (->> v
+                       (mapcat (partial get-in ext-read-index))
+                       (into #{}))
+        v'-writes (->> v'
+                       (mapcat (partial get-in ext-write-index))
+                       (into #{}))
+        all-ops   (set/union v-writes v-reads v'-writes)]
+    (-> g
+        (g/link-all-to-all v-writes v'-writes rels/ww)
+        (g/link-all-to-all v-reads  v'-writes rels/rw)
+        (g/remove-self-edges all-ops))))
+
+(defrecord WFRMRExplainer [graph]
   ec/DataExplainer
   (explain-pair-data [_ a b]
     (when (try+ (bg/edge graph a b)
@@ -35,34 +56,31 @@
   (render-explanation [_ {:keys [w w']} a-name b-name]
     (str a-name "'s write(s) of " w " were read by " b-name " before its write(s) of " w')))
 
-(defn wfr-txn-order
+(defn wfr+mr-order
   "Given a history and a process ID, constructs a partial order graph based on
-   writes follow reads:
-   
-     - write ops of versions previously read by the process <ww this write op in the process"
+   writes follow reads and monotonic writes."
   [history process]
   (let [ext-write-index (rw/ext-index txn/ext-writes history)
-        [g _observed-vers]
+        ext-read-index  (rw/ext-index txn/ext-reads  history)
+        [g _observed-vers _written-vers]
         (->> history
              (h/filter (comp #{process} :process))
-             (reduce (fn [[g observed-vers] {:keys [value] :as op}]
+             (reduce (fn [[g observed-vers written-vers] {:keys [value] :as op}]
                        (let [writes (txn/ext-writes value)
                              reads  (txn/ext-reads  value)
-                             observed-vers (merge observed-vers reads)]
+                             observed-vers' (merge observed-vers reads)
+                             written-vers'  (merge written-vers writes)]
 
                          (if (seq writes)
-                           (let [observed-writes (->> observed-vers
-                                                      (mapcat (fn [[k v]]
-                                                                (get-in ext-write-index [k v])))
-                                                      (into #{}))
-                                 observed-writes (disj observed-writes op)]
-                             [(g/link-all-to g observed-writes op rels/ww)
-                              observed-vers])
-                           [g observed-vers])))
-                     [(b/linear (g/op-digraph)) {}]))]
+                           [(-> g
+                                (ww+wr-version-links observed-vers writes ext-read-index ext-write-index)  ; writes follow reads
+                                (ww+wr-version-links written-vers  writes ext-read-index ext-write-index)) ; monotonic writes
+                            observed-vers' written-vers']
+                           [g observed-vers' written-vers'])))
+                     [(b/linear (g/op-digraph)) {} {}]))]
     (b/forked g)))
 
-(defn wfr-txn-graph
+(defn wfr+mr-graph
   "Given a history, creates a <ww partial order graph with writes follow reads ordering.
    WFR is per process."
   [history]
@@ -71,10 +89,10 @@
         graph (->> history
                    (h/map :process)
                    distinct
-                   (map (partial wfr-txn-order history))
+                   (map (partial wfr+mr-order history))
                    (apply g/digraph-union))]
     {:graph     graph
-     :explainer (WFRTxnExplainer. graph)}))
+     :explainer (WFRMRExplainer. graph)}))
 
 (defn lww-realtime-graph
   "The target systems to be tested claim last write == realtime, they do not claim full realtime causal,
@@ -106,13 +124,15 @@
   ;   - w->r
   ;   - ww and rw dependencies, as derived from a version order
   {:consistency-models [:consistent-view]   ; Adya formalism for causal consistency
-   :anomalies [:internal                    ; think Adya requires? add to cm/consistency-models?
-               :G-single-process]           ; Elle'ism for G-Monotonic
+   :anomalies [:internal                    ; basic hygiene
+               :G1-process                  ; causal consistency requires process order, so...
+               :G-single-process]           ; as process edges count, -process variants count
    :sequential-keys? true                   ; infer version order from elle/process-graph
    :wfr-keys? true                          ; rw/wfr-version-graph within txns
-   :x-additional-graphs [wfr-txn-graph      ; ww txns for wfr within a process
-                         lww-realtime-graph ; writes are realtime per key for lww
-                         ]})
+   :additional-graphs [wfr+mr-graph         ; ww wfr txn ordering, all txns including disjoint keys
+                       ec/process-graph     ; causal consistency uses process order
+                       ; TODO: LWW
+                       ]})
 
 (defn test
   "A partial test, including a generator and a checker.
@@ -325,3 +345,24 @@
           p1-rx0
           p1-rx0']
          h/history)))
+
+(def g-monotonic-anomaly
+  "Adya Weak Consistency 4.2.2
+   Hnon2L : w1 (x 1) w1 (y 1) c1 w2 (y 2) w2 (x 2) w2 (z 2) r3 (x 2) w3 (z 3) r3 (y 1) c2 c3
+   [x 1 << x 2 , y 1 << y 2 , z 2 << z 3]"
+  (->> [{:process 1 :type :invoke :value [[:w :x 1] [:w :y 1]] :f :txn}
+        {:process 1 :type :ok     :value [[:w :x 1] [:w :y 1]] :f :txn}
+        {:process 2 :type :invoke :value [[:w :y 2] [:w :x 2] [:w :z 2]] :f :txn}
+        {:process 3 :type :invoke :value [[:r :x nil] [:w :z 3] [:r :y nil]] :f :txn}
+        {:process 2 :type :ok     :value [[:w :y 2] [:w :x 2] [:w :z 2]] :f :txn}
+        {:process 3 :type :ok     :value [[:r :x 2] [:w :z 3] [:r :y 1]] :f :txn}]
+       h/history))
+
+(def g-monotonic-list-append-anomaly
+  (->> [{:process 1 :type :invoke :value [[:append :x 1] [:append :y 1]] :f :txn}
+        {:process 1 :type :ok     :value [[:append :x 1] [:append :y 1]] :f :txn}
+        {:process 2 :type :invoke :value [[:append :y 2] [:append :x 2] [:append :z 2]] :f :txn}
+        {:process 3 :type :invoke :value [[:r :x nil] [:append :z 3] [:r :y nil]] :f :txn}
+        {:process 2 :type :ok     :value [[:append :y 2] [:append :x 2] [:append :z 2]] :f :txn}
+        {:process 3 :type :ok     :value [[:r :x [1,2]] [:append :z 3] [:r :y [1]]] :f :txn}]
+       h/history))
