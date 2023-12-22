@@ -123,14 +123,11 @@
   ;   - initial nil -> all versions for all keys
   ;   - w->r
   ;   - ww and rw dependencies, as derived from a version order
-  {:consistency-models [:consistent-view]   ; Adya formalism for causal consistency
-   :anomalies [:internal                    ; basic hygiene
-               :G1-process                  ; causal consistency requires process order, so...
-               :G-single-process]           ; as process edges count, -process variants count
-   :sequential-keys? true                   ; infer version order from elle/process-graph
-   :wfr-keys? true                          ; rw/wfr-version-graph within txns
-   :additional-graphs [wfr+mr-graph         ; ww wfr txn ordering, all txns including disjoint keys
-                       ec/process-graph     ; causal consistency uses process order
+  {:consistency-models [:strong-session-consistent-view] ; Elle's strong-session with Adya's formalism for causal consistency
+   :anomalies [:internal]                                ; basic hygiene
+   :sequential-keys? true                                ; infer version order from elle/process-graph
+   :wfr-keys? true                                       ; rw/wfr-version-graph within txns
+   :additional-graphs [wfr+mr-graph                      ; wfr+mr txn ordering, all txns including disjoint keys
                        ; TODO: LWW
                        ]})
 
