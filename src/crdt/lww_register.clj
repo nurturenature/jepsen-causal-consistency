@@ -10,6 +10,7 @@
             [clojure
              [pprint :refer [pprint]]
              [set :as set]]
+            [clojure.tools.logging :refer [info]]
             [elle
              [consistency-model :as cm]
              [core :as ec]
@@ -29,7 +30,21 @@
    v <ww v'
    v <rw v'"
   [g v v' ext-read-index ext-write-index]
-  (let [v-writes  (->> v
+  (let [v (->> v
+               (reduce-kv (fn [acc k vs]
+                            (reduce (fn [acc v]
+                                      (conj acc [k v]))
+                                    acc
+                                    vs))
+                          []))
+        v' (->> v'
+                (reduce-kv (fn [acc k vs]
+                             (reduce (fn [acc v]
+                                       (conj acc [k v]))
+                                     acc
+                                     vs))
+                           []))
+        v-writes  (->> v
                        (mapcat (partial get-in ext-write-index))
                        (into #{}))
         v-reads   (->> v
@@ -62,21 +77,28 @@
   [history process]
   (let [ext-write-index (rw/ext-index txn/ext-writes history)
         ext-read-index  (rw/ext-index txn/ext-reads  history)
-        [g _observed-vers _written-vers]
+        [g _observed-vers _linked-vers]
         (->> history
              (h/filter (comp #{process} :process))
-             (reduce (fn [[g observed-vers written-vers] {:keys [value] :as op}]
-                       (let [writes (txn/ext-writes value)
-                             reads  (txn/ext-reads  value)
-                             observed-vers' (merge observed-vers reads)
-                             written-vers'  (merge written-vers writes)]
+             (reduce (fn [[g observed-vers linked-vers] {:keys [value] :as _op}]
+                       (let [this-writes (->> (txn/ext-writes value)
+                                              (map (fn [[k v]]
+                                                     {k #{v}}))
+                                              (into {}))
+                             this-reads  (->> (txn/ext-reads value)
+                                              (map (fn [[k v]]
+                                                     {k #{v}}))
+                                              (into {}))
+                             observed-vers' (merge-with set/union observed-vers this-reads this-writes)]
 
-                         (if (seq writes)
-                           [(-> g
-                                (ww+wr-version-links observed-vers writes ext-read-index ext-write-index)  ; writes follow reads
-                                (ww+wr-version-links written-vers  writes ext-read-index ext-write-index)) ; monotonic writes
-                            observed-vers' written-vers']
-                           [g observed-vers' written-vers'])))
+                         (if (seq this-writes)
+                           (let [new-vers (reduce-kv (fn [acc k v]
+                                                       (update acc k set/difference v))
+                                                     observed-vers
+                                                     linked-vers)]
+                             [(ww+wr-version-links g new-vers this-writes ext-read-index ext-write-index)
+                              observed-vers' (merge-with set/union linked-vers new-vers)])
+                           [g observed-vers' linked-vers])))
                      [(b/linear (g/op-digraph)) {} {}]))]
     (b/forked g)))
 
