@@ -1,6 +1,6 @@
-# crdt-jepsen
+# jepsen-causal-consistency
 
-### **Experimental** Jepsen tests for causal consistency.
+### Jepsen tests for causal consistency.
 
 Designed for testing CRDTs.
 
@@ -37,15 +37,19 @@ Last Write Wins
 
 ### Current Status
 
-Working on extending the latest [MySQL/MariaDB](https://github.com/jepsen-io/mysql) to include:
-  - rw_register workload
-  - use modified Elle to test for strong-session-consistent-view
-  - update to LWW
+Working on a LWW Register test using [ElectricSQL](https://electric-sql.com/).
 
 ----
 
-Elle Consistency Model Graph Changes:
+### Elle Consistency Model Graph Changes
+
+Look for `strong-session-consistent-view`:
+
+![New Elle Model Graph](doc/models.png)
+
 ```clj
+; changes to consistency-models
+
 {:strong-session-monotonic-view  [:monotonic-view  :strong-session-PL-2]
  :strong-session-consistent-view [:consistent-view :strong-session-monotonic-view]
 

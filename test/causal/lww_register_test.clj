@@ -1,6 +1,6 @@
-(ns crdt.lww-register-test
+(ns causal.lww-register-test
   (:require [clojure.test :refer :all]
-            [crdt.lww-register :as lww]
+            [causal.lww-register :as lww]
             [elle.rw-register :as rw]))
 
 (deftest causal

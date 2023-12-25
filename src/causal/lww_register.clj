@@ -1,4 +1,4 @@
-(ns crdt.lww-register
+(ns causal.lww-register
   "A test which looks for cycles in write/read transactions.
    Writes are assumed to be unique, but this is the only constraint.
    See jepsen.tests.cycle.wr and elle.rw-register for docs."
