@@ -23,6 +23,7 @@
             [jepsen
              [history :as h]
              [txn :as txn]]
+            [jepsen.tests.cycle.wr :as wr]
             [slingshot.slingshot :refer [try+ throw+]]))
 
 (defn ww+wr-version-links
@@ -180,6 +181,18 @@
                      causal-opts)]
      {:generator (rw/gen opts)
       :checker   (rw/check opts)}))) ; TODO: real checker
+
+(defn workload
+  "A list append workload."
+  [opts]
+  (-> (wr/test (assoc (select-keys opts [:key-count
+                                         :max-txn-length
+                                         :max-writes-per-key])
+                      :min-txn-length 1
+                      :consistency-models [(:expected-consistency-model opts)]))
+      ; (assoc :client (Client. nil nil nil))
+      ; (update :generator ro-gen)
+      ))
 
 (defn op
   "Generates an operation from a string language like so:
