@@ -1,11 +1,14 @@
 (ns causal.cli
   "Command-line entry point for MySQL tests."
   (:require [causal
+             [electricsql :as electric]
              [lww-register :as lww]
              [postgresql :as pg]]
             [clojure [string :as str]]
             [clojure.tools.logging :refer [info warn]]
-            [jepsen [checker :as checker]
+            [elle.consistency-model :as cm]
+            [jepsen
+             [checker :as checker]
              [cli :as cli]
              [control :as c]
              [db :as db]
@@ -21,8 +24,8 @@
 (def db-types
   "A map of DB names to functions that take CLI options and return Jepsen DB
   instances."
-  {:none       db/noop
-   :postgresql db/noop})
+  {:none        db/noop
+   :electricsql db/noop})
 
 (def workloads
   "A map of workload names to functions that take CLI options and return
@@ -51,15 +54,6 @@
        (map keyword)
        (mapcat #(get special-nemeses % [%]))))
 
-(def short-isolation
-  {:strict-serializable "Strict-1SR"
-   :serializable        "S"
-   :strong-snapshot-isolation "Strong-SI"
-   :snapshot-isolation  "SI"
-   :repeatable-read     "RR"
-   :read-committed      "RC"
-   :read-uncommitted    "RU"})
-
 (defn causal-test
   "Given options from the CLI, constructs a test map."
   [opts]
@@ -87,9 +81,7 @@
            {:name (str (name (:db opts))
                        " " (name workload-name)
                        (when (:lazyfs opts) " lazyfs")
-                       " binlog=" (name (:binlog-format opts))
-                       " " (short-isolation (:isolation opts)) "("
-                       (short-isolation (:expected-consistency-model opts)) ") "
+                       " "  (name (:consistency-model opts))
                        (str/join "," (map name (:nemesis opts))))
             :ssh ssh
             :os os
@@ -111,49 +103,28 @@
 
 (def cli-opts
   "Command line options"
-  [[nil "--binlog-format FORMAT" "What binlog format should we use?"
-    :default :mixed
-    :parse-fn keyword
-    :validate [#{:mixed :statement :row} "must be statement, mixed, or row"]]
-
-   ["-d" "--db TYPE" "Maria, mysql, or none (for testing an extant cluster)."
-    :default :maria
+  [["-d" "--db TYPE" "electricsql or none"
+    :default :electricsql
     :parse-fn keyword
     :validate [db-types (cli/one-of (keys db-types))]]
 
-   ["-i" "--isolation LEVEL" "What level of isolation we should set: serializable, repeatable-read, etc."
-    :default :serializable
+   [nil "--consistency-model MODEL" "What consistency model to check for."
+    :default :strong-session-consistent-view
     :parse-fn keyword
-    :validate [#{:read-uncommitted
-                 :read-committed
-                 :repeatable-read
-                 :serializable}
-               "Should be one of read-uncommitted, read-committed, repeatable-read, or serializable"]]
-
-   [nil "--expected-consistency-model MODEL" "What level of isolation do we *expect* to observe? Defaults to the same as --isolation."
-    :default nil
-    :parse-fn keyword]
-
-   [nil "--innodb-flush-log-at-trx-commit SETTING" "0 for write+flush n seconds, 1 for every txn commit, 2 for write at commit, flush every ns econds."
-    :default 1
-    :parse-fn parse-long]
-
-   [nil "--insert-only" "If set, tells certain workloads (e.g. closed-predicate) to perform only inserts."
-    :id :insert-only?]
+    :validate [cm/all-models
+               (str "Should be one of " cm/all-models)]]
 
    [nil "--key-count NUM" "Number of keys in active rotation."
     :default  10
     :parse-fn parse-long
     :validate [pos? "Must be a positive integer"]]
 
-   [nil "--lazyfs" "If set, mounts MySQL in a lazy filesystem that loses un-fsyned writes on nemesis kills."]
-
-   ["-l" "--log-sql" "If set, logs selected SQL statements to the console to aid in debugging"]
+   [nil "--lazyfs" "If set, mounts ElectricSQL in a lazy filesystem that loses un-fsyned writes on nemesis kills."]
 
    [nil "--nemesis FAULTS" "A comma-separated list of nemesis faults to enable"
     :parse-fn parse-nemesis-spec
     :validate [(partial every? #{:pause :kill :partition :clock})
-               "Faults must be pause, kill, partition, clock, or member, or the special faults all or none."]]
+               "Faults must be pause, kill, partition, or clock, or the special faults all or none."]]
 
    [nil "--max-txn-length NUM" "Maximum number of operations in a transaction."
     :default  4
@@ -170,25 +141,13 @@
     :parse-fn read-string
     :validate [pos? "Must be a positive number."]]
 
-   [nil "--prepare-threshold INT" "Passes a prepareThreshold option to the JDBC spec."
-    :parse-fn parse-long]
-
    ["-r" "--rate HZ" "Approximate request rate, in hz"
     :default 100
     :parse-fn read-string
     :validate [pos? "Must be a positive number."]]
 
-   [nil "--replica-preserve-commit-order MODE" "Either on or off"
-    :default "ON"
-    :parse-fn #(.toUpperCase %)
-    :validate [#{"ON" "OFF"} "Must be `on` or `off`"]]
-
-   [nil "--repro-112446" "For the closed-predicate workload, uses a generator more likely to generate compact reproductions of MySQL bug 112446: fractured reads at serializable."]
-
-   ["-v" "--version STRING" "What version of Stolon should we test?"
-    :default "0.16.0"]
-
    ["-w" "--workload NAME" "What workload should we run?"
+    :default  :lww-register
     :parse-fn keyword
     :missing  (str "Must specify a workload: " (cli/one-of workloads))
     :validate [workloads (cli/one-of workloads)]]])
@@ -204,13 +163,12 @@
 (defn opt-fn
   "Transforms CLI options before execution."
   [parsed]
-  (update-in parsed [:options :expected-consistency-model]
-             #(or % (get-in parsed [:options :isolation]))))
+  (assoc-in parsed [:options :consistency-models] [(get-in parsed [:options :consistency-model])]))
 
 (defn -main
   "CLI.
    
-   `lein run --help` for options."
+   `lein run` to list commands."
   [& args]
   (cli/run! (merge (cli/single-test-cmd {:test-fn  causal-test
                                          :opt-spec cli-opts
@@ -219,5 +177,6 @@
                                       :opt-spec cli-opts
                                       :opt-fn   opt-fn})
                    (cli/serve-cmd)
-                   pg/command)
+                   pg/command
+                   electric/command)
             args))

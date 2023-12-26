@@ -3,7 +3,8 @@
   (:require [clojure.tools.logging :refer [info]]
             [jepsen
              [control :as c]
-             [util :as u]]))
+             [util :as u]]
+            [jepsen.os.debian :as deb]))
 
 (def version
   "Version of PostgreSQL to install."
@@ -21,9 +22,21 @@
   "Name of host machine for PostgreSQL."
   "postgresql")
 
-(def electric-password
-  "`electric` role password"
+(def electric-user
+  "`electric` user."
   "electric")
+
+(def electric-password
+  "`electric` role password."
+  "electric")
+
+(def pg-proxy-password
+  "PostgreSQL proxy password."
+  :TODO)
+
+(def database-url
+  "PostgreSQL connection URI."
+  (str "postgresql://" electric-user ":" electric-password "@" host "/electric"))
 
 (def opt-spec
   "Specifies CLI options."
@@ -45,13 +58,11 @@
   (c/on host
         (c/su
          ; dependencies
-         (c/exec "DEBIAN_FRONTEND='noninteractive'"
-                 :apt :-qy :install :lsb-release :curl :gpg)
+         (deb/install [:lsb-release :curl :gpg])
 
          ; stop and cleanup any existing
          (u/meh (c/exec :systemctl :stop service)
-                (c/exec "DEBIAN_FRONTEND='noninteractive'"
-                        :apt :remove :-qy :--purge package)
+                (deb/uninstall! [package])
                 (c/exec :rm :-rf
                         "/etc/apt/sources.list.d/pgdg.list"
                         "/etc/apt/trusted.gpg.d/postgresql.gpg"
@@ -64,10 +75,8 @@
                  :> "/etc/apt/sources.list.d/pgdg.list")
          (c/exec :curl :-fsSL "https://www.postgresql.org/media/keys/ACCC4CF8.asc"
                  :| :gpg :--batch :--dearmor :-o "/etc/apt/trusted.gpg.d/postgresql.gpg")
-         (c/exec "DEBIAN_FRONTEND='noninteractive'"
-                 :apt :update)
-         (c/exec "DEBIAN_FRONTEND='noninteractive'"
-                 :apt :-qy :install package)
+         (deb/update!)
+         (deb/install [package])
 
          ; start
          (c/exec :systemctl :restart service)
