@@ -6,17 +6,13 @@
              [util :as u]]
             [jepsen.os.debian :as deb]))
 
-(def version
-  "Version of PostgreSQL to install."
-  "16")
-
 (def package
   "Package name in repository."
-  (str "postgresql-" version))
+  :postgresql)
 
 (def service
   "systemd service name."
-  (str "postgresql@" version "-main"))
+  "postgresql@16-main")
 
 (def host
   "Name of host machine for PostgreSQL."
@@ -52,29 +48,26 @@
 
 (defn run-fn
   "Body of command."
-  [opts]
-  (info (pr-str opts))
+  [_opts]
   (info "Installing PostgreSQL on " host)
   (c/on host
         (c/su
          ; dependencies
-         (deb/install [:lsb-release :curl :gpg])
+         (deb/install [:lsb-release :wget :gpg])
 
          ; stop and cleanup any existing
-         (u/meh (c/exec :systemctl :stop service)
-                (deb/uninstall! [package])
-                (c/exec :rm :-rf
-                        "/etc/apt/sources.list.d/pgdg.list"
-                        "/etc/apt/trusted.gpg.d/postgresql.gpg"
-                        "/var/lib/postgresql"
-                        "/var/log/postgresql"
-                        "/etc/postgresql"))
+         (u/meh
+          (c/exec :systemctl :stop service)
+          (deb/uninstall! [package])
+          (c/exec :rm :-rf
+                  "/var/lib/postgresql*"
+                  "/var/log/postgresql*"
+                  "/etc/postgresql*"))
 
-         ; add repository, key, and package
-         (c/exec :echo "deb http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main"
-                 :> "/etc/apt/sources.list.d/pgdg.list")
-         (c/exec :curl :-fsSL "https://www.postgresql.org/media/keys/ACCC4CF8.asc"
-                 :| :gpg :--batch :--dearmor :-o "/etc/apt/trusted.gpg.d/postgresql.gpg")
+         ; add key, repository, and package
+         (u/meh  ; key may already exist, if real failure, will fail in apt update
+          (c/exec :wget :--quiet :-O :- "https://www.postgresql.org/media/keys/ACCC4CF8.asc" :| :sudo :apt-key :add :-))
+         (deb/add-repo! :pgdg "deb https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main")
          (deb/update!)
          (deb/install [package])
 
@@ -85,8 +78,9 @@
          (c/exec :su :- :postgres :-c
                  "psql -U postgres -c 'ALTER SYSTEM SET wal_level = logical'")
          (c/exec :systemctl :restart service)
-         (c/exec :su :- :postgres :-c
-                 "psql -U postgres -c 'show wal_level'")
+         (info
+          (c/exec :su :- :postgres :-c
+                  "psql -U postgres -c 'show wal_level'"))
 
          ; create electric role
          (c/exec :su :- :postgres :-c
