@@ -16,8 +16,7 @@
              [util :as u]]
             [jepsen.checker.timeline :as timeline]
             [jepsen.nemesis.combined :as nc]
-            [jepsen.os.debian :as debian]
-            [jepsen.control :as c]))
+            [jepsen.os.debian :as debian]))
 
 (def db-types
   "A map of DB names to functions that take CLI options and return Jepsen DB
@@ -61,7 +60,7 @@
    :read-committed      "RC"
    :read-uncommitted    "RU"})
 
-(defn mysql-test
+(defn causal-test
   "Given options from the CLI, constructs a test map."
   [opts]
   (let [workload-name (:workload opts)
@@ -199,8 +198,8 @@
   [opts]
   (let [nemeses   (if-let [n (:nemesis opts)] [n] all-nemeses)
         workloads (if-let [w (:workload opts)] [w] all-workloads)]
-    (for [n nemeses, w workloads, i (range (:test-count opts))]
-      (mysql-test (assoc opts :nemesis n :workload w)))))
+    (for [n nemeses, w workloads, _i (range (:test-count opts))]
+      (causal-test (assoc opts :nemesis n :workload w)))))
 
 (defn opt-fn
   "Transforms CLI options before execution."
@@ -213,7 +212,7 @@
    
    `lein run --help` for options."
   [& args]
-  (cli/run! (merge (cli/single-test-cmd {:test-fn  mysql-test
+  (cli/run! (merge (cli/single-test-cmd {:test-fn  causal-test
                                          :opt-spec cli-opts
                                          :opt-fn   opt-fn})
                    (cli/test-all-cmd {:tests-fn all-tests

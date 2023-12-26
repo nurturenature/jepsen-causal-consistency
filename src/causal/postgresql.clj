@@ -1,14 +1,29 @@
 (ns causal.postgresql
-  "Install and configure PostgreSQL for ElectricSQL on node `postgress`."
+  "Install and configure PostgreSQL for ElectricSQL on node `postgresql`."
   (:require [clojure.tools.logging :refer [info]]
             [jepsen
              [control :as c]
-             [util :as u]]
-            [jepsen.util :as u]))
+             [util :as u]]))
+
+(def version
+  "Version of PostgreSQL to install."
+  "16")
+
+(def package
+  "Package name in repository."
+  (str "postgresql-" version))
+
+(def service
+  "systemd service name."
+  (str "postgresql@" version "-main"))
 
 (def host
   "Name of host machine for PostgreSQL."
   "postgresql")
+
+(def electric-password
+  "`electric` role password"
+  "electric")
 
 (def opt-spec
   "Specifies CLI options."
@@ -29,14 +44,20 @@
   (info "Installing PostgreSQL on " host)
   (c/on host
         (c/su
-         ; dependancies
+         ; dependencies
          (c/exec "DEBIAN_FRONTEND='noninteractive'"
                  :apt :-qy :install :lsb-release :curl :gpg)
 
          ; stop and cleanup any existing
-         (u/meh (c/exec :systemctl :stop "postgresql@15-main")
-                (c/exec :rm "/etc/apt/sources.list.d/pgdg.list"
-                        "/etc/apt/trusted.gpg.d/postgresql.gpg"))
+         (u/meh (c/exec :systemctl :stop service)
+                (c/exec "DEBIAN_FRONTEND='noninteractive'"
+                        :apt :remove :-qy :--purge package)
+                (c/exec :rm :-rf
+                        "/etc/apt/sources.list.d/pgdg.list"
+                        "/etc/apt/trusted.gpg.d/postgresql.gpg"
+                        "/var/lib/postgresql"
+                        "/var/log/postgresql"
+                        "/etc/postgresql"))
 
          ; add repository, key, and package
          (c/exec :echo "deb http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main"
@@ -46,10 +67,21 @@
          (c/exec "DEBIAN_FRONTEND='noninteractive'"
                  :apt :update)
          (c/exec "DEBIAN_FRONTEND='noninteractive'"
-                 :apt :-qy :install :postgresql-15)
+                 :apt :-qy :install package)
 
          ; start
-         (c/exec :systemctl :restart "postgresql@15-main"))
+         (c/exec :systemctl :restart service)
+
+         ; enable logical replication
+         (c/exec :su :- :postgres :-c
+                 "psql -U postgres -c 'ALTER SYSTEM SET wal_level = logical'")
+         (c/exec :systemctl :restart service)
+         (c/exec :su :- :postgres :-c
+                 "psql -U postgres -c 'show wal_level'")
+
+         ; create electric role
+         (c/exec :su :- :postgres :-c
+                 "psql -U postgres -c \"CREATE ROLE electric WITH LOGIN PASSWORD 'electric' SUPERUSER;\""))
         (info "Installed")))
 
 (def command
