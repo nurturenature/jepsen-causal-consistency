@@ -1,5 +1,5 @@
 (ns causal.cli
-  "Command-line entry point for MySQL tests."
+  "Command-line entry point for ElectricSQL tests."
   (:require [causal
              [electricsql :as electric]
              [lww-register :as lww]
