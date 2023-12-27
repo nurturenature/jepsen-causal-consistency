@@ -26,10 +26,6 @@
   "`electric` role password."
   "electric")
 
-(def pg-proxy-password
-  "PostgreSQL proxy password."
-  :TODO)
-
 (def database-url
   "PostgreSQL connection URI."
   (str "postgresql://" electric-user ":" electric-password "@" host "/electric"))

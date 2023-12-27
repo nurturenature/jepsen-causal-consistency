@@ -1,9 +1,9 @@
 (ns causal.cli
   "Command-line entry point for ElectricSQL tests."
   (:require [causal
-             [electricsql :as electric]
+             [electricsql :as electricsql]
              [lww-register :as lww]
-             [postgresql :as pg]]
+             [postgresql :as postgresql]]
             [clojure [string :as str]]
             [clojure.tools.logging :refer [info warn]]
             [elle.consistency-model :as cm]
@@ -177,6 +177,6 @@
                                       :opt-spec cli-opts
                                       :opt-fn   opt-fn})
                    (cli/serve-cmd)
-                   pg/command
-                   electric/command)
+                   postgresql/command
+                   electricsql/command)
             args))
