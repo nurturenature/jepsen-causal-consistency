@@ -13,6 +13,10 @@
   "Name of host machine for ElectricSQL."
   "electricsql")
 
+(def pg-proxy-port
+  "PostgreSQL proxy port."
+  :65432)
+
 (def pg-proxy-password
   "PostgreSQL proxy password."
   postgresql/electric-password)
@@ -97,12 +101,18 @@
                        :mix :release)
                (c/exec (c/env {:DATABASE_URL           postgresql/database-url
                                :LOGICAL_PUBLISHER_HOST host
+                               :PG_PROXY_PORT          pg-proxy-port
                                :PG_PROXY_PASSWORD      pg-proxy-password
                                :AUTH_MODE              :insecure})
                        (str install-dir "/components/electric/_build/prod/rel/electric/bin/electric") :daemon)
                (info "ElectricSQL pid: "
                      (c/exec (str install-dir "/components/electric/_build/prod/rel/electric/bin/electric") :pid))))
         (info "Installed")))
+
+;; TODO
+;; interact through proxy to create table, etc
+;; CREATE TABLE public.lww_registers (key integer PRIMARY KEY, value integer);
+;; ALTER TABLE lww_registers ENABLE ELECTRIC;
 
 (def command
   {"electricsql"

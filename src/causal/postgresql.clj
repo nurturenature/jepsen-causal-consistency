@@ -70,6 +70,13 @@
          ; start
          (c/exec :systemctl :restart service)
 
+         ; configure access
+         (c/exec :eco "listen_addresses = '*'"
+                 :>> "/etc/postgresql/16/main/postgresql.conf")
+         (c/exec :eco "host    all             electric        all                     scram-sha-256"
+                 :>> "/etc/postgresql/16/main/pg_hba.conf")
+
+
          ; enable logical replication
          (c/exec :su :- :postgres :-c
                  "psql -U postgres -c 'ALTER SYSTEM SET wal_level = logical'")
@@ -80,7 +87,16 @@
 
          ; create electric role
          (c/exec :su :- :postgres :-c
-                 "psql -U postgres -c \"CREATE ROLE electric WITH LOGIN PASSWORD 'electric' SUPERUSER;\""))
+                 "psql -U postgres -c \"CREATE ROLE electric WITH LOGIN PASSWORD 'electric' SUPERUSER;\"")
+
+         ; create database owned by electric
+         (c/exec :su :- :postgres :-c
+                 "createdb -O electric electric")
+
+         ;; TODO move to electricsql
+         ; create table
+         (c/exec :su :- :postgres :-c
+                 "psql -U postgres -c \"CREATE TABLE public.lww_registers (key integer PRIMARY KEY, value integer);\""))
         (info "Installed")))
 
 (def command
