@@ -3,15 +3,16 @@
   (:require [causal
              [electricsql :as electricsql]
              [lww-register :as lww]
-             [postgresql :as postgresql]]
+             [postgresql :as postgresql]
+             [sqlite3 :as sqlite3]]
             [clojure [string :as str]]
             [clojure.tools.logging :refer [info warn]]
             [elle.consistency-model :as cm]
             [jepsen
              [checker :as checker]
+             [client :as client]
              [cli :as cli]
              [control :as c]
-             [db :as db]
              [generator :as gen]
              [nemesis :as nemesis]
              [os :as os]
@@ -20,12 +21,6 @@
             [jepsen.checker.timeline :as timeline]
             [jepsen.nemesis.combined :as nc]
             [jepsen.os.debian :as debian]))
-
-(def db-types
-  "A map of DB names to functions that take CLI options and return Jepsen DB
-  instances."
-  {:none        db/noop
-   :electricsql db/noop})
 
 (def workloads
   "A map of workload names to functions that take CLI options and return
@@ -59,32 +54,22 @@
   [opts]
   (let [workload-name (:workload opts)
         workload ((workloads workload-name) opts)
-        db       ((db-types (:db opts)) opts)
-        os       (case (:db opts)
-                   :none os/noop
-                   debian/os)
-        ssh      (case (:db opts)
-                   :none {:dummy? true}
-                   (:ssh tests/noop-test))
-        nemesis  (case (:db opts)
-                   :none nil
-                   (nc/nemesis-package
-                    {:db db
-                     :nodes (:nodes opts)
-                     :faults (:nemesis opts)
-                     :partition {:targets [:one :majority]}
-                     :pause {:targets [:one]}
-                     :kill  {:targets [:one :all]}
-                     :interval (:nemesis-interval opts)}))]
+        db       (sqlite3/db)
+        nemesis  (nc/nemesis-package
+                  {:db db
+                   :nodes (:nodes opts)
+                   :faults (:nemesis opts)
+                   :partition {:targets [:one :majority]}
+                   :pause {:targets [:one]}
+                   :kill  {:targets [:one :all]}
+                   :interval (:nemesis-interval opts)})]
     (merge tests/noop-test
            opts
-           {:name (str (name (:db opts))
+           {:name (str "ElectricSQL"
                        " " (name workload-name)
-                       (when (:lazyfs opts) " lazyfs")
-                       " "  (name (:consistency-model opts))
+                       " " (str/join "," (map name (:consistency-models opts)))
                        (str/join "," (map name (:nemesis opts))))
-            :ssh ssh
-            :os os
+            :os debian/os
             :db db
             :checker (checker/compose
                       {:perf (checker/perf
@@ -95,31 +80,24 @@
                        :timeline (timeline/html)
                        :workload (:checker workload)})
             :client    (:client workload)
-            :nemesis   (:nemesis nemesis nemesis/noop)
+            :nemesis   (:nemesis nemesis)
             :generator (->> (:generator workload)
-                            (gen/stagger (/ (:rate opts)))
-                            (gen/nemesis (:generator nemesis))
+                            (gen/stagger    (/ (:rate opts)))
+                            (gen/nemesis    (:generator nemesis))
                             (gen/time-limit (:time-limit opts)))})))
 
 (def cli-opts
   "Command line options"
-  [["-d" "--db TYPE" "electricsql or none"
-    :default :electricsql
-    :parse-fn keyword
-    :validate [db-types (cli/one-of (keys db-types))]]
-
-   [nil "--consistency-model MODEL" "What consistency model to check for."
-    :default :strong-session-consistent-view
-    :parse-fn keyword
-    :validate [cm/all-models
-               (str "Should be one of " cm/all-models)]]
+  [[nil "--consistency-models MODELS" "What consistency models to check for."
+    :default [:strong-session-consistent-view]
+    :parse-fn parse-nemesis-spec
+    :validate [(partial every? cm/all-models)
+               (str "Must be one or more of " cm/all-models)]]
 
    [nil "--key-count NUM" "Number of keys in active rotation."
     :default  10
     :parse-fn parse-long
     :validate [pos? "Must be a positive integer"]]
-
-   [nil "--lazyfs" "If set, mounts ElectricSQL in a lazy filesystem that loses un-fsyned writes on nemesis kills."]
 
    [nil "--nemesis FAULTS" "A comma-separated list of nemesis faults to enable"
     :parse-fn parse-nemesis-spec
@@ -163,7 +141,7 @@
 (defn opt-fn
   "Transforms CLI options before execution."
   [parsed]
-  (assoc-in parsed [:options :consistency-models] [(get-in parsed [:options :consistency-model])]))
+  parsed)
 
 (defn -main
   "CLI.

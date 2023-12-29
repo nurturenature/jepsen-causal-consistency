@@ -21,6 +21,7 @@
              [txn :as et]
              [util :as eu]]
             [jepsen
+             [client :as client]
              [history :as h]
              [txn :as txn]]
             [jepsen.tests.cycle.wr :as wr]
@@ -154,45 +155,17 @@
                        ; TODO: LWW
                        ]})
 
-(defn test
-  "A partial test, including a generator and a checker.
-   You'll need to provide a client which can understand operations of the form:
-   ```
-    {:type :invoke, :f :txn, :value [[:r 3 nil] [:w 3 6]}
-   ```
-   and return completions like:
-   ```
-    {:type :ok, :f :txn, :value [[:r 3 1] [:w 3 6]]}
-   ```
-   Where the key 3 identifies some register whose value is initially 1, and
-   which this transaction sets to 6.
-
-   Options are merged with causal consistency:
-   ```
-    {:consistency-models [:causal]
-     :sequential-keys? true
-     :wfr-keys? true}
-   ```
-   and then passed to elle.rw-register/check and elle.rw-register/gen;
-   see their docs for full options."
-  ([] (test {}))
-  ([opts]
-   (let [opts (merge opts
-                     causal-opts)]
-     {:generator (rw/gen opts)
-      :checker   (rw/check opts)}))) ; TODO: real checker
-
 (defn workload
-  "A list append workload."
+  "Last write wins register workload.
+   `opts` are merged with `causal-opts` to configure `checker`."
   [opts]
-  (-> (wr/test (assoc (select-keys opts [:key-count
-                                         :max-txn-length
-                                         :max-writes-per-key])
-                      :min-txn-length 1
-                      :consistency-models [(:expected-consistency-model opts)]))
-      ; (assoc :client (Client. nil nil nil))
-      ; (update :generator ro-gen)
-      ))
+  (let [opts (merge
+              {:directory "."}
+              causal-opts
+              opts)]
+    (merge
+     (wr/test opts)
+     {:client client/noop})))
 
 (defn op
   "Generates an operation from a string language like so:

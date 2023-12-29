@@ -8,8 +8,7 @@
              [util :as u]]
             [jepsen.control.util :as cu]
             [jepsen.os.debian :as debian]
-            [slingshot.slingshot :refer [try+]]
-            [jepsen.control :as c]))
+            [slingshot.slingshot :refer [try+]]))
 
 (def host
   "Name of host machine for ElectricSQL."
