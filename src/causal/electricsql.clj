@@ -174,13 +174,33 @@
                (c/exec :psql :-d connection-url
                        :-c "\\dt")))))
 
+(defn start?
+  "Attempts to restart, then start if restart fails, ElectricSQL.
+   Returns true if server was able to be (re)started and is running."
+  [_opts]
+  (info "Starting ElectricSQL")
+  (c/on host
+        (c/su
+         (if (try+
+              (c/exec bin-env run-elixir bin :restart)
+              true
+              (catch [] _
+                false))
+           true
+           (try+
+            (c/exec bin-env run-elixir bin :start)
+            true
+            (catch [] _
+              false))))))
+
 (def opt-spec
   "Specifies CLI options."
   [[nil "--nodes NODE_LIST" (str "Must be " host)
     :default [host]]
    [nil "--teardown" "If set, tears down ElectricSQL."]
    [nil "--delete"   "If set, deletes ElectricSQL."]
-   [nil "--setup"    "If set, sets up, installing if necessary, and starts ElectricSQL."]])
+   [nil "--setup"    "If set, sets up, installing if necessary, and starts ElectricSQL."]
+   [nil "--start"    "If set, starts ElectricSQL using current configs, state."]])
 
 (defn opt-fn
   "Transforms CLI options before execution."
@@ -199,7 +219,10 @@
     (delete options))
 
   (when (:setup options)
-    (setup options)))
+    (setup options))
+
+  (when (:start options)
+    (start? options)))
 
 (def command
   {"electricsql"
