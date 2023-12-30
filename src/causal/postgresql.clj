@@ -54,18 +54,23 @@
                 true
                 (catch [] _
                   false))
-           (c/exec :su :- :postgres :-c
-                   "dropdb --force --if-exists electric")
-           (c/exec :su :- :postgres :-c
-                   "dropuser --if-exists electric")
-           (info "PostgreSQL databases: "
-                 (c/exec :su :- :postgres :-c
-                         "psql -U postgres -c '\\dd';"))
-           (info "PostgreSQL roles: "
-                 (c/exec :su :- :postgres :-c
-                         "psql -U postgres -c '\\du';"))
+           (u/meh
+            (c/exec :su :- :postgres :-c
+                    "dropdb --force --if-exists electric"))
+           (u/meh
+            (c/exec :su :- :postgres :-c
+                    "dropuser --if-exists electric"))
+           (u/meh
+            (info "PostgreSQL databases: "
+                  (c/exec :su :- :postgres :-c
+                          "psql -U postgres -c '\\dd';")))
+           (u/meh
+            (info "PostgreSQL roles: "
+                  (c/exec :su :- :postgres :-c
+                          "psql -U postgres -c '\\du';")))
 
-           (c/exec :systemctl :stop service)))))
+           (u/meh
+            (c/exec :systemctl :stop service))))))
 
 (defn delete
   "Delete PostgreSQL."
@@ -74,15 +79,17 @@
   (c/on host
         (c/su
          (u/meh
+          (c/exec :systemctl :disable service))
+         (u/meh
           (c/exec :systemctl :stop service))
+         (cu/grepkill! :postgres)
 
          (u/meh
           (deb/uninstall! [package]))
 
-         (c/exec :rm :-rf
-                 "/var/lib/postgresql*"
-                 "/var/log/postgresql*"
-                 "/etc/postgresql*"))))
+         (c/exec :su :- :postgres :-c
+                 "rm -rf /var/lib/postgresql /var/log/postgresql/* /etc/postgresql")
+         (c/exec :rm :-rf  "/var/log/postgresql" "/etc/postgresql-common"))))
 
 (defn setup
   "Sets up, installing if necessary, and starts PostgreSQL."

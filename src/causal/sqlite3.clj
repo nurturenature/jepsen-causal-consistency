@@ -18,6 +18,10 @@
   "Application directory."
   (str install-dir "/electricsql"))
 
+(def database-file
+  "SQLite3 database file."
+  (str app-dir "/electric.db"))
+
 (def database-files
   "SQLite3 database files."
   (str app-dir "/electric.db*"))
@@ -37,6 +41,10 @@
   (reify db/DB
     (setup!
       [this test node]
+      ; `client` will use `sqlite3` CLI
+      (c/su
+       (deb/install [:sqlite3]))
+
       ; NodeJS
       (when-not (cu/file? "/etc/apt/sources.list.d/nodejs.list")
         (c/su

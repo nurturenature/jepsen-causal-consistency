@@ -7,9 +7,12 @@
              [core :as b]
              [graph :as bg]
              [set :as bs]]
+            [causal.sqlite3 :as sqlite3]
+            [cheshire.core :as json]
             [clojure
              [pprint :refer [pprint]]
-             [set :as set]]
+             [set :as set]
+             [string :as str]]
             [clojure.tools.logging :refer [info]]
             [elle
              [consistency-model :as cm]
@@ -22,6 +25,7 @@
              [util :as eu]]
             [jepsen
              [client :as client]
+             [control :as c]
              [history :as h]
              [txn :as txn]]
             [jepsen.tests.cycle.wr :as wr]
@@ -141,6 +145,70 @@
     {:graph     graph
      :explainer (ec/->RealtimeExplainer history)}))
 
+(defn txn->sql
+  "Given a txn of mops, builds an SQL transaction."
+  [txn]
+  (let [stmts (->> txn
+                   (map (fn [[f k v]]
+                          (case f
+                            :r (str "SELECT value FROM lww_registers WHERE key = " k ";")
+                            :w (str "INSERT INTO lww_registers(key,value)"
+                                    " VALUES(" k "," v ")"
+                                    " ON CONFLICT(key) DO UPDATE SET value=" v ";"))))
+                   (str/join " "))]
+    (str "BEGIN; " stmts " END;")))
+
+(defn mops+sql-result
+  "Merges the result of an SQL statement back into the original mops,"
+  [mops result]
+  (let [[mops' result'] (->> mops
+                             (reduce (fn [[acc result] [f k v]]
+                                       (case f
+                                         :r (let [r'      (first result)
+                                                  result' (rest  result)
+                                                  v'      (:value r')]
+                                              [(conj acc [f k v']) result'])
+                                         :w [(conj acc [f k v]) result]))
+                                     [[] result]))
+        _ (assert (= (count mops)
+                     (count mops'))
+                  (str "mop count mismatch: " mops " vs " mops'))
+        _ (assert (empty? result')
+                  (str "remaining results: " result' " from " mops " to " mops'))]
+    mops'))
+
+(defrecord LWWClient [conn]
+  client/Client
+  (open!
+    [this _test node]
+    (assoc this
+           :node node
+           :url  (str "http://" node)))
+
+  (setup!
+    [_this _test])
+
+  (invoke!
+    [{:keys [node] :as _this} _test {:keys [f value] :as op}]
+    (assert (= f :txn) "Ops must be txns.")
+    (let [sql-stmt (txn->sql value)
+          result   (c/on node
+                         (c/exec :echo sql-stmt :| :sqlite3 :-json sqlite3/database-file))
+          result   (json/parse-string result true)
+          mops'    (mops+sql-result value result)]
+      (assoc op
+             :type  :ok
+             :value mops')))
+
+  (teardown!
+    [_this _test])
+
+  (close!
+    [this _test]
+    (dissoc this
+            :node
+            :url)))
+
 (def causal-opts
   "Opts to configure Elle for causal consistency."
   ; rw_register provides:
@@ -165,7 +233,7 @@
               opts)]
     (merge
      (wr/test opts)
-     {:client client/noop})))
+     {:client (LWWClient. nil)})))
 
 (defn op
   "Generates an operation from a string language like so:

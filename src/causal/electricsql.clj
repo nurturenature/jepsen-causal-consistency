@@ -16,7 +16,7 @@
 
 (def pg-proxy-port
   "PostgreSQL proxy port."
-  :65432)
+  "65432")
 
 (def pg-proxy-password
   "PostgreSQL proxy password."
@@ -40,7 +40,8 @@
           :LOGICAL_PUBLISHER_HOST host
           :PG_PROXY_PORT          pg-proxy-port
           :PG_PROXY_PASSWORD      pg-proxy-password
-          :AUTH_MODE              :insecure}))
+          :AUTH_MODE              :insecure
+          :ELECTRIC_USE_IPV6      :false}))
 
 (def run-elixir
   "Helper script to run elixir apps."
@@ -88,9 +89,10 @@
            (u/meh
             (c/exec :psql :-d connection-url
                     :-c "DROP TABLE public.lww_registers;"))
-           (info "ElectricSQL tables: "
-                 (c/exec :psql :-d connection-url
-                         :-c "\\dt"))
+           (u/meh
+            (info "ElectricSQL tables: "
+                  (c/exec :psql :-d connection-url
+                          :-c "\\dt")))
 
            ; stop service 
            (c/exec bin-env run-elixir bin :stop)))))
@@ -103,8 +105,7 @@
         (c/su
          (u/meh
           (c/exec bin-env bin :stop))
-         (u/meh
-          (c/exec :rm :-rf install-dir)))))
+         (c/exec :rm :-rf install-dir))))
 
 (defn setup
   "Sets up, installing if necessary, starts, configures ElectricSQL"

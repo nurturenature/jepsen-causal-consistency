@@ -7,6 +7,7 @@
                  [jepsen "0.3.5-SNAPSHOT"]
                  ; [elle "0.2.0"]
                  [elle "0.2.1-SNAPSHOT"]
+                 [cheshire "5.12.0"]
                  [spootnik/unilog "0.7.31"]]
   :jvm-opts ["-Djava.awt.headless=true"]
   :main causal.cli
