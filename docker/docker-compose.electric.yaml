@@ -8,6 +8,9 @@ configs:
   postgres_config:
     file: "./postgres/postgres.conf"
 
+networks:
+  jepsen:
+
 services:
   # config for Jepsen docker-compose
   setup:
@@ -20,6 +23,7 @@ services:
   #
   postgres:
     container_name: postgres
+    hostname: postgres
     image: postgres
     environment:
       POSTGRES_DB: electric
@@ -31,6 +35,8 @@ services:
     configs:
       - source: postgres_config
         target: /etc/postgresql.conf
+    networks:
+      - jepsen
     ports:
       - 5432
     volumes:
@@ -43,12 +49,15 @@ services:
     
   electric:
     container_name: electric
+    hostname: electric
     image: electricsql/electric
     environment:
       DATABASE_URL: postgresql://postgres:pg_password@postgres:5432/electric
       PG_PROXY_PASSWORD: proxy_password
       LOGICAL_PUBLISHER_HOST: electric
       AUTH_MODE: insecure
+    networks:
+      - jepsen
     ports:
       - 5133:5133
       - 65432:65432
@@ -66,6 +75,8 @@ services:
     container_name: setup-electric
     image: setup
     build: ./setup
+    networks:
+      - jepsen
     depends_on:
       electric:
         condition: service_healthy

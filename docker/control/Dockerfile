@@ -14,7 +14,7 @@ ADD ./apt-preferences /etc/apt/preferences
 #
 RUN apt-get -qy update && \
     apt-get -qy install \
-        curl dos2unix emacs git gnuplot graphviz htop iputils-ping libjna-java openjdk-21-jdk-headless pssh screen vim wget
+    curl dos2unix emacs git gnuplot graphviz htop iputils-ping libjna-java openjdk-21-jdk-headless pssh screen vim wget
 
 RUN wget https://raw.githubusercontent.com/technomancy/leiningen/stable/bin/lein && \
     mv lein /usr/bin && \
@@ -31,5 +31,14 @@ ADD ./bashrc /root/.bashrc
 ADD ./init.sh /init.sh
 RUN dos2unix /init.sh /root/.bashrc \
     && chmod +x /init.sh
+
+## jepsen-causal-consistency
+RUN git clone -b strong-session-consistent-view https://github.com/nurturenature/elle.git /elle
+RUN cd /elle; lein install
+
+## electricsql
+RUN apt-get -qy update && \
+    apt-get -qy install \
+    sqlite3 postgresql-client
 
 CMD /init.sh
