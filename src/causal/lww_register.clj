@@ -163,6 +163,7 @@
                              (reduce (fn [[acc result] [f k v]]
                                        (case f
                                          :r (let [r'      (first result)
+                                                  _       (assert r' (str "Out of results for reads: " mops ", " result))
                                                   result' (rest  result)
                                                   v'      (:value r')]
                                               [(conj acc [f k v']) result'])
