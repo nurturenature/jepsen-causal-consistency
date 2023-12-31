@@ -33,8 +33,7 @@
 
 (defn ww+wr-version-links
   "v < v'
-   v <ww v'
-   v <rw v'"
+   v <ww v'"
   [g v v' ext-read-index ext-write-index]
   (let [v (->> v
                (reduce-kv (fn [acc k vs]
@@ -62,7 +61,6 @@
         all-ops   (set/union v-writes v-reads v'-writes)]
     (-> g
         (g/link-all-to-all v-writes v'-writes rels/ww)
-        (g/link-all-to-all v-reads  v'-writes rels/rw)
         (g/remove-self-edges all-ops))))
 
 (defrecord WFRMRExplainer [graph]

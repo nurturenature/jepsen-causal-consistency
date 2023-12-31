@@ -104,6 +104,11 @@
     :validate [(partial every? #{:pause :kill :partition :clock})
                "Faults must be pause, kill, partition, or clock, or the special faults all or none."]]
 
+   [nil "--min-txn-length NUM" "Minimum number of operations in a transaction."
+    :default  1
+    :parse-fn parse-long
+    :validate [pos? "Must be a positive integer"]]
+
    [nil "--max-txn-length NUM" "Maximum number of operations in a transaction."
     :default  4
     :parse-fn parse-long
