@@ -149,31 +149,28 @@
   (let [stmts (->> txn
                    (map (fn [[f k v]]
                           (case f
-                            :r (str "SELECT value FROM lww_registers WHERE key = " k ";")
+                            :r (str "SELECT key,value FROM lww_registers WHERE key = " k ";")
                             :w (str "INSERT INTO lww_registers(key,value)"
                                     " VALUES(" k "," v ")"
-                                    " ON CONFLICT(key) DO UPDATE SET value=" v ";"))))
+                                    " ON CONFLICT(key) DO UPDATE SET value=" v
+                                    " RETURNING *;"))))
                    (str/join " "))]
     (str "BEGIN; " stmts " END;")))
 
 (defn mops+sql-result
   "Merges the result of an SQL statement back into the original mops,"
   [mops result]
-  (let [[mops' result'] (->> mops
-                             (reduce (fn [[acc result] [f k v]]
-                                       (case f
-                                         :r (let [r'      (first result)
-                                                  _       (assert r' (str "Out of results for reads: " mops ", " result))
-                                                  result' (rest  result)
-                                                  v'      (:value r')]
-                                              [(conj acc [f k v']) result'])
-                                         :w [(conj acc [f k v]) result]))
-                                     [[] result]))
-        _ (assert (= (count mops)
-                     (count mops'))
-                  (str "mop count mismatch: " mops " vs " mops'))
-        _ (assert (empty? result')
-                  (str "remaining results: " result' " from " mops " to " mops'))]
+  (assert (= (count mops)
+             (count result))
+          (str "mop/result count mismatch: " mops " vs " result))
+  (let [mops' (->> (map (fn [[f _k _v] {:keys [key value]}]
+                          [f key value])
+                        mops
+                        result)
+                   (into []))]
+    (assert (= (count mops)
+               (count mops'))
+            (str "mops post-map count mismatch: " mops " vs " mops'))
     mops'))
 
 (defrecord LWWClient [conn]
@@ -188,12 +185,17 @@
     [_this _test])
 
   (invoke!
-    [{:keys [node] :as _this} _test {:keys [f value] :as op}]
+    [{:keys [node] :as _this} test {:keys [f value] :as op}]
     (assert (= f :txn) "Ops must be txns.")
     (let [sql-stmt (txn->sql value)
-          result   (c/on node
-                         (c/exec :echo sql-stmt :| :sqlite3 :-json sqlite3/database-file))
-          result   (json/parse-string result true)
+          result   (get (c/on-nodes test [node]
+                                    (fn [_test _node]
+                                      (c/exec :echo sql-stmt :| :sqlite3 :-json sqlite3/database-file)))
+                        node)
+          result   (->> result
+                        (str/split-lines)
+                        (mapcat #(json/parse-string % true))
+                        vec)
           mops'    (mops+sql-result value result)]
       (assoc op
              :type  :ok
@@ -417,6 +419,16 @@
           p1-rx0
           p1-rx0']
          h/history)))
+
+(def not-cycle-lost-update
+  (->> [[0 "wx0"]
+        [1 "rx0wx1"]
+        [2 "rx0wx2"]
+        [3 "rx0"]
+        [3 "rx1"]
+        [3 "rx2"]]
+       (mapcat #(apply op-pair %))
+       h/history))
 
 (def g-monotonic-anomaly
   "Adya Weak Consistency 4.2.2
