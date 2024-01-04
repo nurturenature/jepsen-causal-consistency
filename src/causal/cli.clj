@@ -5,9 +5,14 @@
              [lww-register :as lww]
              [postgresql :as postgresql]
              [sqlite3 :as sqlite3]]
-            [clojure [string :as str]]
+            [clojure
+             [set :as set]
+             [string :as str]]
             [clojure.tools.logging :refer [info warn]]
-            [elle.consistency-model :as cm]
+            [elle
+             [consistency-model :as cm]
+             [rw-register :as rw]
+             [txn :as txn]]
             [jepsen
              [checker :as checker]
              [client :as client]
@@ -16,6 +21,7 @@
              [generator :as gen]
              [nemesis :as nemesis]
              [os :as os]
+             [store :as store]
              [tests :as tests]
              [util :as u]]
             [jepsen.checker.timeline :as timeline]
@@ -30,16 +36,19 @@
 
 (def all-workloads
   "A collection of workloads we run by default."
-  [])
+  [:lww-register])
 
 (def all-nemeses
   "Combinations of nemeses for tests"
-  [[]])
+  [[]
+   [:pause]
+   [:partition]
+   [:pause :partition]])
 
 (def special-nemeses
   "A map of special nemesis names to collections of faults"
   {:none []
-   :all  [:pause :kill :partition :clock]})
+   :all  [:pause :partition]})
 
 (defn parse-nemesis-spec
   "Takes a comma-separated nemesis string and returns a collection of keyword
@@ -48,6 +57,10 @@
   (->> (str/split spec #",")
        (map keyword)
        (mapcat #(get special-nemeses % [%]))))
+
+(def short-consistency-name
+  "A map of consistency model names to a short name."
+  {:strong-session-consistent-view "ss-consistent-view"})
 
 (defn causal-test
   "Given options from the CLI, constructs a test map."
@@ -59,16 +72,21 @@
                   {:db db
                    :nodes (:nodes opts)
                    :faults (:nemesis opts)
-                   :partition {:targets [:one :majority]}
-                   :pause {:targets [:one]}
-                   :kill  {:targets [:one :all]}
-                   :interval (:nemesis-interval opts)})]
+                   :partition {:targets [:one :minority-third :majority]}
+                   :pause {:targets [:one :minority :majority :all]}
+                   ;; TODO: workout sqlite3 killing, db state, etc
+                   ;; :kill  {:targets [:one :minority]}
+                   ;; TODO: docker privs for tc
+                   ;; :packet {:targets   [:one :minority :majority :all]
+                   ;;          :behaviors [{:delay {}}]}
+                   :interval (:nemesis-interval opts nc/default-interval)})]
     (merge tests/noop-test
            opts
-           {:name (str "ElectricSQL"
+           {:name (str "Electric"
                        " " (name workload-name)
-                       " " (str/join "," (map name (:consistency-models opts)))
-                       (str/join "," (map name (:nemesis opts))))
+                       " " (str/join "," (->> (:consistency-models opts)
+                                              (map #(short-consistency-name % (name %)))))
+                       " " (str/join "," (map name (:nemesis opts))))
             :os debian/os
             :db db
             :checker (checker/compose
@@ -94,6 +112,8 @@
     :validate [(partial every? cm/all-models)
                (str "Must be one or more of " cm/all-models)]]
 
+   [nil "--linearizable-keys?" "Use the realtime process order to derive a version order, i.e. Last Write Wins."]
+
    [nil "--key-count NUM" "Number of keys in active rotation."
     :default  10
     :parse-fn parse-long
@@ -101,8 +121,8 @@
 
    [nil "--nemesis FAULTS" "A comma-separated list of nemesis faults to enable"
     :parse-fn parse-nemesis-spec
-    :validate [(partial every? #{:pause :kill :partition :clock})
-               "Faults must be pause, kill, partition, or clock, or the special faults all or none."]]
+    :validate [(partial every? #{:pause :partition})
+               "Faults must be pause or partition, or the special faults all or none."]]
 
    [nil "--min-txn-length NUM" "Minimum number of operations in a transaction."
     :default  1

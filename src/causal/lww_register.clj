@@ -27,6 +27,7 @@
              [client :as client]
              [control :as c]
              [history :as h]
+             [generator :as gen]
              [txn :as txn]]
             [jepsen.tests.cycle.wr :as wr]
             [slingshot.slingshot :refer [try+ throw+]]))
@@ -149,28 +150,62 @@
   (let [stmts (->> txn
                    (map (fn [[f k v]]
                           (case f
-                            :r (str "SELECT key,value FROM lww_registers WHERE key = " k ";")
-                            :w (str "INSERT INTO lww_registers(key,value)"
+                            :r (str "SELECT k,v FROM lww_registers WHERE k = " k ";")
+                            :w (str "INSERT INTO lww_registers(k,v)"
                                     " VALUES(" k "," v ")"
-                                    " ON CONFLICT(key) DO UPDATE SET value=" v
-                                    " RETURNING *;"))))
+                                    " ON CONFLICT(k) DO UPDATE SET v=" v
+                                    " RETURNING k as wk, v as wv;"))))
                    (str/join " "))]
     (str "BEGIN; " stmts " END;")))
 
 (defn mops+sql-result
   "Merges the result of an SQL statement back into the original mops,"
   [mops result]
-  (assert (= (count mops)
-             (count result))
-          (str "mop/result count mismatch: " mops " vs " result))
-  (let [mops' (->> (map (fn [[f _k _v] {:keys [key value]}]
-                          [f key value])
-                        mops
-                        result)
-                   (into []))]
-    (assert (= (count mops)
-               (count mops'))
-            (str "mops post-map count mismatch: " mops " vs " mops'))
+  (let [[mops' rslts]
+        (->> mops
+             (reduce (fn [[mops' rslts] [f k v :as mop]]
+                       (let [first' (first rslts)
+                             rest'  (rest  rslts)
+                             k'     (:k first')
+                             v'     (:v first')
+                             wk'    (:wk first')
+                             wv'    (:wv first')
+                             type'  (cond
+                                      (and wk' wv') :write
+                                      (and k' v')   :read
+                                      :else         :nil)]
+                         (cond
+                           (#{:w} f)
+                           (do
+                             (when (or (not= type' :write)
+                                       (not= k wk')
+                                       (not= v wv'))
+                               (throw+ {:type :sql-result-parse-error :mops mops :result result}))
+                             [(conj mops' mop) rest'])
+
+                           (and (#{:r} f)
+                                (= type' :write))
+                           [(conj mops' [:r k nil]) rslts]
+
+                           (and (#{:r} f)
+                                (= type' :read)
+                                (= k k'))
+                           [(conj mops' [:r k v']) rest']
+
+                           (and (#{:r} f)
+                                (= type' :read)
+                                (not= k k'))
+                           [(conj mops' [:r k nil]) rslts]
+
+                           (and (#{:r} f)
+                                (= type' :nil))
+                           [(conj mops' [:r k nil]) rslts]
+
+                           :else (throw+ {:type :sql-result-parse-error :mops mops :result result}))))
+                     [[] result]))]
+    (when (or (not= 0 (count rslts))
+              (not= (count mops) (count mops')))
+      (throw+ {:type :sql-result-parse-error :mops mops :result result :rslts rslts}))
     mops'))
 
 (defrecord LWWClient [conn]
@@ -187,19 +222,25 @@
   (invoke!
     [{:keys [node] :as _this} test {:keys [f value] :as op}]
     (assert (= f :txn) "Ops must be txns.")
-    (let [sql-stmt (txn->sql value)
-          result   (get (c/on-nodes test [node]
-                                    (fn [_test _node]
-                                      (c/exec :echo sql-stmt :| :sqlite3 :-json sqlite3/database-file)))
-                        node)
-          result   (->> result
-                        (str/split-lines)
-                        (mapcat #(json/parse-string % true))
-                        vec)
-          mops'    (mops+sql-result value result)]
-      (assoc op
-             :type  :ok
-             :value mops')))
+    (try+ (let [sql-stmt (txn->sql value)
+                result   (get (c/on-nodes test [node]
+                                          (fn [_test _node]
+                                            (c/exec :echo sql-stmt :| :sqlite3 :-json sqlite3/database-file)))
+                              node)
+                result   (->> result
+                              (str/split-lines)
+                              (mapcat #(json/parse-string % true))
+                              vec)
+                mops'    (mops+sql-result value result)]
+            (assoc op
+                   :type  :ok
+                   :value mops'))
+          (catch [:type :jepsen.control/nonzero-exit
+                  :exit 1
+                  :err "Runtime error near line 1: database is locked (5)\n"] {}
+            (assoc op
+                   :type  :fail
+                   :error :database-locked))))
 
   (teardown!
     [_this _test])
@@ -218,6 +259,8 @@
   ;   - ww and rw dependencies, as derived from a version order
   {:consistency-models [:strong-session-consistent-view] ; Elle's strong-session with Adya's formalism for causal consistency
    :anomalies [:internal]                                ; basic hygiene
+   :anomalies-ignored [:lost-update]                     ; `lost-update`s are causally Ok, they are PL-2+, Adya 4.1.3
+                                                         ; ???: is causal really PL-2L?
    :sequential-keys? true                                ; infer version order from elle/process-graph
    :wfr-keys? true                                       ; rw/wfr-version-graph within txns
    :additional-graphs [wfr+mr-graph                      ; wfr+mr txn ordering, all txns including disjoint keys
@@ -229,11 +272,14 @@
    `opts` are merged with `causal-opts` to configure `checker`."
   [opts]
   (let [opts (merge
-              {:directory "."}
+              {:directory      "."
+               :max-plot-bytes 1048576
+               :plot-timeout   10000}
               causal-opts
-              opts)]
+              opts)
+        wr-test (wr/test opts)]
     (merge
-     (wr/test opts)
+     wr-test
      {:client (LWWClient. nil)})))
 
 (defn op
