@@ -31,8 +31,6 @@ RUN apt-get -qy update && \
     apt-get -qy install \
     build-essential bzip2 ca-certificates curl dirmngr dnsutils faketime iproute2 iptables iputils-ping libzip4 logrotate lsb-release man man-db netcat-openbsd net-tools ntpdate psmisc python3 rsyslog sudo tar tcpdump unzip vim wget
 
-## jepsen-causal-consistency
-
 ## electricsql
 RUN apt-get -qy update && \
     apt-get -qy install \
@@ -46,6 +44,10 @@ RUN apt-get -qy update && \
 RUN apt-get -qy update && \
     apt-get -qy install \
     git gpg postgresql-client sqlite3
+
+## jepsen-causal-consistency
+## RUN git clone https://github.com/nurturenature/jepsen-causal-consistency.git /root/jepsen-causal-consistency
+## RUN cd /root/jepsen-causal-consistency/electricsql; npm install
 
 EXPOSE 22
 CMD ["/usr/local/bin/boot-debian-base"]

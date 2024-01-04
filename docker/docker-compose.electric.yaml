@@ -15,11 +15,11 @@ services:
   # config for Jepsen docker-compose
   setup:
     depends_on:
-      setup-electric:
+      electric-setup:
         condition: service_completed_successfully
-  control:
-    volumes:
-      - jepsen_store:/jepsen/store
+  # control:
+  #   volumes:
+  #     - jepsen_store:/jepsen/store
   #
   postgres:
     container_name: postgres
@@ -71,8 +71,8 @@ services:
       timeout: 1s
       retries: 5
     
-  setup-electric:
-    container_name: setup-electric
+  electric-setup:
+    container_name: electric-setup
     image: setup
     build: ./setup
     networks:
@@ -81,4 +81,4 @@ services:
       electric:
         condition: service_healthy
         restart: true
-    entrypoint: [ '/setup/setup-electric.sh' ]
+    entrypoint: [ '/root/setup/electric-setup.sh' ]

@@ -21,10 +21,9 @@ x-node:
   stop_signal: SIGRTMIN+3
   healthcheck:
     test: [ 'CMD-SHELL', 'systemctl status sshd | grep "Active: active (running)"' ]
-    interval: 1s
+    interval: 5s
     timeout: 1s
-    retries: 3
-    start_period: 3s
+    retries: 5
   depends_on: 
     setup:
       condition: service_completed_successfully

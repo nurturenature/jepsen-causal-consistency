@@ -33,8 +33,11 @@ RUN dos2unix /init.sh /root/.bashrc \
     && chmod +x /init.sh
 
 ## jepsen-causal-consistency
-RUN git clone -b strong-session-consistent-view https://github.com/nurturenature/elle.git /elle
-RUN cd /elle; lein install
+RUN git clone -b strong-session-consistent-view https://github.com/nurturenature/elle.git /root/elle
+RUN cd /root/elle; lein install
+
+## RUN git clone https://github.com/nurturenature/jepsen-causal-consistency.git /root/jepsen-causal-consistency
+## RUN cd /root/jepsen-causal-consistency; lein install
 
 ## electricsql
 RUN apt-get -qy update && \

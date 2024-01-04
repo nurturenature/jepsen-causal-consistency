@@ -13,8 +13,8 @@ RUN apt-get -qy update && \
     apt-get -qy install \
     sqlite3 postgresql-client
 
-RUN mkdir /setup
-ADD setup-electric.sh /setup
-RUN chmod +x /setup/setup-electric.sh
+RUN mkdir /root/setup
+ADD electric-setup.sh /root/setup
+RUN chmod +x /root/setup/electric-setup.sh
 
 CMD ["/usr/bin/bash"]
