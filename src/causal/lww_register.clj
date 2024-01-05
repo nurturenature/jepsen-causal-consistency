@@ -221,26 +221,27 @@
 
   (invoke!
     [{:keys [node] :as _this} test {:keys [f value] :as op}]
-    (assert (= f :txn) "Ops must be txns.")
-    (try+ (let [sql-stmt (txn->sql value)
-                result   (get (c/on-nodes test [node]
-                                          (fn [_test _node]
-                                            (c/exec :echo sql-stmt :| :sqlite3 :-json sqlite3/database-file)))
-                              node)
-                result   (->> result
-                              (str/split-lines)
-                              (mapcat #(json/parse-string % true))
-                              vec)
-                mops'    (mops+sql-result value result)]
-            (assoc op
-                   :type  :ok
-                   :value mops'))
-          (catch [:type :jepsen.control/nonzero-exit
-                  :exit 1
-                  :err "Runtime error near line 1: database is locked (5)\n"] {}
-            (assoc op
-                   :type  :fail
-                   :error :database-locked))))
+    (let [op (assoc op :node node)]
+      (assert (= f :txn) "Ops must be txns.")
+      (try+ (let [sql-stmt (txn->sql value)
+                  result   (get (c/on-nodes test [node]
+                                            (fn [_test _node]
+                                              (c/exec :echo sql-stmt :| :sqlite3 :-json sqlite3/database-file)))
+                                node)
+                  result   (->> result
+                                (str/split-lines)
+                                (mapcat #(json/parse-string % true))
+                                vec)
+                  mops'    (mops+sql-result value result)]
+              (assoc op
+                     :type  :ok
+                     :value mops'))
+            (catch [:type :jepsen.control/nonzero-exit
+                    :exit 1
+                    :err "Runtime error near line 1: database is locked (5)\n"] {}
+              (assoc op
+                     :type  :fail
+                     :error :database-locked)))))
 
   (teardown!
     [_this _test])
@@ -270,17 +271,28 @@
 (defn workload
   "Last write wins register workload.
    `opts` are merged with `causal-opts` to configure `checker`."
-  [opts]
+  [{:keys [rate] :as opts}]
   (let [opts (merge
               {:directory      "."
                :max-plot-bytes 1048576
                :plot-timeout   10000}
               causal-opts
               opts)
-        wr-test (wr/test opts)]
+        wr-test (wr/test opts)
+        final-r (->> (range 100)
+                     (reduce (fn [mops k] (conj mops [:r k nil])) []))
+        final-gen (gen/phases
+                   (gen/log "Quiesce...")
+                   (gen/sleep 5)
+                   (gen/log "Final reads...")
+                   (->> (gen/once {:type :invoke :f :txn :value final-r :final-read? true})
+                        (gen/each-thread)
+                        (gen/clients)
+                        (gen/stagger (/ rate))))]
     (merge
      wr-test
-     {:client (LWWClient. nil)})))
+     {:client (LWWClient. nil)
+      :final-generator final-gen})))
 
 (defn op
   "Generates an operation from a string language like so:

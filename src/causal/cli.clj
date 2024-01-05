@@ -4,7 +4,8 @@
              [electricsql :as electricsql]
              [lww-register :as lww]
              [postgresql :as postgresql]
-             [sqlite3 :as sqlite3]]
+             [sqlite3 :as sqlite3]
+             [strong-convergence :as sc]]
             [clojure
              [set :as set]
              [string :as str]]
@@ -92,17 +93,25 @@
             :checker (checker/compose
                       {:perf (checker/perf
                               {:nemeses (:perf nemesis)})
-                       :clock (checker/clock-plot)
                        :stats (checker/stats)
                        :exceptions (checker/unhandled-exceptions)
                        :timeline (timeline/html)
-                       :workload (:checker workload)})
+                       :workload (:checker workload)
+                       :strong-convergence (sc/final-reads)})
             :client    (:client workload)
             :nemesis   (:nemesis nemesis)
-            :generator (->> (:generator workload)
-                            (gen/stagger    (/ (:rate opts)))
-                            (gen/nemesis    (:generator nemesis))
-                            (gen/time-limit (:time-limit opts)))})))
+            :generator (gen/phases
+                        (gen/log "Workload with nemesis")
+                        (->> (:generator workload)
+                             (gen/stagger    (/ (:rate opts)))
+                             (gen/nemesis    (:generator nemesis))
+                             (gen/time-limit (:time-limit opts)))
+
+                        (gen/log "Final nemesis")
+                        (gen/nemesis (:final-generator nemesis))
+
+                        (gen/log "Final workload")
+                        (:final-generator workload))})))
 
 (def cli-opts
   "Command line options"
