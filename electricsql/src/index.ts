@@ -30,26 +30,26 @@ await synced
 const app: Express = express();
 const port = process.env.PORT || 3000;
 
-app.get("/r/:key", async (req: Request, res: Response) => {
+app.get("/r/:k", async (req: Request, res: Response) => {
     const value = await electric.db.lww_registers.findUnique({
         where: {
-            key: parseInt(req.params.key, 10)
+            k: parseInt(req.params.k, 10)
         }
     })
     res.send(value);
 });
 
-app.get("/w/:key/:value", async (req: Request, res: Response) => {
+app.get("/w/:k/:v", async (req: Request, res: Response) => {
     const result = await electric.db.lww_registers.upsert({
         create: {
-            key: parseInt(req.params.key, 10),
-            value: parseInt(req.params.value, 10)
+            k: parseInt(req.params.k, 10),
+            v: parseInt(req.params.v, 10)
         },
         update: {
-            value: parseInt(req.params.value, 10)
+            v: parseInt(req.params.v, 10)
         },
         where: {
-            key: parseInt(req.params.key, 10)
+            k: parseInt(req.params.k, 10)
         }
     })
     res.send(result);
@@ -63,6 +63,11 @@ app.get("/list", async (req: Request, res: Response) => {
 app.get("/list-sql", async (req: Request, res: Response) => {
     const result = await electric.db.raw({ sql: "SELECT * FROM lww_registers;" })
     res.send(result);
+});
+
+app.post("/better-sqlite3", (req: Request, res: Response) => {
+    const result = conn.exec(req.body.sql)
+    res.send(result)
 });
 
 app.listen(port, () => {
