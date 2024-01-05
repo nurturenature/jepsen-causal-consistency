@@ -27,8 +27,9 @@ const { synced } = await electric.db.lww_registers.sync()
 await synced
 
 /* webserver */
-const app: Express = express();
 const port = process.env.PORT || 3000;
+const app: Express = express();
+app.use(express.json())
 
 app.get("/r/:k", async (req: Request, res: Response) => {
     const value = await electric.db.lww_registers.findUnique({
