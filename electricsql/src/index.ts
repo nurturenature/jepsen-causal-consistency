@@ -67,7 +67,9 @@ app.get("/list-sql", async (req: Request, res: Response) => {
 });
 
 app.post("/better-sqlite3", (req: Request, res: Response) => {
+    console.log(req.body.sql)
     const result = conn.exec(req.body.sql)
+    console.log(result)
     res.send(result)
 });
 
