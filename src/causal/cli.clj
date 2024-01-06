@@ -42,12 +42,13 @@
   [[]
    [:pause]
    [:partition]
-   [:pause :partition]])
+   [:pause :partition]
+   [:kill]])
 
 (def special-nemeses
   "A map of special nemesis names to collections of faults"
   {:none []
-   :all  [:pause :partition]})
+   :all  [:pause :partition :kill]})
 
 (defn parse-nemesis-spec
   "Takes a comma-separated nemesis string and returns a collection of keyword
@@ -73,8 +74,7 @@
                    :faults (:nemesis opts)
                    :partition {:targets [:one :minority-third :majority]}
                    :pause {:targets [:one :minority :majority :all]}
-                   ;; TODO: workout sqlite3 killing, db state, etc
-                   ;; :kill  {:targets [:one :minority]}
+                   :kill  {:targets [:one]}
                    ;; TODO: docker privs for tc
                    ;; :packet {:targets   [:one :minority :majority :all]
                    ;;          :behaviors [{:delay {}}]}
@@ -91,11 +91,11 @@
             :checker (checker/compose
                       {:perf (checker/perf
                               {:nemeses (:perf nemesis)})
+                       :timeline (timeline/html)
                        :stats (checker/stats)
                        :exceptions (checker/unhandled-exceptions)
-                       :timeline (timeline/html)
-                       :workload (:checker workload)
-                       :strong-convergence (sc/final-reads)})
+                       :strong-convergence (sc/final-reads)
+                       :workload (:checker workload)})
             :client    (:client workload)
             :nemesis   (:nemesis nemesis)
             :generator (gen/phases
@@ -128,8 +128,8 @@
 
    [nil "--nemesis FAULTS" "A comma-separated list of nemesis faults to enable"
     :parse-fn parse-nemesis-spec
-    :validate [(partial every? #{:pause :partition})
-               "Faults must be pause or partition, or the special faults all or none."]]
+    :validate [(partial every? #{:pause :partition :kill})
+               "Faults must be partition, pause, or kill, or the special faults all or none."]]
 
    [nil "--min-txn-length NUM" "Minimum number of operations in a transaction."
     :default  1
