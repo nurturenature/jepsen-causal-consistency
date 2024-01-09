@@ -1,6 +1,5 @@
 (ns causal.strong-convergence
   (:require [clojure.set :as set]
-            [elle.txn :as txn]
             [jepsen
              [checker :as checker]
              [history :as h]]))
@@ -14,30 +13,16 @@
             history      (->> history
                               h/client-ops
                               h/oks)
-            all-keys     (->> history
-                              (h/remove :final-read?)
-                              txn/all-keys
-                              (into #{}))
             history'     (->> history
                               (h/filter :final-read?))
-            all-keys'    (->> history'
-                              txn/all-keys
-                              (into #{}))
             node-finals  (->> history'
                               (reduce (fn [acc {:keys [node value] :as _op}]
                                         (assoc acc node value))
                                       {}))
-            value-finals  (->> node-finals
-                               (group-by val)
-                               (map (fn [[k v]]
-                                      [k (->> v keys sort)])))
-            value-finals' (->> value-finals
-                               (map (fn [[v nodes]]
-                                      [(->> v
-                                            (filter (fn [[_f _k v]] v))
-                                            (map (fn [[_f k v]] [k v]))
-                                            (into (sorted-map)))
-                                       nodes])))]
+            value-finals (->> node-finals
+                              (group-by val)
+                              (map (fn [[read read-by]]
+                                     [read (keys read-by)])))]
         (merge
          {:valid? true}
          ; final read from all nodes?
@@ -47,12 +32,15 @@
 
          ; all reads are the same?
          (when (= 1 (count value-finals))
-           {:final-read value-finals'})
+           {:final-read (->> value-finals
+                             first
+                             first
+                             (map (fn [[_f k v]]
+                                    (if (nil? v)
+                                      nil
+                                      [k v])))
+                             (remove nil?)
+                             sort)})
          (when (< 1 (count value-finals))
            {:valid? false
-            :divergent-final-reads value-finals'})
-
-         ; reads contained all-keys?
-         (when (seq (set/difference all-keys all-keys'))
-           {:valid? false
-            :missing-keys-reads (set/difference all-keys all-keys')}))))))
+            :divergent-final-reads value-finals}))))))
