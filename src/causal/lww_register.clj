@@ -32,118 +32,6 @@
             [jepsen.tests.cycle.wr :as wr]
             [slingshot.slingshot :refer [try+ throw+]]))
 
-(defn ww+wr-version-links
-  "v < v'
-   v <ww v'"
-  [g v v' ext-read-index ext-write-index]
-  (let [v (->> v
-               (reduce-kv (fn [acc k vs]
-                            (reduce (fn [acc v]
-                                      (conj acc [k v]))
-                                    acc
-                                    vs))
-                          []))
-        v' (->> v'
-                (reduce-kv (fn [acc k vs]
-                             (reduce (fn [acc v]
-                                       (conj acc [k v]))
-                                     acc
-                                     vs))
-                           []))
-        v-writes  (->> v
-                       (mapcat (partial get-in ext-write-index))
-                       (into #{}))
-        v-reads   (->> v
-                       (mapcat (partial get-in ext-read-index))
-                       (into #{}))
-        v'-writes (->> v'
-                       (mapcat (partial get-in ext-write-index))
-                       (into #{}))
-        all-ops   (set/union v-writes v-reads v'-writes)]
-    (-> g
-        (g/link-all-to-all v-writes v'-writes rels/ww)
-        (g/remove-self-edges all-ops))))
-
-(defrecord WFRMRExplainer [graph]
-  ec/DataExplainer
-  (explain-pair-data [_ a b]
-    (when (try+ (bg/edge graph a b)
-                (catch [] _ nil))
-      {:type :wfr
-       :w  (txn/ext-writes (:value a))
-       :w' (txn/ext-writes (:value b))}))
-
-  (render-explanation [_ {:keys [w w']} a-name b-name]
-    (str a-name "'s write(s) of " w " were read by " b-name " before its write(s) of " w')))
-
-(defn wfr+mr-order
-  "Given a history and a process ID, constructs a partial order graph based on
-   writes follow reads and monotonic writes."
-  [history process]
-  (let [ext-write-index (rw/ext-index txn/ext-writes history)
-        ext-read-index  (rw/ext-index txn/ext-reads  history)
-        [g _observed-vers _linked-vers]
-        (->> history
-             (h/filter (comp #{process} :process))
-             (reduce (fn [[g observed-vers linked-vers] {:keys [value] :as _op}]
-                       (let [this-writes (->> (txn/ext-writes value)
-                                              (map (fn [[k v]]
-                                                     {k #{v}}))
-                                              (into {}))
-                             this-reads  (->> (txn/ext-reads value)
-                                              (map (fn [[k v]]
-                                                     {k #{v}}))
-                                              (into {}))
-                             observed-vers' (merge-with set/union observed-vers this-reads this-writes)]
-
-                         (if (seq this-writes)
-                           (let [new-vers (reduce-kv (fn [acc k v]
-                                                       (update acc k set/difference v))
-                                                     observed-vers
-                                                     linked-vers)]
-                             [(ww+wr-version-links g new-vers this-writes ext-read-index ext-write-index)
-                              observed-vers' (merge-with set/union linked-vers new-vers)])
-                           [g observed-vers' linked-vers])))
-                     [(b/linear (g/op-digraph)) {} {}]))]
-    (b/forked g)))
-
-(defn wfr+mr-graph
-  "Given a history, creates a <ww partial order graph with writes follow reads ordering.
-   WFR is per process."
-  [history]
-  (let [history (->> history
-                     h/oks)
-        graph (->> history
-                   (h/map :process)
-                   distinct
-                   (map (partial wfr+mr-order history))
-                   (apply g/digraph-union))]
-    {:graph     graph
-     :explainer (WFRMRExplainer. graph)}))
-
-(defn lww-realtime-graph
-  "The target systems to be tested claim last write == realtime, they do not claim full realtime causal,
-   so we order ww realtime.
-   
-   Real-time-causal consistency.
-   An execution e is said to be real time causally consistent (RTC) if its HB graph satisfies the following check in addition to the checks for causal consistency:
-     - CC3 Time doesn’t travel backward. For any operations u, v: u.endT ime < v.startT ime ⇒ v 6 ≺G u
-   _Consistency, Availability, and Convergence (UTCS TR-11-22)_"
-  [history]
-  (let [ext-write-index (rw/ext-index txn/ext-writes history)
-        graph (->> ext-write-index
-                   (map (fn [[_k vs]]
-                          (let [history' (->> vs vals (apply concat) distinct
-                                              (mapcat (fn [op]
-                                                        [(h/invocation history op) op]))
-                                              (sort-by :index)
-                                              h/history)
-                                graph (ec/realtime-graph history')]
-                            (:graph graph))))
-                   (apply g/digraph-union))]
-    {:graph     graph
-     :explainer (ec/->RealtimeExplainer history)}))
-
 (defn txn->sql
   "Given a txn of mops, builds an SQL transaction."
   [txn]
@@ -261,12 +149,10 @@
   {:consistency-models [:strong-session-consistent-view] ; Elle's strong-session with Adya's formalism for causal consistency
    :anomalies [:internal]                                ; basic hygiene
    :anomalies-ignored [:lost-update]                     ; `lost-update`s are causally Ok, they are PL-2+, Adya 4.1.3
-                                                         ; ???: is causal really PL-2L?
    :sequential-keys? true                                ; infer version order from elle/process-graph
-   :wfr-keys? true                                       ; rw/wfr-version-graph within txns
-   :additional-graphs [wfr+mr-graph                      ; wfr+mr txn ordering, all txns including disjoint keys
-                       ; TODO: LWW
-                       ]})
+   :wfr-keys? true                                       ; wfr-version-graph when <rw within txns
+   :wfr-txns? true                                       ; wfr-txn-graph used to infer version order
+   })
 
 (defn workload
   "Last write wins register workload.

@@ -7,10 +7,11 @@ Designed for testing CRDTs.
 ### Uses Elle, Jepsen's checker:
 
   - Adya's PL-2+, Consistent View, as the consistency model
+    - minus the Lost Update anomaly, the update isn't lost, it's eventually and consistently merged 
   - extends Elle's consistency model graph to include strong-session-consistent-view
-    - fills in the gap between strong-session PL-2, Read Committed, and PL-SI, Snapshot Isolation
+    - fills in the gap between strong-session PL-2, Read Committed, and strong-session PL-SI, Snapshot Isolation
     - Causal Consistency needs process ordering
-  - extends the rw_register test with graphs for
+  - extends the rw_register test with version graphs for
     - writes follow reads
     - monotonic writes
 
@@ -73,17 +74,21 @@ Look for `strong-session-consistent-view`:
 
 ![New Elle Model Graph](doc/models.png)
 
+----
+
+### Opts to Configure Elle for Causal Consistency
+
 ```clj
-; changes to consistency-models
-
-{:strong-session-monotonic-view  [:monotonic-view  :strong-session-PL-2]
- :strong-session-consistent-view [:consistent-view :strong-session-monotonic-view]
-
- :strong-session-snapshot-isolation [:snapshot-isolation
-                                     :strong-session-PL-2
-                                     :strong-session-consistent-view]}
-
-{:strong-session-monotonic-view  [:G1-process]
- :strong-session-consistent-view [:G1-process
-                                  :G-single-process]}
+(def causal-opts
+  ; rw_register provides:
+  ;   - initial nil -> all versions for all keys
+  ;   - w->r
+  ;   - ww and rw dependencies, as derived from a version order
+  {:consistency-models [:strong-session-consistent-view] ; Elle's strong-session with Adya's formalism for causal consistency
+   :anomalies [:internal]                                ; basic hygiene
+   :anomalies-ignored [:lost-update]                     ; `lost-update`s are causally Ok, they are PL-2+, Adya 4.1.3
+   :sequential-keys? true                                ; infer version order from elle/process-graph
+   :wfr-keys? true                                       ; wfr-version-graph when <rw within txns
+   :wfr-txns? true                                       ; wfr-txn-graph used to infer version order
+   })
 ```
