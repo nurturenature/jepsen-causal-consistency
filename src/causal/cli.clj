@@ -10,6 +10,7 @@
             [clojure.tools.logging :refer [info warn]]
             [elle
              [consistency-model :as cm]
+             [graph :as g]
              [rw-register :as rw]
              [txn :as txn]]
             [jepsen
