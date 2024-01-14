@@ -17,6 +17,9 @@ services:
     depends_on:
       electric-setup:
         condition: service_completed_successfully
+  n1:
+    ports:
+      - 8089:8089
   # control:
   #   volumes:
   #     - jepsen_store:/jepsen/store

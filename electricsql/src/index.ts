@@ -71,6 +71,11 @@ app.post("/better-sqlite3", (req: Request, res: Response) => {
     res.send(result)
 });
 
+app.post("/sql", async (req: Request, res: Response) => {
+    const result = await electric.db.runInTransaction(req.body)
+    res.send(result);
+});
+
 app.listen(port, () => {
     console.log(`[server]: Server is running at http://localhost:${port}`);
 });
