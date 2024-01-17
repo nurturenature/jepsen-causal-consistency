@@ -140,7 +140,7 @@
        (insure-psql)
        (u/meh
         (c/exec :psql :-d connection-url
-                :-c "CREATE TABLE public.lww_registers (key integer PRIMARY KEY, value integer);"))
+                :-c "CREATE TABLE public.lww_registers (k integer PRIMARY KEY, v integer);"))
        (u/meh
         (c/exec :psql :-d connection-url
                 :-c "ALTER TABLE public.lww_registers ENABLE ELECTRIC;"))
