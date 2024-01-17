@@ -1,4 +1,4 @@
-(ns causal.sqlite3
+(ns causal.db.sqlite3
   (:require [clojure.string :refer [split-lines]]
             [clojure.tools.logging :refer [info warn]]
             [jepsen
@@ -8,7 +8,8 @@
             [jepsen.control
              [util :as cu]]
             [jepsen.os.debian :as deb]
-            [slingshot.slingshot :refer [try+]]))
+            [slingshot.slingshot :refer [try+]]
+            [causal.db.electricsql :as electricsql]))
 
 (def install-dir
   "Directory to install into."
@@ -41,6 +42,8 @@
   (reify db/DB
     (setup!
       [this test node]
+      (assert (deref electricsql/available? 600000 false) "ElectricSQL not available")
+
       ; `client` will use `sqlite3` CLI
       (c/su
        (deb/install [:sqlite3]))

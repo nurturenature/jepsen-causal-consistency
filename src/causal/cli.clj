@@ -1,8 +1,8 @@
 (ns causal.cli
   "Command-line entry point for ElectricSQL tests."
   (:require [causal
+             [cluster :as cluster]
              [lww-register :as lww]
-             [sqlite3 :as sqlite3]
              [strong-convergence :as sc]]
             [clojure
              [set :as set]
@@ -68,7 +68,7 @@
   [opts]
   (let [workload-name (:workload opts)
         workload ((workloads workload-name) opts)
-        db       (sqlite3/db)
+        db       (cluster/db)
         nemesis  (nc/nemesis-package
                   {:db db
                    :nodes (:nodes opts)
@@ -174,6 +174,10 @@
 (defn opt-fn
   "Transforms CLI options before execution."
   [parsed]
+  (let [nodes (->> (get-in parsed [:options :nodes])
+                   (into #{}))]
+    (assert (contains? nodes "postgresql")  "PostgreSQL is required")
+    (assert (contains? nodes "electricsql") "ElectricSQL is required"))
   parsed)
 
 (defn -main

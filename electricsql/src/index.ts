@@ -12,7 +12,7 @@ import { insecureAuthToken } from 'electric-sql/auth'
 
 /* create a database and client */
 const config: ElectricConfig = {
-    url: 'http://electric:5133',
+    url: 'http://electricsql:5133',
     auth: {
         token: await insecureAuthToken({ user_id: 'insecure' })
     },
