@@ -7,7 +7,7 @@
              [core :as b]
              [graph :as bg]
              [set :as bs]]
-            [causal.sqlite3 :as sqlite3]
+            [causal.db.sqlite3 :as sqlite3]
             [cheshire.core :as json]
             [clojure
              [pprint :refer [pprint]]
