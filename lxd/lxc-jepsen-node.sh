@@ -6,8 +6,8 @@ if [ -z "$1" ]; then
   exit 1;
 fi
 
-lxc stop   "$1" || true
-lxc delete "$1" || true
+lxc stop   "$1" --force || true
+lxc delete "$1"         || true
 
 lxc launch images:debian/12 "$1"
 

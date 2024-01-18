@@ -8,6 +8,8 @@
                  ; [elle "0.2.0"]
                  [elle "0.2.1-SNAPSHOT"]
                  [cheshire "5.12.0"]
+                 [com.github.seancorfield/next.jdbc "1.3.909"]
+                 [org.postgresql/postgresql "42.7.1"]
                  [spootnik/unilog "0.7.31"]]
   :jvm-opts ["-Djava.awt.headless=true"]
   :main causal.cli

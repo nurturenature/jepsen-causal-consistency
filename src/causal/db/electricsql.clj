@@ -2,15 +2,15 @@
   "Install and configure ElectricSQL sync service on node `electricsql`."
   (:require [clojure.tools.logging :refer [info]]
             [causal.db
-             [postgresql :as postgresql]]
+             [postgresql :as postgresql]
+             [promises :as promises]]
             [jepsen
              [control :as c]
              [db :as db]
              [util :as u]]
             [jepsen.control.util :as cu]
             [jepsen.os.debian :as deb]
-            [slingshot.slingshot :refer [try+]]
-            [jepsen.util :as u]))
+            [slingshot.slingshot :refer [try+]]))
 
 (def host
   "Name of host machine for ElectricSQL."
@@ -64,10 +64,6 @@
     (postgresql/insure-repo)
     (deb/install [:postgresql-client])))
 
-(def available?
-  "A promise that's true when ElectricSQL is available."
-  (promise))
-
 (defn db
   "ElectricSQL SQLite database."
   []
@@ -75,8 +71,6 @@
     (setup!
       [this test node]
       (info "Setting up ElectricSQL")
-      (assert (deref postgresql/available? 300000 false)
-              "PostgreSQL not available")
 
       (c/su
        ; dependencies, only install if not present
@@ -130,10 +124,14 @@
               (c/exec :mix :compile)
               (c/exec (c/env {:MIX_ENV :prod})
                       :mix :release :--overwrite)))
+
+       (assert (deref promises/postgresql-available? 300000 false)
+               "PostgreSQL not available")
+
        (db/start! this test node)
 
        ;; TODO: http://electricsql:?/api/status
-       (u/sleep 3000)
+       (u/sleep 5000)
 
        ; create and electrify table
        ; may already exist, insure empty
@@ -149,20 +147,23 @@
                 :-c "DELETE FROM public.lww_registers;"))
        (info "ElectricSQL tables: "
              (c/exec :psql :-d connection-url
-                     :-c "\\dt")))
+                     :-c "\\dt")
+             (c/exec :psql :-d connection-url
+                     :-c "TABLE public.lww_registers")))
 
-      (deliver available? true))
+      (deliver promises/electricsql-available? true))
 
     (teardown!
       [this test node]
+      (doseq [[n p] @promises/sqlite3-teardown?s]
+        (assert (deref p 10000 false)
+                (str "SQLite3 node failed to teardown?: " n)))
+
       (info "Tearing down ElectricSQL")
       ; tests may have stopped/killed service, or it may never have been setup,
       ; but we really want to cleanup the db
       (c/su
-       (u/meh
-        (db/start! this test node))
-
-        ; delete rows, un-electrify, drop table
+       ; delete rows, un-electrify, drop table
        (u/meh
         (c/exec :psql :-d connection-url
                 :-c "DELETE FROM public.lww_registers;"))
@@ -177,7 +178,9 @@
               (c/exec :psql :-d connection-url
                       :-c "\\dt"))))
       ; stop service
-      (db/kill! this test node))
+      (db/kill! this test node)
+
+      (deliver promises/electricsql-teardown? true))
 
     ; ElectricSQL doesn't have `primaries`.
     ; db/Primary

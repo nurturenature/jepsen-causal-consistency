@@ -7,7 +7,10 @@
              [core :as b]
              [graph :as bg]
              [set :as bs]]
-            [causal.db.sqlite3 :as sqlite3]
+            [causal.db
+             [electricsql :as electricsql]
+             [postgresql :as postgresql]
+             [sqlite3 :as sqlite3]]
             [cheshire.core :as json]
             [clojure
              [pprint :refer [pprint]]
@@ -30,7 +33,10 @@
              [generator :as gen]
              [txn :as txn]]
             [jepsen.tests.cycle.wr :as wr]
-            [slingshot.slingshot :refer [try+ throw+]]))
+            [next.jdbc :as jdbc]
+            [next.jdbc.result-set :as rs]
+            [slingshot.slingshot :refer [try+ throw+]])
+  (:import (java.sql Connection)))
 
 (defn txn->sql
   "Given a txn of mops, builds an SQL transaction."
@@ -96,7 +102,7 @@
       (throw+ {:type :sql-result-parse-error :mops mops :result result :rslts rslts}))
     mops'))
 
-(defrecord LWWClient [conn]
+(defrecord SQLITE3Client [conn]
   client/Client
   (open!
     [this _test node]
@@ -139,6 +145,66 @@
     (dissoc this
             :node
             :url)))
+
+(defrecord JDBCClient [db-spec]
+  client/Client
+  (open!
+    [this _test node]
+    (assoc this
+           :node node
+           :conn (->> db-spec
+                      jdbc/get-datasource
+                      jdbc/get-connection)))
+
+  (setup!
+    [_this _test])
+
+  (invoke!
+    [{:keys [node] :as _this} test {:keys [f value] :as op}]
+    (assoc op
+           :node node
+           :type :fail))
+    ;; (jdbc/execute-one! conn ["INSERT INTO lww_registers(k,v) VALUES(4,4)"] {:builder-fn rs/as-unqualified-lower-maps})
+    ;; ; #:next.jdbc{:update-count 1}
+    ;; (jdbc/with-transaction+options [tx conn {:builder-fn rs/as-unqualified-lower-maps}]
+    ;;   (jdbc/execute! tx ["SELECT v FROM lww_registers WHERE k = 4"]))
+    ;; ; [#:lww_registers{:v 4}]
+
+  (teardown!
+    [_this _test])
+
+  (close!
+    [{:keys [conn] :as _client} _test]
+    (.close conn)))
+
+(def db-specs
+  "Map of node names to db-specs."
+  {"postgresql" {:dbtype  "postgresql"
+                 :host     postgresql/host
+                 :user     postgresql/user
+                 :password postgresql/password}
+   "electricsql" {:dbtype  "postgresql"
+                  :host     electricsql/host
+                  :port     electricsql/pg-proxy-port
+                  :user     postgresql/user
+                  :password electricsql/pg-proxy-password}})
+
+(defn node->client
+  "Maps a node name to its `client` protocol, e.g.:
+     - 'postgresql'  -> `JDBCClient`
+     - 'electricsql` -> `JDBCClient`
+     - client nodes  -> `SQLITE3Client`"
+  [node]
+  (case node
+    "postgresql"  (JDBCClient. (get db-specs "postgresql"))
+    "electricsql" (JDBCClient. (get db-specs "electricsql"))
+    (SQLITE3Client. nil)))
+
+(defrecord LWWClient [conn]
+  client/Client
+  (open!
+    [_this test node]
+    (client/open! (node->client node) test node)))
 
 (def causal-opts
   "Opts to configure Elle for causal consistency."

@@ -1,6 +1,7 @@
 (ns causal.db.postgresql
   "Install and configure PostgreSQL for ElectricSQL on node `postgresql`."
-  (:require [clojure.tools.logging :refer [info]]
+  (:require [causal.db.promises :as promises]
+            [clojure.tools.logging :refer [info]]
             [jepsen
              [control :as c]
              [db :as db]
@@ -21,13 +22,15 @@
   "Process name."
   "postgres")
 
-(def host
-  "Name of host machine for PostgreSQL."
-  "postgresql")
+(def host     "postgresql")
+(def user     "postgres")
+(def password "postgres")
 
 (def connection-url
   "PostgreSQL connection URI."
-  (str "postgresql://postgres:postgres@" host))
+  (str "postgresql://" user ":" password "@" host))
+
+(def log-file "/var/log/postgresql/postgresql-16-main.log")
 
 (defn insure-repo
   "Insures PostgreSQL repository is installed.
@@ -40,16 +43,12 @@
     (deb/add-repo! :pgdg "deb https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main")
     (deb/update!)))
 
-(def available?
-  "A promise that's true when PostgreSQL is available."
-  (promise))
-
 (defn db
   "PostgreSQL database."
   []
   (reify db/DB
     (setup!
-      [_db _test node]
+      [_db _test _node]
       (info "Setting up PostgreSQL")
       (c/su
        (when (not (deb/installed? package))
@@ -90,10 +89,14 @@
                      "psql -U postgres -c '\\dd';")))
 
       (c/exec :pg_isready :--quiet)
-      (deliver available? true))
+
+      (deliver promises/postgresql-available? true))
 
     (teardown!
       [this test node]
+      (assert (deref promises/electricsql-teardown? 60000 false)
+              "ElectricSQL not teardown? true")
+
       (info "Tearing down PostgreSQL")
       (u/meh  ; tests may have already stopped/killed database
        (c/su
@@ -107,7 +110,7 @@
     db/LogFiles
     (log-files
       [_db _test _node]
-      {})
+      {log-file "postgresql.log"})
 
     db/Kill
     (start!

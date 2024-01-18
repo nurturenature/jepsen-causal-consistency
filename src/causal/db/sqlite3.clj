@@ -1,5 +1,6 @@
 (ns causal.db.sqlite3
-  (:require [clojure.string :refer [split-lines]]
+  (:require [causal.db.promises :as promises]
+            [clojure.string :refer [split-lines]]
             [clojure.tools.logging :refer [info warn]]
             [jepsen
              [db :as db]
@@ -8,8 +9,7 @@
             [jepsen.control
              [util :as cu]]
             [jepsen.os.debian :as deb]
-            [slingshot.slingshot :refer [try+]]
-            [causal.db.electricsql :as electricsql]))
+            [slingshot.slingshot :refer [try+]]))
 
 (def install-dir
   "Directory to install into."
@@ -42,8 +42,6 @@
   (reify db/DB
     (setup!
       [this test node]
-      (assert (deref electricsql/available? 600000 false) "ElectricSQL not available")
-
       ; `client` will use `sqlite3` CLI
       (c/su
        (deb/install [:sqlite3]))
@@ -73,17 +71,28 @@
          (c/exec :rm :-rf install-dir)
          (c/exec :mkdir :-p install-dir)
          (c/exec :git :clone "https://github.com/nurturenature/jepsen-causal-consistency.git" install-dir)))
+
+      (assert (deref promises/electricsql-available? 600000 false)
+              "ElectricSQL not available")
+
       (c/su
        (c/cd app-dir
              (c/exec :npm :run :build)))
 
-      (db/start! this test node))
+      (db/start! this test node)
+
+      (swap! promises/sqlite3-teardown?s assoc node (promise)))
 
     (teardown!
       [this test node]
+      (info "Tearing down SQLite3")
       (db/kill! this test node)
       (c/su
-       (c/exec :rm :-rf database-files)))
+       (c/exec :rm :-rf database-files))
+
+      ; node may have never been `setup!` 
+      (when-let [p (get @promises/sqlite3-teardown?s node)]
+        (deliver p true)))
 
     ; ElectricSQL doesn't have `primaries`.
     ; db/Primary
