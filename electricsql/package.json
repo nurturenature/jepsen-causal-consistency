@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
-    "prebuild": "npx electric-sql generate --service electricsql:5133 --proxy postgresql://postgres:postgres@electricsql:65432",
+    "prebuild": "npx electric-sql generate --service http://electricsql:5133 --proxy postgresql://postgres:postgres@electricsql:65432",
     "build": "npx tsc",
     "start": "node dist/index.js",
     "dev": "nodemon src/index.ts",
