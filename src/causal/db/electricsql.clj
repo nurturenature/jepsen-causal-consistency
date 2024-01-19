@@ -32,18 +32,25 @@
   "Directory to install ElectricSQL to."
   "/root/electricsql")
 
+(def build-dir
+  "ElectricSQL build dir."
+  (str install-dir "/components/electric/_build"))
+
 (def bin
   "ElectricSQL binary."
-  (str install-dir "/components/electric/_build/prod/rel/electric/bin/electric"))
+  (str build-dir "/prod/rel/electric/bin/electric"))
 
 (def bin-env
   "Environment vars to start `bin` with."
-  {:DATABASE_URL           postgresql/connection-url
-   :LOGICAL_PUBLISHER_HOST host
-   :PG_PROXY_PORT          pg-proxy-port
-   :PG_PROXY_PASSWORD      pg-proxy-password
-   :AUTH_MODE              :insecure
-   :ELECTRIC_USE_IPV6      :false})
+  {:DATABASE_URL              postgresql/connection-url
+   :ELECTRIC_WRITE_TO_PG_MODE :direct_writes
+   :LOGICAL_PUBLISHER_HOST    host           ; ignored with direct_writes
+   :LOGICAL_PUBLISHER_PORT    5433           ; ignored with direct_writes
+   :PG_PROXY_PORT             pg-proxy-port
+   :PG_PROXY_PASSWORD         pg-proxy-password
+   :AUTH_MODE                 :insecure
+   :ELECTRIC_USE_IPV6         :false
+   :LOG_LEVEL                 :debug})
 
 (def pid-file
   (str install-dir "/electricsql.pid"))
@@ -109,21 +116,13 @@
              (c/exec :elixir :-v))
 
        ; ElectricSQL
-       (if (cu/exists? (str install-dir "/.git"))
-         (c/su
-          (c/cd install-dir
-                (c/exec :git :pull)))
-         (c/su
-          (deb/install [:git])
-          (c/exec :rm :-rf install-dir)
-          (c/exec :mkdir :-p install-dir)
-          (c/exec :git :clone "https://github.com/electric-sql/electric.git" install-dir)))
-       (c/su
-        (c/cd (str install-dir "/components/electric")
-              (c/exec :mix :deps.get)
-              (c/exec :mix :compile)
-              (c/exec (c/env {:MIX_ENV :prod})
-                      :mix :release :--overwrite)))
+       (when (not (cu/exists? install-dir))
+         (cu/install-archive! "https://github.com/electric-sql/electric/archive/refs/tags/electric-sql@0.9.0.tar.gz" install-dir)
+         (c/cd (str install-dir "/components/electric")
+               (c/exec :mix :deps.get)
+               (c/exec :mix :compile)
+               (c/exec (c/env {:MIX_ENV :prod})
+                       :mix :release :--overwrite)))
 
        (assert (deref promises/postgresql-available? 300000 false)
                "PostgreSQL not available")
@@ -138,17 +137,15 @@
        (insure-psql)
        (u/meh
         (c/exec :psql :-d connection-url
-                :-c "CREATE TABLE public.lww_registers (k integer PRIMARY KEY, v integer);"))
-       (u/meh
+                :-c "CREATE TABLE public.lww_registers (k integer PRIMARY KEY, v integer);")
         (c/exec :psql :-d connection-url
                 :-c "ALTER TABLE public.lww_registers ENABLE ELECTRIC;"))
-       (u/meh
-        (c/exec :psql :-d connection-url
-                :-c "DELETE FROM public.lww_registers;"))
-       (info "ElectricSQL tables: "
-             (c/exec :psql :-d connection-url
-                     :-c "\\dt")
-             (c/exec :psql :-d connection-url
+       (c/exec :psql :-d connection-url
+               :-c "DELETE FROM public.lww_registers;")
+       (info "ElectricSQL tables, public.lww_registers:")
+       (info (c/exec :psql :-d connection-url
+                     :-c "\\dt"))
+       (info (c/exec :psql :-d connection-url
                      :-c "TABLE public.lww_registers")))
 
       (deliver promises/electricsql-available? true))
@@ -158,6 +155,8 @@
       (doseq [[n p] @promises/sqlite3-teardown?s]
         (assert (deref p 10000 false)
                 (str "SQLite3 node failed to teardown?: " n)))
+
+      (insure-psql)
 
       (info "Tearing down ElectricSQL")
       ; tests may have stopped/killed service, or it may never have been setup,
@@ -173,12 +172,17 @@
        (u/meh
         (c/exec :psql :-d connection-url
                 :-c "DROP TABLE public.lww_registers;"))
+       (info "ElectricSQL tables: ")
        (u/meh
-        (info "ElectricSQL tables: "
-              (c/exec :psql :-d connection-url
+        (info (c/exec :psql :-d connection-url
                       :-c "\\dt"))))
+
       ; stop service
       (db/kill! this test node)
+
+      ;; TODO? remove build dir, log file
+      ;; (c/su
+      ;;  (c/exec :rm :-rf build-dir log-file))
 
       (deliver promises/electricsql-teardown? true))
 

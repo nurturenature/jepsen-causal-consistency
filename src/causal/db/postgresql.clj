@@ -84,11 +84,10 @@
        ; set password for use by electricsql
        (c/exec :su :- :postgres :-c
                "psql -U postgres -c \"ALTER USER postgres WITH PASSWORD 'postgres';\"")
-       (info "PostgreSQL databases: "
-             (c/exec :su :- :postgres :-c
-                     "psql -U postgres -c '\\dd';")))
 
-      (c/exec :pg_isready :--quiet)
+       (info "PostgreSQL tables:")
+       (info (c/exec :su :- :postgres :-c
+                     "psql -U postgres -c '\\dt';")))
 
       (deliver promises/postgresql-available? true))
 
@@ -101,7 +100,13 @@
       (u/meh  ; tests may have already stopped/killed database
        (c/su
         (c/exec :systemctl :stop service)))
-      (db/kill! this test node))
+      (db/kill! this test node)
+
+      ;; TODO? remove package, data, config, log files
+      ;; (c/su
+      ;;  (deb/uninstall! [package])
+      ;;  (c/exec :rm :-rf "/var/lib/postgresql" "/var/log/postgresql" "/etc/postgresql*"))
+      )
 
     ;; ElectricSQL doesn't have `primaries`.
     ;; db/Primary
