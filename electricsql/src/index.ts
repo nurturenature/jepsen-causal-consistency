@@ -72,7 +72,7 @@ app.post("/better-sqlite3", (req: Request, res: Response) => {
 });
 
 app.post("/sql", async (req: Request, res: Response) => {
-    const result = await electric.db.runInTransaction(req.body)
+    const result = await conn.transaction(req.body)
     res.send(result);
 });
 
