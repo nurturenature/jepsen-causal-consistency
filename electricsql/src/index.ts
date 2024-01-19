@@ -56,12 +56,12 @@ app.get("/w/:k/:v", async (req: Request, res: Response) => {
     res.send(result);
 });
 
-app.get("/list", async (req: Request, res: Response) => {
+app.get("/list", async (res: Response) => {
     const result = await electric.db.lww_registers.findMany()
     res.send(result);
 });
 
-app.get("/list-sql", async (req: Request, res: Response) => {
+app.get("/list-sql", async (res: Response) => {
     const result = await electric.db.raw({ sql: "SELECT * FROM lww_registers;" })
     res.send(result);
 });
