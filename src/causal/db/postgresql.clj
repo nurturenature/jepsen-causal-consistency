@@ -43,6 +43,28 @@
     (deb/add-repo! :pgdg "deb https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main")
     (deb/update!)))
 
+;; TODO: doesn't work
+;; (defn drop-table-db
+;;   "Explicitly removes ElectricSQL changes, table, and database." []
+;;   (u/meh
+;;    (c/su
+;;     ;; (c/exec :su :- :postgres :-c
+;;     ;;         "psql -U postgres -c 'ALTER SUBSCRIPTION postgres_1 DISABLE;'")
+;;     ;; (c/exec :su :- :postgres :-c
+;;     ;;         "psql -U postgres -c 'ALTER SUBSCRIPTION postgres_1 SET (slot_name = NONE);'")
+;;     ;; (c/exec :su :- :postgres :-c
+;;     ;;         "psql -U postgres -c 'DROP SUBSCRIPTION postgres_1;'")
+;;     ;; (c/exec :su :- :postgres :-c
+;;     ;;         "psql -U postgres -c 'ALTER SUBSCRIPTION postgres_1 DISABLE;'")
+;;     (c/exec :su :- :postgres :-c
+;;             "psql -U postgres -c 'DROP PUBLICATION electric_publication;'")
+;;     (c/exec :su :- :postgres :-c
+;;             "psql -U postgres -c 'DROP SCHEMA electric CASCADE;'")
+;;     ;; (c/exec :su :- :postgres :-c
+;;     ;;         "psql -U postgres -c 'SELECT pg_drop_replication_slot ('electric_replication_out_test');'")
+;;     (c/exec :su :- :postgres :-c
+;;             "psql -U postgres -c 'DROP DATABASE electric;'"))))
+
 (defn db
   "PostgreSQL database."
   []
@@ -100,13 +122,7 @@
       (u/meh  ; tests may have already stopped/killed database
        (c/su
         (c/exec :systemctl :stop service)))
-      (db/kill! this test node)
-
-      ;; TODO? remove package, data, config, log files
-      ;; (c/su
-      ;;  (deb/uninstall! [package])
-      ;;  (c/exec :rm :-rf "/var/lib/postgresql" "/var/log/postgresql" "/etc/postgresql*"))
-      )
+      (db/kill! this test node))
 
     ;; ElectricSQL doesn't have `primaries`.
     ;; db/Primary

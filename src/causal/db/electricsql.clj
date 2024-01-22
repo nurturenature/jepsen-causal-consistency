@@ -71,6 +71,43 @@
     (postgresql/insure-repo)
     (deb/install [:postgresql-client])))
 
+(defn drop-table
+  "Attempts to drop table.
+   TODO; Dropping a table isn't fully supported by ElectricSQL."
+  []
+  (insure-psql)
+  ; do our best, just try to delete rows, un-electrify, drop table
+  (u/meh
+   (c/exec :psql :-d connection-url
+           :-c "DELETE FROM public.lww_registers;"))
+  ;; (u/meh
+  ;;  (c/exec :psql :-d connection-url
+  ;;          :-c "ALTER TABLE public.lww_registers DISABLE ELECTRIC;"))
+  ;; (u/meh
+  ;;  (c/exec :psql :-d connection-url
+  ;;          :-c "DROP TABLE public.lww_registers;"))
+  (info "ElectricSQL table public.lww_registers:")
+  (u/meh
+   (info (c/exec :psql :-d connection-url
+                 :-c "TABLE public.lww_registers;"))))
+
+(defn insure-table-exists-empty
+  "Insures the lww_register table exists, is electrified, and empty."
+  []
+  (insure-psql)
+  ; may already exist, try and let fail to guard electrification
+  (u/meh
+   (c/exec :psql :-d connection-url
+           :-c "CREATE TABLE public.lww_registers (k integer PRIMARY KEY, v integer);")
+   (c/exec :psql :-d connection-url
+           :-c "ALTER TABLE public.lww_registers ENABLE ELECTRIC;"))
+  ; insure empty
+  (c/exec :psql :-d connection-url
+          :-c "DELETE FROM public.lww_registers;")
+  (info "ElectricSQL table public.lww_registers:")
+  (info (c/exec :psql :-d connection-url
+                :-c "TABLE public.lww_registers;")))
+
 (defn db
   "ElectricSQL SQLite database."
   []
@@ -121,7 +158,8 @@
          (c/cd (str install-dir "/components/electric")
                (c/exec :mix :deps.get)
                (c/exec :mix :compile)
-               (c/exec (c/env {:MIX_ENV :prod})
+               (c/exec (c/env {:MIX_ENV :prod
+                               :ELECTRIC_VERSION :0.9.0})
                        :mix :release :--overwrite)))
 
        (assert (deref promises/postgresql-available? 300000 false)
@@ -132,22 +170,7 @@
        ;; TODO: http://electricsql:?/api/status
        (u/sleep 5000)
 
-       ; create and electrify table
-       ; may already exist, insure empty
-       (insure-psql)
-       (u/meh
-        (c/exec :psql :-d connection-url
-                :-c "CREATE TABLE public.lww_registers (k integer PRIMARY KEY, v integer);")
-        (c/exec :psql :-d connection-url
-                :-c "ALTER TABLE public.lww_registers ENABLE ELECTRIC;"))
-       (c/exec :psql :-d connection-url
-               :-c "DELETE FROM public.lww_registers;")
-       (info "ElectricSQL tables, public.lww_registers:")
-       (info (c/exec :psql :-d connection-url
-                     :-c "\\dt"))
-       (info (c/exec :psql :-d connection-url
-                     :-c "TABLE public.lww_registers")))
-
+       (insure-table-exists-empty))
       (deliver promises/electricsql-available? true))
 
     (teardown!
@@ -156,33 +179,11 @@
         (assert (deref p 10000 false)
                 (str "SQLite3 node failed to teardown?: " n)))
 
-      (insure-psql)
-
       (info "Tearing down ElectricSQL")
-      ; tests may have stopped/killed service, or it may never have been setup,
-      ; but we really want to cleanup the db
-      (c/su
-       ; delete rows, un-electrify, drop table
-       (u/meh
-        (c/exec :psql :-d connection-url
-                :-c "DELETE FROM public.lww_registers;"))
-       (u/meh
-        (c/exec :psql :-d connection-url
-                :-c "ALTER TABLE public.lww_registers DISABLE ELECTRIC;"))
-       (u/meh
-        (c/exec :psql :-d connection-url
-                :-c "DROP TABLE public.lww_registers;"))
-       (info "ElectricSQL tables: ")
-       (u/meh
-        (info (c/exec :psql :-d connection-url
-                      :-c "\\dt"))))
+      (drop-table)
 
       ; stop service
       (db/kill! this test node)
-
-      ;; TODO? remove build dir, log file
-      ;; (c/su
-      ;;  (c/exec :rm :-rf build-dir log-file))
 
       (deliver promises/electricsql-teardown? true))
 
