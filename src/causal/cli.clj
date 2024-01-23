@@ -3,9 +3,11 @@
   (:require [causal
              [cluster :as cluster]
              [lww-register :as lww]
-             [postgresql :as postgresql]
-             [sqlite3 :as sqlite3]
              [strong-convergence :as sc]]
+            [causal.db
+             [electricsql :as electricsql]
+             [postgresql :as postgresql]
+             [sqlite3 :as sqlite3]]
             [clojure
              [set :as set]
              [string :as str]]
@@ -33,8 +35,9 @@
 (def workloads
   "A map of workload names to functions that take CLI options and return
   workload maps."
-  {:lww-register lww/workload
-   :none         (fn [_] tests/noop-test)})
+  {:lww-register        lww/workload
+   :lww-register-strong lww/workload-strong
+   :none                (fn [_] tests/noop-test)})
 
 (def all-workloads
   "A collection of workloads we run by default."
@@ -102,10 +105,9 @@
                        :timeline (timeline/html)
                        :stats (checker/stats)
                        :exceptions (checker/unhandled-exceptions)
-                       :logs-client     (checker/log-file-pattern #"SatelliteError\:" sqlite3/log-file-short)
-                       :logs-postgresql (checker/log-file-pattern #".*ERROR\:  deadlock detected.*" postgresql/log-file-short)
-                       ;; TODO: :logs-electricsql
-                       :strong-convergence (sc/final-reads)
+                       :logs-postgresql  (checker/log-file-pattern #".*ERROR\:  deadlock detected.*" postgresql/log-file-short)
+                       :logs-electricsql (checker/log-file-pattern #".*Client is not responding to ping, disconnecting.*" electricsql/log-file-short)
+                       :logs-client      (checker/log-file-pattern #"SatelliteError\:" sqlite3/log-file-short)
                        :workload (:checker workload)})
             :client    (:client workload)
             :nemesis   (:nemesis nemesis)

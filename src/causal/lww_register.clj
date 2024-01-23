@@ -7,6 +7,7 @@
              [core :as b]
              [graph :as bg]
              [set :as bs]]
+            [causal.strong-convergence :as sc]
             [causal.db
              [electricsql :as electricsql]
              [postgresql :as postgresql]
@@ -27,6 +28,7 @@
              [txn :as et]
              [util :as eu]]
             [jepsen
+             [checker :as checker]
              [client :as client]
              [control :as c]
              [history :as h]
@@ -305,7 +307,16 @@
     (merge
      wr-test
      {:client (LWWClient. nil)
-      :final-generator final-gen})))
+      :final-generator final-gen
+      :checker (checker/compose
+                {:strong-convergence (sc/final-reads)
+                 :wr-test            (:checker wr-test)})})))
+
+(defn workload-strong
+  "Workload with only a strong convergence checker."
+  [opts]
+  (assoc (workload opts)
+         :checker (sc/final-reads)))
 
 (defn cyclic-versions-helper
   "Given a cyclic-versions result map and a history, filter history for involved transactions."

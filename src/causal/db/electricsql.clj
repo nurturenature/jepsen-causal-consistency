@@ -53,11 +53,10 @@
    ;:LOG_LEVEL                 :debug
    })
 
-(def pid-file
-  (str install-dir "/electricsql.pid"))
+(def pid-file (str install-dir "/electricsql.pid"))
 
-(def log-file
-  (str install-dir "/electricsql.log"))
+(def log-file-short "electricsql.log")
+(def log-file       (str install-dir "/" log-file-short))
 
 
 (defn insure-psql
@@ -197,7 +196,7 @@
     db/LogFiles
     (log-files
       [_db _test _node]
-      {log-file "electricsql.log"})
+      {log-file log-file-short})
 
     db/Kill
     (start!
