@@ -24,17 +24,17 @@
   (str app-dir "/electric.db"))
 
 (def database-files
-  "SQLite3 database files."
-  (str app-dir "/electric.db*"))
+  "A collection of all SQLite3 database files."
+  [(str app-dir "/electric.db")
+   (str app-dir "/electric.db-shm")
+   (str app-dir "/electric.db-wal")])
 
-(def pid-file
-  (str app-dir "/electricsql.pid"))
+(def pid-file (str app-dir "/electricsql.pid"))
 
-(def log-file
-  (str app-dir "/electricsql.log"))
+(def log-file-short "client.log")
+(def log-file       (str app-dir "/" log-file-short))
 
-(def app-ps-name
-  "node")
+(def app-ps-name "node")
 
 (defn db
   "ElectricSQL SQLite database."
@@ -88,7 +88,8 @@
       (info "Tearing down SQLite3")
       (db/kill! this test node)
       (c/su
-       (c/exec :rm :-rf database-files))
+       (c/exec :rm :-rf database-files)
+       (c/exec :rm :-rf log-file))
 
       ; node may have never been `setup!` 
       (when-let [p (get @promises/sqlite3-teardown?s node)]
@@ -100,7 +101,7 @@
     db/LogFiles
     (log-files
       [_db _test _node]
-      {log-file "client.log"})
+      {log-file log-file-short})
 
     db/Kill
     (start!

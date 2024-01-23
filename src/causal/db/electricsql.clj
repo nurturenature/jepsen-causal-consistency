@@ -50,7 +50,8 @@
    :PG_PROXY_PASSWORD         pg-proxy-password
    :AUTH_MODE                 :insecure
    :ELECTRIC_USE_IPV6         :false
-   :LOG_LEVEL                 :debug})
+   ;:LOG_LEVEL                 :debug
+   })
 
 (def pid-file
   (str install-dir "/electricsql.pid"))
@@ -185,6 +186,9 @@
       ; stop service
       (db/kill! this test node)
 
+      (c/su
+       (c/exec :rm :-rf log-file))
+
       (deliver promises/electricsql-teardown? true))
 
     ; ElectricSQL doesn't have `primaries`.
@@ -201,7 +205,6 @@
       (if (cu/daemon-running? pid-file)
         :already-running
         (c/su
-         (c/exec :rm :-f pid-file log-file)
          (cu/start-daemon!
           {:chdir install-dir
            :env bin-env

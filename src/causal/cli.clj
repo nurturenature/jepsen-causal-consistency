@@ -3,6 +3,8 @@
   (:require [causal
              [cluster :as cluster]
              [lww-register :as lww]
+             [postgresql :as postgresql]
+             [sqlite3 :as sqlite3]
              [strong-convergence :as sc]]
             [clojure
              [set :as set]
@@ -59,6 +61,12 @@
        (map keyword)
        (mapcat #(get special-nemeses % [%]))))
 
+(defn parse-nodes-spec
+  "Takes a comma-separated nodes string and returns a collection of node names."
+  [spec]
+  (->> (str/split spec #",")
+       (map str/trim)))
+
 (def short-consistency-name
   "A map of consistency model names to a short name."
   {:strong-session-consistent-view "ss-consistent-view"})
@@ -75,10 +83,9 @@
                    :faults (:nemesis opts)
                    :partition {:targets [:one :minority-third :majority]}
                    :pause {:targets [:one :minority :majority :all]}
-                   :kill  {:targets [:one]}
-                   ;; TODO: docker privs for tc
-                   ;; :packet {:targets   [:one :minority :majority :all]
-                   ;;          :behaviors [{:delay {}}]}
+                   :kill  {:targets [["n1" "n2" "n3"]]}
+                   :packet {:targets   [:one :minority :majority :all]
+                            :behaviors [{:delay {}}]}
                    :interval (:nemesis-interval opts nc/default-interval)})]
     (merge tests/noop-test
            opts
@@ -95,6 +102,9 @@
                        :timeline (timeline/html)
                        :stats (checker/stats)
                        :exceptions (checker/unhandled-exceptions)
+                       :logs-client     (checker/log-file-pattern #"SatelliteError\:" sqlite3/log-file-short)
+                       :logs-postgresql (checker/log-file-pattern #".*ERROR\:  deadlock detected.*" postgresql/log-file-short)
+                       ;; TODO: :logs-electricsql
                        :strong-convergence (sc/final-reads)
                        :workload (:checker workload)})
             :client    (:client workload)
@@ -127,11 +137,6 @@
     :parse-fn parse-long
     :validate [pos? "Must be a positive integer"]]
 
-   [nil "--nemesis FAULTS" "A comma-separated list of nemesis faults to enable"
-    :parse-fn parse-nemesis-spec
-    :validate [(partial every? #{:pause :partition :kill})
-               "Faults must be partition, pause, or kill, or the special faults all or none."]]
-
    [nil "--min-txn-length NUM" "Minimum number of operations in a transaction."
     :default  1
     :parse-fn parse-long
@@ -147,10 +152,20 @@
     :parse-fn parse-long
     :validate [pos? "Must be a positive integer."]]
 
+   [nil "--nemesis FAULTS" "A comma-separated list of nemesis faults to enable"
+    :parse-fn parse-nemesis-spec
+    :validate [(partial every? #{:pause :partition :kill})
+               "Faults must be partition, pause, or kill, or the special faults all or none."]]
+
    [nil "--nemesis-interval SECS" "Roughly how long between nemesis operations."
     :default 5
     :parse-fn read-string
     :validate [pos? "Must be a positive number."]]
+
+   [nil "--noop-nodes NODES" "A comma-separated list of nodes that should get noop clients"
+    :parse-fn parse-nodes-spec
+    :validate [(partial every? #{"postgresql" "electricsql" "n1" "n2" "n3" "n4" "n5"})
+               (str "Nodes must be " #{"postgresql" "electricsql" "n1" "n2" "n3" "n4" "n5"})]]
 
    ["-r" "--rate HZ" "Approximate request rate, in hz"
     :default 100

@@ -30,7 +30,8 @@
   "PostgreSQL connection URI."
   (str "postgresql://" user ":" password "@" host))
 
-(def log-file "/var/log/postgresql/postgresql-16-main.log")
+(def log-file       "/var/log/postgresql/postgresql-16-main.log")
+(def log-file-short "postgresql.log")
 
 (defn insure-repo
   "Insures PostgreSQL repository is installed.
@@ -122,7 +123,9 @@
       (u/meh  ; tests may have already stopped/killed database
        (c/su
         (c/exec :systemctl :stop service)))
-      (db/kill! this test node))
+      (db/kill! this test node)
+      (c/su
+       (c/exec :su :- :-c (str "rm -rf " log-file))))
 
     ;; ElectricSQL doesn't have `primaries`.
     ;; db/Primary
@@ -131,7 +134,7 @@
     db/LogFiles
     (log-files
       [_db _test _node]
-      {log-file "postgresql.log"})
+      {log-file log-file-short})
 
     db/Kill
     (start!

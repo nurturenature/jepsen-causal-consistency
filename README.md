@@ -89,6 +89,5 @@ Look for `strong-session-consistent-view`:
    :anomalies-ignored [:lost-update]                     ; `lost-update`s are causally Ok, they are PL-2+, Adya 4.1.3
    :sequential-keys? true                                ; infer version order from elle/process-graph
    :wfr-keys? true                                       ; wfr-version-graph when <rw within txns
-   :wfr-process? true                                    ; wfr-process-graph used to infer version order
    })
 ```

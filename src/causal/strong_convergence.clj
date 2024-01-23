@@ -4,20 +4,34 @@
              [checker :as checker]
              [history :as h]]))
 
+(defn mops->map
+  "Takes a sequence of read mops and returns a k/v map with nils removed."
+  [mops]
+  (->> mops
+       (reduce (fn [mops' [f k v]]
+                 (assert (= :r f))
+                 (if (nil? v)
+                   mops'
+                   (assoc mops' k v)))
+               (sorted-map))))
+
 (defn final-reads
   "Do `:final-read? true` reads strongly converge?"
   []
   (reify checker/Checker
-    (check [_this {:keys [nodes] :as _test} history _opts]
-      (let [nodes        (set nodes)
+    (check [_this {:keys [nodes noop-nodes] :as _test} history _opts]
+      (let [noop-nodes   (into #{} noop-nodes)
+            nodes        (into #{} nodes)
+            nodes        (set/difference nodes noop-nodes)
             history      (->> history
                               h/client-ops
-                              h/oks)
+                              h/oks
+                              (h/remove :noop?))
             history'     (->> history
                               (h/filter :final-read?))
             node-finals  (->> history'
                               (reduce (fn [acc {:keys [node value] :as _op}]
-                                        (assoc acc node value))
+                                        (assoc acc node (mops->map value)))
                                       {}))
             value-finals (->> node-finals
                               (group-by val)
@@ -34,13 +48,7 @@
          (when (= 1 (count value-finals))
            {:final-read (->> value-finals
                              first
-                             first
-                             (map (fn [[_f k v]]
-                                    (if (nil? v)
-                                      nil
-                                      [k v])))
-                             (remove nil?)
-                             sort)})
+                             first)})
          (when (< 1 (count value-finals))
            {:valid? false
             :divergent-final-reads value-finals}))))))

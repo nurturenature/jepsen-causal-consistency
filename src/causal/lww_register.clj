@@ -31,12 +31,36 @@
              [control :as c]
              [history :as h]
              [generator :as gen]
-             [txn :as txn]]
+             [txn :as txn]
+             [util :as u]]
             [jepsen.tests.cycle.wr :as wr]
             [next.jdbc :as jdbc]
             [next.jdbc.result-set :as rs]
             [slingshot.slingshot :refer [try+ throw+]])
   (:import (java.sql Connection)))
+
+(defrecord NOOPClient [conn]
+  client/Client
+  (open!
+    [this _test node]
+    (assoc this
+           :node node))
+
+  (setup!
+    [_this _test])
+
+  (invoke!
+    [{:keys [node] :as _client} _test op]
+    (assoc op
+           :node  node
+           :type  :fail
+           :noop? true))
+
+  (teardown!
+    [_this _test])
+
+  (close!
+    [_client _test]))
 
 (defn txn->sql
   "Given a txn of mops, builds an SQL transaction."
@@ -146,29 +170,52 @@
             :node
             :url)))
 
+(defn get-connection
+  "Tries to get a `jdbc` connection for a total of ms, default 5000, every 1000ms.
+   Throws if no client can be gotten."
+  ([db-spec] (get-connection db-spec 5000))
+  ([db-spec ms]
+   (let [conn (u/timeout ms nil (u/retry 1 (->> db-spec
+                                                jdbc/get-datasource
+                                                jdbc/get-connection)))]
+     (when (nil? conn)
+       (throw+ {:connection-failure db-spec}))
+     conn)))
+
 (defrecord JDBCClient [db-spec]
   client/Client
   (open!
     [this _test node]
     (assoc this
            :node node
-           :conn (->> db-spec
-                      jdbc/get-datasource
-                      jdbc/get-connection)))
+           :conn (get-connection db-spec)))
 
   (setup!
     [_this _test])
 
   (invoke!
-    [{:keys [node] :as _this} test {:keys [f value] :as op}]
-    (assoc op
-           :node node
-           :type :fail))
-    ;; (jdbc/execute-one! conn ["INSERT INTO lww_registers(k,v) VALUES(4,4)"] {:builder-fn rs/as-unqualified-lower-maps})
-    ;; ; #:next.jdbc{:update-count 1}
-    ;; (jdbc/with-transaction+options [tx conn {:builder-fn rs/as-unqualified-lower-maps}]
-    ;;   (jdbc/execute! tx ["SELECT v FROM lww_registers WHERE k = 4"]))
-    ;; ; [#:lww_registers{:v 4}]
+    [{:keys [conn node] :as _this} _test {:keys [value] :as op}]
+    (let [op (assoc op
+                    :node node)
+          mops' (jdbc/with-transaction
+                  [tx conn]
+                  (->> value
+                       (map (fn [[f k v :as mop]]
+                              (case f
+                                :r [:r k (->> (jdbc/execute! tx [(str "SELECT v FROM lww_registers WHERE k = " k)])
+                                              first
+                                              :lww_registers/v)]
+                                :w (do
+                                     (assert (= 1
+                                                (->> (jdbc/execute! tx [(str "INSERT INTO lww_registers (k,v) VALUES (" k "," v ")"
+                                                                             " ON CONFLICT(k) DO UPDATE SET v = " v)])
+                                                     first
+                                                     :next.jdbc/update-count)))
+                                     mop))))
+                       (into [])))]
+      (assoc op
+             :type  :ok
+             :value mops')))
 
   (teardown!
     [_this _test])
@@ -183,28 +230,40 @@
                  :host     postgresql/host
                  :user     postgresql/user
                  :password postgresql/password}
-   "electricsql" {:dbtype  "postgresql"
+   "electricsql" {:dbtype   "postgresql"
                   :host     electricsql/host
                   :port     electricsql/pg-proxy-port
                   :user     postgresql/user
-                  :password electricsql/pg-proxy-password}})
+                  :password electricsql/pg-proxy-password
+                  :dbname   "postgres"}})
 
+;; TODO: why isn't electricsql allowing a connection using jdbc?
+;;       just connecting to postgresql for now
 (defn node->client
   "Maps a node name to its `client` protocol, e.g.:
      - 'postgresql'  -> `JDBCClient`
      - 'electricsql` -> `JDBCClient`
-     - client nodes  -> `SQLITE3Client`"
-  [node]
-  (case node
-    "postgresql"  (JDBCClient. (get db-specs "postgresql"))
-    "electricsql" (JDBCClient. (get db-specs "electricsql"))
+     - client nodes  -> `SQLITE3Client`
+     - node is in `noop-nodes` -> NOOPClient"
+  [{:keys [noop-nodes] :as _test} node]
+  (cond
+    (contains? (into #{} noop-nodes) node)
+    (NOOPClient. nil)
+
+    (= "postgresql" node)
+    (JDBCClient. (get db-specs "postgresql"))
+
+    (= "electricsql" node)
+    (JDBCClient. (get db-specs "electricsql"))
+
+    :else
     (SQLITE3Client. nil)))
 
 (defrecord LWWClient [conn]
   client/Client
   (open!
     [_this test node]
-    (client/open! (node->client node) test node)))
+    (client/open! (node->client test node) test node)))
 
 (def causal-opts
   "Opts to configure Elle for causal consistency."
@@ -218,8 +277,9 @@
    :sequential-keys? true                                ; infer version order from elle/process-graph
    ;:linearizable-keys? true                             ; TODO: should be LWW?
    :wfr-keys? true                                       ; wfr-version-graph when <rw within txns
-   :wfr-process? true                                    ; wfr-process-graph used to infer version order
-   :additional-graphs [rw/wfr-ww-transaction-graph]})
+   ;:wfr-process? true TODO: valid? explainer?           ; wfr-process-graph used to infer version order
+   ; :additional-graphs [rw/wfr-ww-transaction-graph] TODO: valid? explainer?
+   })
 
 (defn workload
   "Last write wins register workload.
@@ -246,6 +306,23 @@
      wr-test
      {:client (LWWClient. nil)
       :final-generator final-gen})))
+
+(defn cyclic-versions-helper
+  "Given a cyclic-versions result map and a history, filter history for involved transactions."
+  [{:keys [key scc] :as _cyclic-versions} history]
+  (->> history
+       h/client-ops
+       h/oks
+       (h/filter (fn [{:keys [value] :as _op}]
+                   (->> value
+                        (reduce (fn [_acc [_f k v]]
+                                  (if (and (= key k)
+                                           (contains? scc v))
+                                    (reduced true)
+                                    false))
+                                false))))
+       (map (fn [op]
+              (select-keys op [:index :process :value])))))
 
 (defn op
   "Generates an operation from a string language like so:
