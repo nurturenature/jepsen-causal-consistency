@@ -198,26 +198,35 @@
   (invoke!
     [{:keys [conn node] :as _this} _test {:keys [value] :as op}]
     (let [op (assoc op
-                    :node node)
-          mops' (jdbc/with-transaction
-                  [tx conn]
-                  (->> value
-                       (map (fn [[f k v :as mop]]
-                              (case f
-                                :r [:r k (->> (jdbc/execute! tx [(str "SELECT v FROM lww_registers WHERE k = " k)])
-                                              first
-                                              :lww_registers/v)]
-                                :w (do
-                                     (assert (= 1
-                                                (->> (jdbc/execute! tx [(str "INSERT INTO lww_registers (k,v) VALUES (" k "," v ")"
-                                                                             " ON CONFLICT(k) DO UPDATE SET v = " v)])
-                                                     first
-                                                     :next.jdbc/update-count)))
-                                     mop))))
-                       (into [])))]
-      (assoc op
-             :type  :ok
-             :value mops')))
+                    :node node)]
+      (try+
+       (let [mops' (jdbc/with-transaction
+                     [tx conn]
+                     (->> value
+                          (map (fn [[f k v :as mop]]
+                                 (case f
+                                   :r [:r k (->> (jdbc/execute! tx [(str "SELECT v FROM lww_registers WHERE k = " k)])
+                                                 first
+                                                 :lww_registers/v)]
+                                   :w (do
+                                        (assert (= 1
+                                                   (->> (jdbc/execute! tx [(str "INSERT INTO lww_registers (k,v) VALUES (" k "," v ")"
+                                                                                " ON CONFLICT(k) DO UPDATE SET v = " v)])
+                                                        first
+                                                        :next.jdbc/update-count)))
+                                        mop))))
+                          (into [])))]
+         (assoc op
+                :type  :ok
+                :value mops'))
+       (catch (fn [e]
+                (if (and (instance? org.postgresql.util.PSQLException e)
+                         (re-find #"ERROR\: deadlock detected\n.*" (.getMessage e)))
+                  true
+                  false)) {}
+         (assoc op
+                :type  :fail
+                :error :deadlock)))))
 
   (teardown!
     [_this _test])
@@ -256,7 +265,8 @@
     (JDBCClient. (get db-specs "postgresql"))
 
     (= "electricsql" node)
-    (JDBCClient. (get db-specs "electricsql"))
+    ; TODO: electricsql refuses jdbc connections, so use postgresql
+    (JDBCClient. (get db-specs "postgresql"))
 
     :else
     (SQLITE3Client. nil)))

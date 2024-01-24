@@ -168,9 +168,12 @@
        (db/start! this test node)
 
        ;; TODO: http://electricsql:?/api/status
-       (u/sleep 5000)
+       (u/sleep 3000)
 
-       (insure-table-exists-empty))
+       (insure-table-exists-empty)
+
+       ;; TODO: http://electricsql:?/api/status
+       (u/sleep 3000))
       (deliver promises/electricsql-available? true))
 
     (teardown!

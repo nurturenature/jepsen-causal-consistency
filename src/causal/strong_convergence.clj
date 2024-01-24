@@ -33,6 +33,25 @@
                               (reduce (fn [acc {:keys [node value] :as _op}]
                                         (assoc acc node (mops->map value)))
                                       {}))
+            summary      (->> node-finals
+                              (reduce (fn [acc [node reads]]
+                                        (->> reads
+                                             (reduce (fn [acc [k v]]
+                                                       (-> acc
+                                                           (update k (fn [old]
+                                                                       (if (nil? old)
+                                                                         (sorted-map)
+                                                                         old)))
+                                                           (update-in [k v] (fn [old]
+                                                                              (if (nil? old)
+                                                                                (sorted-set node)
+                                                                                (conj old node))))))
+                                                     acc)))
+                                      (sorted-map))
+                              (remove (fn [[_k vs]]
+                                        (if (->> vs keys count (= 1))
+                                          true
+                                          false))))
             value-finals (->> node-finals
                               (group-by val)
                               (map (fn [[read read-by]]
@@ -51,4 +70,4 @@
                              first)})
          (when (< 1 (count value-finals))
            {:valid? false
-            :divergent-final-reads value-finals}))))))
+            :divergent-final-reads summary}))))))

@@ -29,7 +29,7 @@
    (str app-dir "/electric.db-shm")
    (str app-dir "/electric.db-wal")])
 
-(def pid-file (str app-dir "/electricsql.pid"))
+(def pid-file (str app-dir "/client.pid"))
 
 (def log-file-short "client.log")
 (def log-file       (str app-dir "/" log-file-short))
@@ -42,6 +42,8 @@
   (reify db/DB
     (setup!
       [this test node]
+      (info "Setting up SQLite3 client")
+
       ; `client` will use `sqlite3` CLI
       (c/su
        (deb/install [:sqlite3]))
@@ -75,9 +77,17 @@
       (assert (deref promises/electricsql-available? 600000 false)
               "ElectricSQL not available")
 
-      (c/su
-       (c/cd app-dir
-             (c/exec :npm :run :build)))
+      ; building client migrations via ElectricSQL can be fussy, retry
+      (assert (u/timeout
+               60000 false
+               (u/retry
+                2 (do (c/su
+                       (c/cd app-dir
+                             (info "Building SQLite3 client")
+                             (c/exec :npm :install)
+                             (c/exec :npm :run :build)))
+                      true)))
+              (str "Unable to build SQLite3 client on " node))
 
       (db/start! this test node)
 

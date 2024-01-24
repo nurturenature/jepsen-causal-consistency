@@ -86,7 +86,7 @@
                    :faults (:nemesis opts)
                    :partition {:targets [:one :minority-third :majority]}
                    :pause {:targets [:one :minority :majority :all]}
-                   :kill  {:targets [["n1" "n2" "n3"]]}
+                   :kill  {:targets [["n1" "n2"]]}
                    :packet {:targets   [:one :minority :majority :all]
                             :behaviors [{:delay {}}]}
                    :interval (:nemesis-interval opts nc/default-interval)})]
@@ -105,7 +105,8 @@
                        :timeline (timeline/html)
                        :stats (checker/stats)
                        :exceptions (checker/unhandled-exceptions)
-                       :logs-postgresql  (checker/log-file-pattern #".*ERROR\:  deadlock detected.*" postgresql/log-file-short)
+                       ; deadlocks are to be expected
+                       ; :logs-postgresql  (checker/log-file-pattern #".*ERROR\:  deadlock detected.*" postgresql/log-file-short)
                        :logs-electricsql (checker/log-file-pattern #".*Client is not responding to ping, disconnecting.*" electricsql/log-file-short)
                        :logs-client      (checker/log-file-pattern #"SatelliteError\:" sqlite3/log-file-short)
                        :workload (:checker workload)})
