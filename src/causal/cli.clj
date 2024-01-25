@@ -89,6 +89,7 @@
                    :kill  {:targets [["n1" "n2"]]}
                    :packet {:targets   [:one :minority :majority :all]
                             :behaviors [{:delay {}}]}
+                   :clock {:targets [["n1" "n2" "n3"]]}
                    :interval (:nemesis-interval opts nc/default-interval)})]
     (merge tests/noop-test
            opts
@@ -105,9 +106,12 @@
                        :timeline (timeline/html)
                        :stats (checker/stats)
                        :exceptions (checker/unhandled-exceptions)
+                       :clock (checker/clock-plot)
                        ; deadlocks are to be expected
                        ; :logs-postgresql  (checker/log-file-pattern #".*ERROR\:  deadlock detected.*" postgresql/log-file-short)
-                       :logs-electricsql (checker/log-file-pattern #".*Client is not responding to ping, disconnecting.*" electricsql/log-file-short)
+                       ; TODO: are all [error] errors?
+                       ; :logs-electricsql (checker/log-file-pattern #".*Client is not responding to ping, disconnecting.*" electricsql/log-file-short)
+                       :logs-electricsql (checker/log-file-pattern #".\[error\].*" electricsql/log-file-short)
                        :logs-client      (checker/log-file-pattern #"SatelliteError\:" sqlite3/log-file-short)
                        :workload (:checker workload)})
             :client    (:client workload)
@@ -157,8 +161,8 @@
 
    [nil "--nemesis FAULTS" "A comma-separated list of nemesis faults to enable"
     :parse-fn parse-nemesis-spec
-    :validate [(partial every? #{:pause :partition :kill})
-               "Faults must be partition, pause, or kill, or the special faults all or none."]]
+    :validate [(partial every? #{:pause :partition :kill :clock})
+               "Faults must be partition, pause, kill, or clock, or the special faults all or none."]]
 
    [nil "--nemesis-interval SECS" "Roughly how long between nemesis operations."
     :default 5

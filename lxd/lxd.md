@@ -22,7 +22,7 @@ sudo usermod -aG lxd <username>
 # try creating a sample container if you want
 lxc launch images:debian/12 scratch
 lxc list
-lxc exec scratch -t bash
+lxc shell scratch
 lxc stop scratch
 lxc delete scratch
 ```
@@ -35,7 +35,7 @@ for i in {1..10}; do lxc launch images:debian/12 n${i}; done
 
 ### Configure LXD bridge network:
 
-`lxd` automatically creates the bridge network, and `lxc launch` automatically configures containers for it: 
+`lxd` automatically creates the bridge network, and `lxc launch` automatically configures the containers for it: 
 ```bash
 lxc network list
 +--------+----------+---------+----------------+---+-------------+---------+---------+
@@ -72,14 +72,14 @@ RemainAfterExit=yes
 WantedBy=sys-subsystem-net-devices-lxdbr0.device
 
 # bring up and confirm status
- sudo systemctl daemon-reload
- sudo systemctl enable --now lxd-dns-lxdbr0
- sudo systemctl status lxd-dns-lxdbr0.service
- sudo resolvectl status lxdbr0
+sudo systemctl daemon-reload
+sudo systemctl enable --now lxd-dns-lxdbr0
+sudo systemctl status lxd-dns-lxdbr0.service
+sudo resolvectl status lxdbr0
 
 ping n1
-PING n1(n1 (fe80::216:3eff:fe22:bfe4%lxdbr0)) 56 data bytes
-64 bytes from n1 (fe80::216:3eff:fe22:bfe4%lxdbr0): icmp_seq=1 ttl=64 time=0.111 ms
+PING n1 (10.82.244.166) 56(84) bytes of data.
+64 bytes from n1.lxd (10.82.244.166): icmp_seq=1 ttl=64 time=0.598 ms
 ```
 
 ### Add required packages to node containers:
@@ -132,6 +132,18 @@ for i in {1..10}; do
   lxc delete n${i};
 done
 ```
+
+----
+
+### Real VMs w/Real Clocks
+
+```bash
+sudo apt install qemu-system
+
+lxc launch images:debian/12 n1 --vm
+```
+
+Allows the clock nemesis to bump, skew, and scramble time in the Jepsen node as it's a real vm with a real clock.
 
 ----
 

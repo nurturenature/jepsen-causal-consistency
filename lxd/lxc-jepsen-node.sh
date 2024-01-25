@@ -3,13 +3,15 @@ set -e
 
 if [ -z "$1" ]; then
   echo "Usage: ./lxc-jepsen-node.sh node-name";
+  echo "       ./lxc-jepsen-node.sh node-name --vm";
   exit 1;
 fi
 
 lxc stop   "$1" --force || true
 lxc delete "$1"         || true
 
-lxc launch images:debian/12 "$1"
+lxc launch images:debian/12 "$1" "$2"
+sleep 10
 
 lxc exec "$1" -- sh -c "apt-get -qy update && apt-get -qy install openssh-server sudo"
 
