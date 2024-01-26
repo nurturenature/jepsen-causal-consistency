@@ -4,13 +4,11 @@
   :license {:name "Apache License Version 2.0, January 2004"
             :url "http://www.apache.org/licenses/"}
   :dependencies [[org.clojure/clojure "1.11.1"]
-                 [jepsen "0.3.5-SNAPSHOT"]
-                 ; [elle "0.2.0"]
-                 [elle "0.2.1-SNAPSHOT"]
+                 [jepsen "0.3.5"]
+                 [elle "0.2.2-SNAPSHOT"]
                  [cheshire "5.12.0"]
                  [com.github.seancorfield/next.jdbc "1.3.909"]
-                 [org.postgresql/postgresql "42.7.1"]
-                 [spootnik/unilog "0.7.31"]]
+                 [org.postgresql/postgresql "42.7.1"]]
   :jvm-opts ["-Djava.awt.headless=true"]
   :main causal.cli
   :repl-options {:init-ns causal.cli}

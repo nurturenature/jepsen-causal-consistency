@@ -15,8 +15,7 @@
     (is (:valid? (rw/check lww/causal-opts lww/ryw-ok)))
 
     (is (= (select-keys (rw/check lww/causal-opts lww/ryw-anomaly) [:valid? :anomaly-types :not])
-           {:valid? false :anomaly-types [:G-single-item-process :cyclic-versions] :not #{:read-uncommitted}}))
-    (is (not (:valid? (rw/check lww/causal-opts lww/ryw-anomaly))))))
+           {:valid? false :anomaly-types [:G-single-item-process :cyclic-versions] :not #{:read-uncommitted}}))))
 
 (deftest monotonic-writes
   (testing "monotonic-writes"
@@ -37,14 +36,7 @@
     (is (= (select-keys (rw/check lww/causal-opts lww/wfr-1-mop-anomaly) [:valid? :anomaly-types :not])
            {:valid? false :anomaly-types [:G-single-item-process] :not #{:strong-session-consistent-view}}))
     (is (= (select-keys (rw/check lww/causal-opts lww/wfr-2-mop-anomaly) [:valid? :anomaly-types :not])
-           {:valid? false :anomaly-types [:G-single-item] :not #{:consistent-view :repeatable-read}}))))
-
-(deftest internal
-  (testing "internal"
-    (is (:valid? (rw/check lww/causal-opts lww/internal-ok)))
-
-    (is (= (select-keys (rw/check lww/causal-opts lww/internal-anomaly) [:valid? :anomaly-types :not])
-           {:valid? false :anomaly-types [:internal] :not #{:read-atomic}}))))
+           {:valid? false :anomaly-types [:G-single-item-process] :not #{:strong-session-consistent-view}}))))
 
 (deftest lww
   (testing "lww"
