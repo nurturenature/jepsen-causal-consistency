@@ -61,3 +61,48 @@ Jepsen faults are real faults:
   - kill (-9) the ElectricSQL satellite sync service on each node
     - clients continue to read/write to the database
     - sync service restarted
+
+----
+
+### ***Preliminary*** Testing of Strong Convergence With Kills
+
+- 10 SQLite3 client nodes
+- ~50 tps
+
+```clj
+;; ~5s kill the Electric sync service on a random third of the nodes
+:nemesis	:info	:kill	["n1" "n4" "n6"]
+:nemesis	:info	:kill	{"n1" :killed, "n4" :killed, "n6" :killed}
+
+;; keep doing local transactions even with no sync service
+7	:ok	:txn	[[:w 9 12] [:r 8 6] [:r 9 12]]
+9	:ok	:txn	[[:w 9 13] [:r 9 13]]
+10	:ok	:txn	[[:w 8 15] [:r 9 6] [:r 8 15] [:w 4 1]]
+11	:ok	:txn	[[:r 9 7] [:w 8 16]]
+3	:ok	:txn	[[:r 9 10] [:w 9 17] [:r 6 nil]]
+4	:ok	:txn	[[:w 8 19] [:w 9 18] [:w 6 2] [:w 6 3]]
+6	:ok	:txn	[[:r 4 nil] [:r 9 nil]]
+
+;; ~5s restart sync service on nodes forcing it to catch-up with local and remote writes,
+;; and hopefully forcing it to deal with timing/recovery of sync in progress kills 😈 
+:nemesis	:info	:start	:all
+:nemesis	:info	:start	{"n1" :started, "n2" :already-running, "n3" :already-running, "n4" :started, ...}
+```
+
+![Strong Convergence with Kills](strong-convergence-kill-latency.png)
+
+```clj
+;; strong convergence
+{:valid? true,
+ :final-read {0 6,
+              1 12,
+              2 23,
+              3 56,
+              4 91,
+              5 171,
+              6 254,
+              7 247,
+              8 251,
+              9 256,
+              ...}}
+```
