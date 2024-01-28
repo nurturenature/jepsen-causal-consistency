@@ -7,7 +7,7 @@
              [core :as b]
              [graph :as bg]
              [set :as bs]]
-            [causal.strong-convergence :as sc]
+            [causal.checker.strong-convergence :as sc]
             [causal.db
              [electricsql :as electricsql]
              [postgresql :as postgresql]
@@ -258,15 +258,15 @@
      - node is in `noop-nodes` -> NOOPClient"
   [{:keys [noop-nodes] :as _test} node]
   (cond
-    (contains? (into #{} noop-nodes) node)
+    (contains? noop-nodes node)
     (NOOPClient. nil)
 
     (= "postgresql" node)
     (JDBCClient. (get db-specs "postgresql"))
 
     (= "electricsql" node)
-    ; TODO: electricsql refuses jdbc connections, so use postgresql
-    (JDBCClient. (get db-specs "postgresql"))
+    ; TODO: electricsql pg proxy doesn't play well with jdbc
+    (JDBCClient. (get db-specs "electricsql"))
 
     :else
     (SQLITE3Client. nil)))

@@ -2,8 +2,10 @@
   "Command-line entry point for ElectricSQL tests."
   (:require [causal
              [cluster :as cluster]
-             [lww-register :as lww]
-             [strong-convergence :as sc]]
+             [lww-register :as lww]]
+            [causal.checker
+             [strong-convergence :as sc]
+             [without-noops :refer [without-noops]]]
             [causal.db
              [electricsql :as electricsql]
              [postgresql :as postgresql]
@@ -65,10 +67,11 @@
        (mapcat #(get special-nemeses % [%]))))
 
 (defn parse-nodes-spec
-  "Takes a comma-separated nodes string and returns a collection of node names."
+  "Takes a comma-separated nodes string and returns a set of node names."
   [spec]
   (->> (str/split spec #",")
-       (map str/trim)))
+       (map str/trim)
+       (into #{})))
 
 (def short-consistency-name
   "A map of consistency model names to a short name."
@@ -76,8 +79,9 @@
 
 (defn causal-test
   "Given options from the CLI, constructs a test map."
-  [opts]
-  (let [workload-name (:workload opts)
+  [{:keys [nodes noop-nodes] :as opts}]
+  (let [nodes'        (set/difference (into #{} nodes) noop-nodes)
+        workload-name (:workload opts)
         workload ((workloads workload-name) opts)
         db       (cluster/db)
         nemesis  (nc/nemesis-package
@@ -86,7 +90,13 @@
                    :faults (:nemesis opts)
                    :partition {:targets [:one :minority-third :majority]}
                    :pause {:targets [:one :minority :majority :all]}
-                   :kill  {:targets [["n1" "n2"]]}
+                   :kill  {:targets (->> (repeatedly 3 (fn []
+                                                         (->> nodes'
+                                                              shuffle
+                                                              (take 3)
+                                                              sort
+                                                              (into []))))
+                                         (into []))}
                    :packet {:targets   [:one :minority :majority :all]
                             :behaviors [{:delay {}}]}
                    :clock {:targets [["n1" "n2" "n3"]]}
@@ -100,20 +110,21 @@
                        " " (str/join "," (map name (:nemesis opts))))
             :os debian/os
             :db db
-            :checker (checker/compose
-                      {:perf (checker/perf
-                              {:nemeses (:perf nemesis)})
-                       :timeline (timeline/html)
-                       :stats (checker/stats)
-                       :exceptions (checker/unhandled-exceptions)
-                       :clock (checker/clock-plot)
+            :checker (without-noops
+                      (checker/compose
+                       {:perf (checker/perf
+                               {:nemeses (:perf nemesis)})
+                        :timeline (timeline/html)
+                        :stats (checker/stats)
+                        :exceptions (checker/unhandled-exceptions)
+                        :clock (checker/clock-plot)
                        ; deadlocks are to be expected
                        ; :logs-postgresql  (checker/log-file-pattern #".*ERROR\:  deadlock detected.*" postgresql/log-file-short)
                        ; TODO: are all [error] errors?
                        ; :logs-electricsql (checker/log-file-pattern #".*Client is not responding to ping, disconnecting.*" electricsql/log-file-short)
-                       :logs-electricsql (checker/log-file-pattern #".\[error\].*" electricsql/log-file-short)
-                       :logs-client      (checker/log-file-pattern #"SatelliteError\:" sqlite3/log-file-short)
-                       :workload (:checker workload)})
+                        :logs-electricsql (checker/log-file-pattern #".\[error\].*" electricsql/log-file-short)
+                        :logs-client      (checker/log-file-pattern #"SatelliteError\:" sqlite3/log-file-short)
+                        :workload (:checker workload)}))
             :client    (:client workload)
             :nemesis   (:nemesis nemesis)
             :generator (gen/phases

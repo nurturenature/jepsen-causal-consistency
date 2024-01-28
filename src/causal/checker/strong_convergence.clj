@@ -1,4 +1,4 @@
-(ns causal.strong-convergence
+(ns causal.checker.strong-convergence
   (:require [clojure.set :as set]
             [jepsen
              [checker :as checker]
@@ -19,14 +19,11 @@
   "Do `:final-read? true` reads strongly converge?"
   []
   (reify checker/Checker
-    (check [_this {:keys [nodes noop-nodes] :as _test} history _opts]
-      (let [noop-nodes   (into #{} noop-nodes)
-            nodes        (into #{} nodes)
-            nodes        (set/difference nodes noop-nodes)
+    (check [_this {:keys [nodes] :as _test} history _opts]
+      (let [nodes        (->> nodes (into (sorted-set)))
             history      (->> history
                               h/client-ops
-                              h/oks
-                              (h/remove :noop?))
+                              h/oks)
             history'     (->> history
                               (h/filter :final-read?))
             node-finals  (->> history'
