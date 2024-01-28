@@ -8,6 +8,8 @@ Inspired by:
 >
 > -- paraphrasing Shapiro, Bieniusa, Balegas, etc
 
+Initial tests, [current status](doc/electricsql.md), are being developed for [ElectricSQL](https://electric-sql.com/).
+
 ----
 
 ### Uses Elle, Jepsen's Checker
@@ -62,12 +64,6 @@ Inspired by:
      {:process 0, :type :ok, :f :txn, :value [[:r :x 1]], :index 5, :time -1}
      {:process 1, :type :ok, :f :txn, :value [[:r :x 0]], :index 7, :time -1}]
     ```
-
-----
-
-### Current Status
-
-Working on a LWW Register test using [ElectricSQL](https://electric-sql.com/).
 
 ----
 
