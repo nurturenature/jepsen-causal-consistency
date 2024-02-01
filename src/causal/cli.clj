@@ -4,6 +4,7 @@
              [cluster :as cluster]
              [lww-register :as lww]]
             [causal.checker
+             [fairness :as fairness]
              [strong-convergence :as sc]
              [without-noops :refer [without-noops]]]
             [causal.db
@@ -99,7 +100,13 @@
                                          (into []))}
                    :packet {:targets   [:one :minority :majority :all]
                             :behaviors [{:delay {}}]}
-                   :clock {:targets [["n1" "n2" "n3"]]}
+                   :clock {:targets (->> (repeatedly 3 (fn []
+                                                         (->> nodes'
+                                                              shuffle
+                                                              (take 3)
+                                                              sort
+                                                              (into []))))
+                                         (into []))}
                    :interval (:nemesis-interval opts nc/default-interval)})]
     (merge tests/noop-test
            opts
@@ -122,8 +129,9 @@
                        ; :logs-postgresql  (checker/log-file-pattern #".*ERROR\:  deadlock detected.*" postgresql/log-file-short)
                        ; TODO: are all [error] errors?
                        ; :logs-electricsql (checker/log-file-pattern #".*Client is not responding to ping, disconnecting.*" electricsql/log-file-short)
-                        :logs-electricsql (checker/log-file-pattern #".\[error\].*" electricsql/log-file-short)
+                        :logs-electricsql (checker/log-file-pattern #".*\[error\].*" electricsql/log-file-short)
                         :logs-client      (checker/log-file-pattern #"SatelliteError\:" sqlite3/log-file-short)
+                        :fairness         (fairness/fairness)
                         :workload (:checker workload)}))
             :client    (:client workload)
             :nemesis   (:nemesis nemesis)
@@ -154,6 +162,11 @@
     :default  10
     :parse-fn parse-long
     :validate [pos? "Must be a positive integer"]]
+
+   [nil "--key-dist DISTRIBUTION" "Exponential or uniform."
+    :default  :exponential
+    :parse-fn keyword
+    :validate [#{:exponential :uniform} "Must be exponential or uniform."]]
 
    [nil "--min-txn-length NUM" "Minimum number of operations in a transaction."
     :default  1

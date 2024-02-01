@@ -1,45 +1,55 @@
 (ns causal.checker.fairness
-  (:require [clojure.set :as set]
+  (:require [elle.rw-register :as rw]
             [jepsen
              [checker :as checker]
              [history :as h]
              [store :as store]
+             [txn :as txn]
              [util :as u]]
             [jepsen.checker.perf :as perf]
             [jepsen.history.fold :as f]
-            [slingshot.slingshot :refer [try+ throw+]]
-            [tesser.core :as t]))
+            [slingshot.slingshot :refer [try+]]
+            [tesser.core :as t])
+  (:import (jepsen.history Op)))
 
-(defn fs->points
-  "Given a sequence of :f's, yields a map of f -> gnuplot-point-type, so we can
+(defn node->color
+  "Given a sequence of nodes, yields a map of node->color using gnuplot colors."
+  [nodes]
+  (->> nodes
+       (map (fn [color type]
+              [type ['rgb color]])
+            (cycle ["red" "violet" "green" "brown"
+                    "orange" "blue" "pink"
+                    "gold" "grey"
+                    "#F0DC82" ; buff
+                    ]))
+       (into (sorted-map))))
+
+(defn nodes->points
+  "Given a sequence of nodes, yields a map of node -> gnuplot-point-type, so we can
   render each function in a different style."
-  [fs]
-  (->> fs
+  [nodes]
+  (->> nodes
        (map-indexed (fn [i f] [f (* 2 (+ 2 i))]))
        (into {})))
-
-(def types
-  "What types are we rendering?"
-  [:ok :info :fail])
-
-(def type->color
-  "Takes a type of operation (e.g. :ok) and returns a gnuplot color."
-  {:ok   ['rgb "#81BFFC"]
-   :info ['rgb "#FFA400"]
-   :fail ['rgb "#FF1E90"]})
 
 (defn rate-preamble
   "Gnuplot commands for setting up a rate plot."
   [test output-path]
   (concat (perf/preamble output-path)
-          [[:set :title (str (:name test) " rate")]]
-          '[[set ylabel "Throughput (hz)"]]))
+          [[:set :title (str (:name test) " fairness")]]
+          '[[set ylabel "Observed Writes (Hz)"]]))
 
-(defn rate-graph!
+(defn writes-read-by-node-rate-graph!
   "Writes a plot of operation rate by their completion times."
-  [test history {:keys [subdirectory nemeses]}]
-  (let [nemeses     (or nemeses (:nemeses (:plot test)))
-        dt          10
+  [{:keys [nodes] :as test} history {:keys [subdirectory nemeses]}]
+  (let [history'    (->> history
+                         h/client-ops
+                         h/oks
+                         (h/remove :final-read?))
+        nodes       (into (sorted-set) nodes)
+        nemeses     (or nemeses (:nemeses (:plot test)))
+        dt          1
         td          (double (/ dt))
         ; Times might technically be out-of-order (and our tests do this
         ; intentionally, just for convenience)
@@ -48,21 +58,30 @@
                                          (t/max)
                                          (h/tesser history))]
                               (u/nanos->secs (or t 0))))
+        ext-index    (h/task history' :ext-index []
+                             (rw/ext-index txn/ext-writes history'))
         ; Compute rates: a map of f -> type -> time-bucket -> rate
         datasets
         (h/fold
-         (->> history
-              (h/remove h/invoke?)
-              h/client-ops)
-         (f/loopf {:name :rate-graph}
+         history'
+         (f/loopf {:name :fairness-graph}
                    ; We work with a flat map for speed, and nest it at
                    ; the end
                   ([m (transient {})]
                    [^Op op]
                    (recur (let [bucket (perf/bucket-time dt (u/nanos->secs
-                                                             (.time op)))
-                                k [(.f op) (.type op) bucket]]
-                            (assoc! m k (+ (get m k 0) td))))
+                                                             (.time op)))]
+                            (reduce (fn [acc [f k v]]
+                                      (if (and (= :r f)
+                                               v)
+                                        (let [node (->> (get-in @ext-index [k v])
+                                                        first
+                                                        :node)
+                                              k [(.f op) node bucket]]
+                                          (assoc! acc k (+ (get acc k 0) td)))
+                                        acc))
+                                    m
+                                    (:value op))))
                    (persistent! m))
                    ; Combiner: merge, then furl
                   ([m {}]
@@ -72,17 +91,17 @@
                              (assoc-in nested ks rate))
                            {}
                            m))))
-        fs          (u/polysort (keys datasets))
-        fs->points- (fs->points fs)
+        fs             (u/polysort (keys datasets))
+        nodes->points- (nodes->points nodes)
         output-path (.getCanonicalPath
-                     (store/path! test subdirectory "rate.png"))
+                     (store/path! test subdirectory "fairness.png"))
         preamble (rate-preamble test output-path)
-        series   (for [f fs, t types]
-                   {:title     (str (u/name+ f) " " (name t))
+        series   (for [f fs, node nodes]
+                   {:title     (str "write from " (name node))
                     :with      'linespoints
-                    :linetype  (type->color t)
-                    :pointtype (fs->points- f)
-                    :data      (let [m (get-in datasets [f t])]
+                    :linetype  ((node->color nodes) node)
+                    :pointtype (nodes->points- node)
+                    :data      (let [m (get-in datasets [f node])]
                                  (map (juxt identity #(get m % 0))
                                       (perf/buckets dt @t-max)))})]
     (-> {:preamble  preamble
@@ -92,68 +111,31 @@
         perf/plot!
         (try+ (catch [:type ::no-points] _ :no-points)))))
 
-(defn mops->map
-  "Takes a sequence of read mops and returns a k/v map with nils removed."
-  [mops]
-  (->> mops
-       (reduce (fn [mops' [f k v]]
-                 (assert (= :r f))
-                 (if (nil? v)
-                   mops'
-                   (assoc mops' k v)))
-               (sorted-map))))
-
 (defn fairness
   "Plot the rate of reads of each node's writes,
-   e.g. are each nodes writes fairly represented, being read by other nodes?"
+   e.g. are each nodes writes fairly represented, being read by itself and other nodes?
+   Count all reads of writes."
   []
   (reify checker/Checker
-    (check [_this {:keys [nodes] :as _test} history _opts]
-      (let [nodes        (->> nodes (into (sorted-set)))
-            history      (->> history
-                              h/client-ops
-                              h/oks)
-            history'     (->> history
-                              (h/filter :final-read?))
-            node-finals  (->> history'
-                              (reduce (fn [acc {:keys [node value] :as _op}]
-                                        (assoc acc node (mops->map value)))
-                                      {}))
-            summary      (->> node-finals
-                              (reduce (fn [acc [node reads]]
-                                        (->> reads
-                                             (reduce (fn [acc [k v]]
-                                                       (-> acc
-                                                           (update k (fn [old]
-                                                                       (if (nil? old)
-                                                                         (sorted-map)
-                                                                         old)))
-                                                           (update-in [k v] (fn [old]
-                                                                              (if (nil? old)
-                                                                                (sorted-set node)
-                                                                                (conj old node))))))
-                                                     acc)))
-                                      (sorted-map))
-                              (remove (fn [[_k vs]]
-                                        (if (->> vs keys count (= 1))
-                                          true
-                                          false))))
-            value-finals (->> node-finals
-                              (group-by val)
-                              (map (fn [[read read-by]]
-                                     [read (keys read-by)])))]
+    (check [_this {:keys [nodes] :as test} history opts]
+      (let [history'  (->> history
+                           h/client-ops
+                           h/oks)
+            ext-index (rw/ext-index txn/ext-writes history')
+            reads-of-writes (->> history'
+                                 (reduce (fn [acc op]
+                                           (reduce (fn [acc [f k v]]
+                                                     (if (and (= :r f)
+                                                              v)
+                                                       (let [node (->> (get-in ext-index [k v])
+                                                                       first
+                                                                       :node)]
+                                                         (assoc acc node (+ (get acc node 0) 1)))
+                                                       acc))
+                                                   acc
+                                                   (:value op)))
+                                         (sorted-map)))]
+        (writes-read-by-node-rate-graph! test history opts)
         (merge
          {:valid? true}
-         ; final read from all nodes?
-         (when (seq (set/difference nodes (set (keys node-finals))))
-           {:valid? false
-            :missing-node-reads (set/difference nodes (set (keys node-finals)))})
-
-         ; all reads are the same?
-         (when (= 1 (count value-finals))
-           {:final-read (->> value-finals
-                             first
-                             first)})
-         (when (< 1 (count value-finals))
-           {:valid? false
-            :divergent-final-reads summary}))))))
+         {:reads-of-writes reads-of-writes})))))

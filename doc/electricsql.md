@@ -27,7 +27,7 @@ END;
 
 ----
 
-#### Clients
+### Clients
 
 Clients are sticky, always:
   - talks to same node
@@ -61,6 +61,50 @@ Jepsen faults are real faults:
   - kill (-9) the ElectricSQL satellite sync service on each node
     - clients continue to read/write to the database
     - sync service restarted
+
+----
+
+### ***Preliminary*** Testing of Fairness
+
+Check the rate at which each node's writes are being read across the cluster.
+E.g. are my document edits, puzzle solving moves, inventory control edits, etc. being fairly represented in reads across the cluster.
+
+5 SQLite3 clients do transactions with a random mix of reads/writes against random keys, write values are sequential per key:
+```clj
+5	:ok	:txn	[[:r 29 8] [:w 7 13]]
+2	:ok	:txn	[[:w 3 10] [:r 83 11]]
+3	:ok	:txn	[[:w 56 7] [:r 53 10]]
+4	:ok	:txn	[[:w 88 13] [:w 10 13]]
+...
+```
+
+Always check for strong convergence at the end of the test, final reads available and == on each node:
+```clj
+:strong-convergence {:valid? true,
+                     :final-read {0 92,
+                                  1 89,
+                                  2 99,
+                                  ...
+                                  97 108,
+                                  98 87,
+                                  99 90}}
+```
+
+Total each node's writes that were read:
+```clj
+:fairness {:valid? true,
+           :reads-of-writes {"n1" 1317,
+                             "n2" 1289,
+                             "n3" 1289,
+                             "n4" 1320,
+                             "n5" 1284}}
+```
+
+And for every read, plot which node wrote the value:
+
+![Fairness](fairness.png)
+
+It's a gross measurement, and you can see the random ebb and flow, but it shows relative fairness of each node's writes being read.
 
 ----
 

@@ -10,7 +10,7 @@ lxc stop   "$1" --force || true
 lxc delete "$1"         || true
 
 lxc launch images:debian/12 "$1"
-sleep 10
+sleep 5
 
 lxc exec "$1" -- sh -c "apt-get -qy update && apt-get -qy install openssh-server sudo"
 
