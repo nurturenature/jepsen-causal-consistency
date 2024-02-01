@@ -44,3 +44,14 @@
 
     (is (= (select-keys (rw/check lww/causal-opts lww/lww-anomaly) [:valid? :anomaly-types :not])
            {:valid? false :anomaly-types [:cyclic-versions] :not #{:read-uncommitted}}))))
+
+; we ignore lost-update in our causal consistency model
+(deftest lost-update
+  (testing "lost-update"
+    (is (:valid? (rw/check lww/causal-opts lww/lost-update)))))
+
+; false positives we don't understand yet
+(deftest false-positive
+  (testing "false-positive"
+    (is (= (select-keys (rw/check lww/causal-opts lww/not-g-single-item-lost-update) [:valid? :anomaly-types])
+           {:valid? true}))))

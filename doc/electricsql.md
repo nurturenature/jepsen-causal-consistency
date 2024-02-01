@@ -106,6 +106,10 @@ And for every read, plot which node wrote the value:
 
 It's a gross measurement, and you can see the random ebb and flow, but it shows relative fairness of each node's writes being read.
 
+```bash
+lein run test --nodes postgresql,electricsql,n1,n2,n3,n4,n5 --noop-nodes postgresql,electricsql --workload lww-register-strong --time-limit 200 --key-dist uniform --key-count 100 --max-writes-per-key 1000 --min-txn-length 2 --max-txn-length 2 --rate 50
+```
+
 ----
 
 ### ***Preliminary*** Testing of Strong Convergence With Kills

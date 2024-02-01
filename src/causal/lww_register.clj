@@ -528,7 +528,7 @@
           p1-rx0']
          h/history)))
 
-(def not-cycle-lost-update
+(def not-g-single-item-lost-update
   (->> [[0 "wx0"]
         [1 "rx0wx1"]
         [2 "rx0wx2"]
@@ -536,6 +536,15 @@
         [3 "rx1"]
         [3 "rx2"]]
        (mapcat #(apply op-pair %))
+       h/history))
+
+(def lost-update
+  ; Hlost,update: r1 (x0, 10) r2(x0 , 10) w2(x2 , 15) c2 w1(x1 , 14) c1
+  ;  [x0 << x2 << x1 ]
+  (->> [{:process 1 :type :invoke :value [[:r :x nil] [:w :x 14]] :f :txn}
+        {:process 2 :type :invoke :value [[:r :x nil] [:w :x 15]] :f :txn}
+        {:process 2 :type :ok     :value [[:r :x 10]  [:w :x 15]] :f :txn}
+        {:process 1 :type :ok     :value [[:r :x 10]  [:w :x 14]] :f :txn}]
        h/history))
 
 (def g-monotonic-anomaly
