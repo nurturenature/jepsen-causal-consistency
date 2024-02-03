@@ -98,6 +98,32 @@ The update isn't lost, it's eventually and consistently merged.
  {:process 1 :type :ok     :value [[:r :x 10]  [:w :x 14]] :f :txn}]
 ```
 
+#### G-single-item Anomaly 
+
+G-single-item is a violation of Consistent View yet ***can*** be a valid Causal history.
+
+It is not a ww|wr inferred rw cycle,
+it's two transactions in different process observing the effects of other processes at different points in time that always move forward in time and are eventually and consistently merged.
+
+```clj
+[{:process 0, :type :ok, :f :txn, :value [[:w :x 0]]}
+ {:process 1, :type :ok, :f :txn, :value [[:r :x 0] [:w :x 1]]}
+ {:process 2, :type :ok, :f :txn, :value [[:r :x 0] [:w :x 2]]}
+ {:process 3, :type :ok, :f :txn, :value [[:r :x 0]]}
+ {:process 3, :type :ok, :f :txn, :value [[:r :x 1]]}
+ {:process 3, :type :ok, :f :txn, :value [[:r :x 2]]}]
+ ```
+
+ ##### Yet G-single-iem ***can*** also indicate a true Causal violation
+ 
+ Writes follow reads violation of Causal that is identified as a G-single-item:
+ 
+ ```clj
+[{:process 0, :type :ok, :f :txn, :value [[:w :x 0]]}
+ {:process 1, :type :ok, :f :txn, :value [[:r :x 0] [:w :y 1]]}
+ {:process 2, :type :ok, :f :txn, :value [[:r :y 1] [:r :x nil]]}]
+ ```
+
 ----
 
 ### Elle Consistency Model Graph Changes
