@@ -1,24 +1,35 @@
 ### Jepsen Tests for Causal Consistency
 
-Designed for testing CRDTs, local first, distributed syncing.
+Designed for testing local first systems that use CRDTs and distributed syncing.
 
-Inspired by:
+[Jepsen](https://github.com/jepsen-io/jepsen) has an established [history](https://jepsen.io/analyses) of testing databases.
 
-> Transactional causal+ consistency (TCC+) combines causal consistency, strong convergence, CRDTs, highly available transactions and sticky availability. It is formally proven to be the strongest possible consistency mode for a local-first database system.
->
-> -- paraphrasing Shapiro, Bieniusa, Balegas, etc
+These tests have often focused on stronger levels of [consistency](https://jepsen.io/consistency), e.g. snapshot-isolation, linearizability, and serializability.
 
-Initial tests, [current status](doc/electricsql.md), are being developed for [ElectricSQL](https://electric-sql.com/).
+This project explores using Jepsen to test for [Causal Consistency](https://jepsen.io/consistency/models/causal) with Strong Convergence and atomic transactions ([Monotonic Atomic View](https://jepsen.io/consistency/models/monotonic-atomic-view)).
+
+The tests will use [ElectricSQL](https://electric-sql.com/):
+  - transactional causal+ consistency
+  - local first
+  - active/active SQLite3/PostgreSQL CRDT based sync
+  - strong research team
+
+([Current status](doc/electricsql.md) of *early* testing.)
 
 ----
 
 ### Uses Elle, Jepsen's Checker
 
-  - Adya's Consistent View(PL-2+) as the consistency model
-    - minus the Lost Update anomaly, the update isn't lost, it's eventually and consistently merged 
-  - extends Elle's consistency model graph to include strong-session-consistent-view
-    - fills in the gap between strong-session Read Committed(PL-2) and strong-session Snapshot Isolation(PL-SI) 
-    - Causal Consistency needs process ordering, process variants of anomalies
+#### Adya's Consistent View(PL-2+) as the base consistency model
+> Level PL-2+ ensures that a transaction is placed after all transactions that causally affect it, i.e., it provides a notion of “causal consistency”.
+> 
+>   -- Adya
+
+#### Modifies Elle's consistency model [graph](https://github.com/jepsen-io/elle/blob/main/images/models.png)
+
+Adds strong-session-consistent-view:
+  - adds process graph and process variants of anomalies
+  - fills in gap between stronger and weaker forms of strong-session consistency models 
 
 ----
 
@@ -64,6 +75,28 @@ Initial tests, [current status](doc/electricsql.md), are being developed for [El
      {:process 0, :type :ok, :f :txn, :value [[:r :x 1]], :index 5, :time -1}
      {:process 1, :type :ok, :f :txn, :value [[:r :x 0]], :index 7, :time -1}]
     ```
+
+----
+
+### Issues, Impedance, and Friction with Adya
+
+  - language has evolved over time
+  - not a 1-to-1 mapping between the definition of Causal Consistency, its components and Adya's models
+
+#### Lost Update Anomaly
+
+Lost update is a violation of Consistent View yet is a valid Causal history.
+
+The update isn't lost, it's eventually and consistently merged. 
+
+```clj
+; Hlost: r1 (x0, 10) r2(x0 , 10) w2(x2 , 15) c2 w1(x1 , 14) c1
+;   [x0 << x2 << x1 ]
+[{:process 1 :type :invoke :value [[:r :x nil] [:w :x 14]] :f :txn}
+ {:process 2 :type :invoke :value [[:r :x nil] [:w :x 15]] :f :txn}
+ {:process 2 :type :ok     :value [[:r :x 10]  [:w :x 15]] :f :txn}
+ {:process 1 :type :ok     :value [[:r :x 10]  [:w :x 14]] :f :txn}]
+```
 
 ----
 
