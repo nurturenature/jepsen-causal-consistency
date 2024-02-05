@@ -266,7 +266,7 @@
 
     (= "electricsql" node)
     ; TODO: electricsql pg proxy doesn't play well with jdbc
-    (JDBCClient. (get db-specs "electricsql"))
+    (JDBCClient. (get db-specs "postgresql"))
 
     :else
     (SQLITE3Client. nil)))

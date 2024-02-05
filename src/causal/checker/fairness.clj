@@ -121,15 +121,16 @@
       (let [history'  (->> history
                            h/client-ops
                            h/oks)
-            ext-index (rw/ext-index txn/ext-writes history')
+            ext-write-index (rw/ext-index txn/ext-writes history')
             reads-of-writes (->> history'
                                  (reduce (fn [acc op]
                                            (reduce (fn [acc [f k v]]
                                                      (if (and (= :r f)
                                                               v)
-                                                       (let [node (->> (get-in ext-index [k v])
+                                                       (let [node (->> (get-in ext-write-index [k v])
                                                                        first
-                                                                       :node)]
+                                                                       :node)
+                                                             node (or node (:node op))] ; may be an txn internal w/r
                                                          (assoc acc node (+ (get acc node 0) 1)))
                                                        acc))
                                                    acc

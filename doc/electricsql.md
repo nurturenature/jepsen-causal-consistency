@@ -154,3 +154,14 @@ lein run test --nodes postgresql,electricsql,n1,n2,n3,n4,n5 --noop-nodes postgre
               9 256,
               ...}}
 ```
+
+----
+
+### Issues Found
+
+[Concurrent PostgreSQL and SQLite3 clients can trigger a deadlock in electric.reorder_main_op pgSQL, Replication.Postgres.Writer restarts, writes being replicated appear to be lost](https://github.com/electric-sql/electric/issues/919)
+
+```bash
+lxc restore postgresql postgresql-setup
+lein run test --nodes postgresql,electricsql,n1,n2,n3,n4,n5 --workload lww-register-strong
+```
