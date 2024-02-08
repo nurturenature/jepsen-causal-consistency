@@ -1,6 +1,6 @@
 {
-  "name": "electricsql",
-  "version": "1.0.0",
+  "name": "sqlite3-client",
+  "version": "0.0.1",
   "description": "",
   "main": "dist/index.js",
   "type": "module",
