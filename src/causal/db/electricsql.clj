@@ -154,12 +154,12 @@
 
        ; ElectricSQL
        (when (not (cu/exists? install-dir))
-         (cu/install-archive! "https://github.com/electric-sql/electric/archive/refs/tags/electric-sql@0.9.1.tar.gz" install-dir)
+         (cu/install-archive! "https://github.com/electric-sql/electric/archive/refs/tags/electric-sql@0.9.0.tar.gz" install-dir)
          (c/cd (str install-dir "/components/electric")
                (c/exec :mix :deps.get)
                (c/exec :mix :compile)
                (c/exec (c/env {:MIX_ENV :prod
-                               :ELECTRIC_VERSION :0.9.1})
+                               :ELECTRIC_VERSION :0.9.0})
                        :mix :release :--overwrite)))
 
        (assert (deref promises/postgresql-available? 300000 false)

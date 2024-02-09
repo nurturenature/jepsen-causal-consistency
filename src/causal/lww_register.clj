@@ -128,6 +128,15 @@
       (throw+ {:type :sql-result-parse-error :mops mops :result result :rslts rslts}))
     mops'))
 
+(defn txn->better-sqlite3
+  "Given a transaction of mops, return the JSON for a better-sqlite3 transaction."
+  [txn]
+  (->> txn
+       (map (fn [[f k v]]
+              {"f" f "k" k "v" v}))
+       (into [])
+       (json/generate-string)))
+
 (defrecord SQLITE3Client [conn]
   client/Client
   (open!

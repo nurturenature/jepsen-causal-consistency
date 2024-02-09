@@ -67,13 +67,26 @@ app.get("/list-sql", async (res: Response) => {
 });
 
 app.post("/better-sqlite3", (req: Request, res: Response) => {
-    const result = conn.exec(req.body.sql)
-    res.send(result)
-});
+    const insert = conn.prepare(
+        'INSERT INTO lww_registers (k,v) VALUES (@k, @v) ON CONFLICT(k) DO UPDATE SET v = @v');
 
-app.post("/sql", async (req: Request, res: Response) => {
-    const result = await conn.transaction(req.body)
-    res.send(result);
+    const select = conn.prepare(
+        'SELECT k,v FROM lww_registers WHERE k = @k');
+
+    const txn = conn.transaction((mops) => {
+        for (const mop of mops)
+            switch (mop.f) {
+                case 'r':
+                    select.get(mop);
+                    break;
+                case 'w':
+                    insert.run(mop);
+                    break;
+            }
+    });
+
+    const result = txn(req.body.sql)
+    res.send(result)
 });
 
 app.listen(port, () => {
