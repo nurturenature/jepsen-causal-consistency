@@ -150,7 +150,12 @@
 
 (def cli-opts
   "Command line options"
-  [[nil "--consistency-models MODELS" "What consistency models to check for."
+  [[nil "--better-sqlite3-nodes NODES" "A comma-separated list of nodes that should get better-sqlite3 clients"
+    :parse-fn parse-nodes-spec
+    :validate [(partial every? #{"n1" "n2" "n3" "n4" "n5"})
+               (str "Nodes must be " #{"n1" "n2" "n3" "n4" "n5"})]]
+
+   [nil "--consistency-models MODELS" "What consistency models to check for."
     :default [:strong-session-consistent-view]
     :parse-fn parse-nemesis-spec
     :validate [(partial every? cm/all-models)

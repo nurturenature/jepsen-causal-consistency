@@ -13,6 +13,7 @@
              [postgresql :as postgresql]
              [sqlite3 :as sqlite3]]
             [cheshire.core :as json]
+            [clj-http.client :as http]
             [clojure
              [pprint :refer [pprint]]
              [set :as set]
@@ -128,16 +129,90 @@
       (throw+ {:type :sql-result-parse-error :mops mops :result result :rslts rslts}))
     mops'))
 
-(defn txn->better-sqlite3
-  "Given a transaction of mops, return the JSON for a better-sqlite3 transaction."
-  [txn]
-  (->> txn
-       (map (fn [[f k v]]
-              {"f" f "k" k "v" v}))
-       (into [])
-       (json/generate-string)))
+(defn op->better-sqlite3
+  "Given an op, return the JSON for a better-sqlite3 transaction."
+  [{:keys [value] :as _op}]
+  (let [value (->> value
+                   (map (fn [[f k v]]
+                          {"f" f "k" k "v" v}))
+                   (into []))
+        op     {:type  :invoke
+                :value value}]
+    (->> op
+         json/generate-string)))
 
-(defrecord SQLITE3Client [conn]
+(defn better-sqlite3->op
+  "Given the original op and a better-sqlite3 JSON result,
+   return the op updated with better-sqlite3 results."
+  [{:keys [value] :as op} rslt]
+  (let [rslt                  (json/parse-string rslt true)
+        [type' value' error'] [(keyword (:type rslt)) (:value rslt) (:error rslt)]
+        _                     (assert (= (count value)
+                                         (count value')))
+        value' (->> value'
+                    (map (fn [[f k v] mop]
+                           (let [[f' k' v'] [(keyword (:f mop)) (:k mop) (:v mop)]]
+                             (assert (and (= f f')
+                                          (= k k'))
+                                     (str "Original op: " op ", result: " rslt ", mismatch"))
+                             (case f
+                               :r [f k v']
+                               :w (do
+                                    (assert (= v v')
+                                            (str "Munged write value in result, expected " v ", actual " v'))
+                                    [f k v]))))
+                         value)
+                    (into []))]
+    (case type'
+      :ok
+      (assoc op
+             :type  :ok
+             :value value')
+
+      :fail
+      (assoc op
+             :type  :fail
+             :error error')
+
+      :info
+      (assoc op
+             :type  :info
+             :error error'))))
+
+(defrecord BetterSQLite3Client [conn]
+  client/Client
+  (open!
+    [this _test node]
+    (assoc this
+           :node node
+           :url  (str "http://" node ":8089/better-sqlite3")))
+
+  (setup!
+    [_this _test])
+
+  (invoke!
+    [{:keys [node url] :as _this} test {:keys [f value] :as op}]
+    (let [op (assoc op :node node)]
+      (assert (= f :txn) "Ops must be txns.")
+      (let [body (op->better-sqlite3 op)
+            rslt (http/post url
+                            {:body               body
+                             :content-type       :json
+                             :socket-timeout     1000
+                             :connection-timeout 1000
+                             :accept             :json})]
+        (better-sqlite3->op op rslt))))
+
+  (teardown!
+    [_this _test])
+
+  (close!
+    [this _test]
+    (dissoc this
+            :node
+            :url)))
+
+(defrecord SQLITE3CliClient [conn]
   client/Client
   (open!
     [this _test node]
@@ -264,11 +339,15 @@
      - 'postgresql'  -> `JDBCClient`
      - 'electricsql` -> `JDBCClient`
      - client nodes  -> `SQLITE3Client`
-     - node is in `noop-nodes` -> NOOPClient"
-  [{:keys [noop-nodes] :as _test} node]
+     - node is in `noop-nodes` -> NOOPClient
+     - etc."
+  [{:keys [better-sqlite3-nodes noop-nodes] :as _test} node]
   (cond
     (contains? noop-nodes node)
     (NOOPClient. nil)
+
+    (contains? better-sqlite3-nodes node)
+    (BetterSQLite3Client. nil)
 
     (= "postgresql" node)
     (JDBCClient. (get db-specs "postgresql"))
@@ -278,7 +357,7 @@
     (JDBCClient. (get db-specs "postgresql"))
 
     :else
-    (SQLITE3Client. nil)))
+    (SQLITE3CliClient. nil)))
 
 (defrecord LWWClient [conn]
   client/Client

@@ -1,5 +1,6 @@
-import express, { Express, Request, Response } from "express";
+import assert from "assert";
 import dotenv from "dotenv";
+import express, { Express, Request, Response } from "express";
 
 dotenv.config();
 
@@ -56,12 +57,12 @@ app.get("/w/:k/:v", async (req: Request, res: Response) => {
     res.send(result);
 });
 
-app.get("/list", async (res: Response) => {
+app.get("/list", async (req: Request, res: Response) => {
     const result = await electric.db.lww_registers.findMany()
     res.send(result);
 });
 
-app.get("/list-sql", async (res: Response) => {
+app.get("/list-sql", async (req: Request, res: Response) => {
     const result = await electric.db.raw({ sql: "SELECT * FROM lww_registers;" })
     res.send(result);
 });
@@ -73,20 +74,29 @@ app.post("/better-sqlite3", (req: Request, res: Response) => {
     const select = conn.prepare(
         'SELECT k,v FROM lww_registers WHERE k = @k');
 
+    const result = Array()
+
     const txn = conn.transaction((mops) => {
         for (const mop of mops)
             switch (mop.f) {
                 case 'r':
-                    select.get(mop);
+                    const read = <any>select.get(mop)
+                    if (read == undefined) {
+                        result.push({ 'f': 'r', 'k': mop.k, 'v': null })
+                    } else {
+                        result.push({ 'f': 'r', 'k': mop.k, 'v': read.v })
+                    }
                     break;
                 case 'w':
-                    insert.run(mop);
+                    const write = insert.run(mop);
+                    assert(write.changes == 1)
+                    result.push(mop)
                     break;
             }
     });
 
-    const result = txn(req.body.sql)
-    res.send(result)
+    txn(req.body.value)
+    res.send({ 'type': 'ok', 'value': result })
 });
 
 app.listen(port, () => {

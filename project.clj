@@ -7,6 +7,7 @@
                  [jepsen "0.3.5"]
                  [elle "0.2.2-SNAPSHOT"]
                  [cheshire "5.12.0"]
+                 [clj-http "3.12.3"]
                  [com.github.seancorfield/next.jdbc "1.3.909"]
                  [org.postgresql/postgresql "42.7.1"]]
   :jvm-opts ["-Djava.awt.headless=true"]
