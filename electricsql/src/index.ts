@@ -95,8 +95,13 @@ app.post("/better-sqlite3", (req: Request, res: Response) => {
             }
     });
 
-    txn(req.body.value)
-    res.send({ 'type': 'ok', 'value': result })
+    try {
+        txn(req.body.value)
+        res.send({ 'type': 'ok', 'value': result })
+    } catch (e) {
+        // TODO: SQLITE_LOCKED 
+        res.send({ 'type': 'info', 'error': e })
+    }
 });
 
 app.listen(port, () => {

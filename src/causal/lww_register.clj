@@ -144,8 +144,9 @@
 (defn better-sqlite3->op
   "Given the original op and a better-sqlite3 JSON result,
    return the op updated with better-sqlite3 results."
-  [{:keys [value] :as op} rslt]
-  (let [rslt                  (json/parse-string rslt true)
+  [{:keys [value] :as op} {:keys [status body] :as rslt}]
+  (let [_                     (assert (= status 200))
+        rslt                  (json/parse-string body true)
         [type' value' error'] [(keyword (:type rslt)) (:value rslt) (:error rslt)]
         _                     (assert (= (count value)
                                          (count value')))
