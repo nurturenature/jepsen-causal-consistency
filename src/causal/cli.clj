@@ -38,8 +38,9 @@
 (def workloads
   "A map of workload names to functions that take CLI options and return
   workload maps."
-  {:lww-register        lww/workload
-   :lww-register-strong lww/workload-strong
+  {:lww-register         lww/workload
+   :lww-register-strong  lww/workload-strong
+   :basic                lww/workload-basic
    :none                (fn [_] tests/noop-test)})
 
 (def all-workloads
@@ -219,7 +220,7 @@
                (str "Nodes must be " #{"n1" "n2" "n3" "n4" "n5"})]]
 
    ["-w" "--workload NAME" "What workload should we run?"
-    :default  :lww-register
+    :default  :basic
     :parse-fn keyword
     :missing  (str "Must specify a workload: " (cli/one-of workloads))
     :validate [workloads (cli/one-of workloads)]]])

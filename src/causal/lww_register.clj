@@ -95,25 +95,31 @@
                 [:r k (get result k)]))
          (into []))))
 
-(defn txn->electric-createMany
-  "Given a transaction, returns the JSON necessary to use ElectricSQL createMany.
-   Transaction is assumed to be all writes, and all write k,v are unique."
+(defn txn->electric-upsert
+  "Given a transaction, returns the JSON necessary to use ElectricSQL upsert.
+   Transaction is assumed to be a single write."
   [txn]
-  (let [records (->> txn
-                     (reduce (fn [acc [f k v :as mop]]
-                               (assert (= :w f)  (str "createMany is writes only: " mop))
-                               (assert (not (contains? acc k)) (str "duplicate keys: " mop))
-                               (conj acc {:k k :v v}))
-                             []))]
-    (->> {:data records}
+  (assert (= 1 (count txn))
+          (str "More than 1 mop/txn in " txn))
+  (let [[f k v] (first txn)]
+    (assert (= :w f)
+            (str "mop is not a write in " txn))
+    (->> {:create {:k k :v v}
+          :update {:v v}
+          :where  {:k k}}
          json/generate-string)))
 
-(defn electric-createMany->txn
-  "Given the original transaction and the ElectricSQL createMany result,
+(defn electric-upsert->txn
+  "Given the original transaction and the ElectricSQL upsert result,
    return the transaction with the results merged in."
   [txn result]
-  (assert (= (count txn)
-             (:count result)))
+  (let [[fm km vm :as mop]       (first txn)
+        {:keys [k v] :as result} (json/parse-string result true)]
+    (assert (= :w fm)
+            (str "mop not a write in " txn))
+    (assert (and (= km k)
+                 (= vm v))
+            (str "mop result mismatch for " txn " and " result)))
   txn)
 
 (defrecord ElectricSQLClient [conn]
@@ -135,17 +141,18 @@
             [url body]   (case r-or-w
                            :r [(str url "/electric-findMany")
                                (txn->electric-findMany value)]
-                           :w [(str url "/electric-createMany")
-                               (txn->electric-createMany value)])
+                           :w [(str url "/electric-upsert")
+                               (txn->electric-upsert value)])
             result (http/post url
                               {:body               body
                                :content-type       :json
                                :socket-timeout     1000
                                :connection-timeout 1000
                                :accept             :json})
+            result (:body result)
             result (case r-or-w
-                     :r (electric-findMany->txn   value result)
-                     :w (electric-createMany->txn value result))]
+                     :r (electric-findMany->txn value result)
+                     :w (electric-upsert->txn   value result))]
         (assoc op
                :type  :ok
                :value result))))
@@ -511,6 +518,17 @@
   [opts]
   (assoc (workload opts)
          :checker (sc/final-reads)))
+
+(defn workload-basic
+  "A basic workload that conforms to the ElectricSQL TypeScript client API.
+   - 1 mop/txn
+   - consistency model of monotonic atomic view"
+  [opts]
+  (let [opts (assoc opts
+                    :min-txn-length 1
+                    :max-txn-length 1
+                    :consistency-models [:monotonic-atomic-view])]
+    (workload opts)))
 
 (defn cyclic-versions-helper
   "Given a cyclic-versions result map and a history, filter history for involved transactions."
