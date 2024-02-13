@@ -1,4 +1,4 @@
-(ns causal.cluster
+(ns causal.db.cluster
   "A `db` that represents the full cluster:
      - postgresql
      - electricsql

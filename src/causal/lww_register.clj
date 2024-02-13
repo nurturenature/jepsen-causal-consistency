@@ -65,69 +65,99 @@
   (close!
     [_client _test]))
 
-(defn txn->sql
-  "Given a txn of mops, builds an SQL transaction."
+(defn txn->electric-findMany
+  "Given a transaction, returns the JSON necessary to use ElectricSQL findMany.
+   Transaction is assumed to be all reads."
   [txn]
-  (let [stmts (->> txn
-                   (map (fn [[f k v]]
-                          (case f
-                            :r (str "SELECT k,v FROM lww_registers WHERE k = " k ";")
-                            :w (str "INSERT INTO lww_registers(k,v)"
-                                    " VALUES(" k "," v ")"
-                                    " ON CONFLICT(k) DO UPDATE SET v=" v
-                                    " RETURNING k as wk, v as wv;"))))
-                   (str/join " "))]
-    (str "BEGIN; " stmts " END;")))
+  (let [keys-to-read (->> txn
+                          (reduce (fn [acc [f k v :as mop]]
+                                    (assert (= :r f)  (str "findMany is reads only: " mop))
+                                    (assert (= nil v) (str "malformed read: " mop))
+                                    (assert (not (contains? acc k)) (str "duplicate keys: " mop))
+                                    (conj acc k))
+                                  []))]
+    (->> {:where   {:k {:in keys-to-read}}
+          :orderBy [{:k :asc} {:v :asc}]}
+         json/generate-string)))
 
-(defn mops+sql-result
-  "Merges the result of an SQL statement back into the original mops,"
-  [mops result]
-  (let [[mops' rslts]
-        (->> mops
-             (reduce (fn [[mops' rslts] [f k v :as mop]]
-                       (let [first' (first rslts)
-                             rest'  (rest  rslts)
-                             k'     (:k first')
-                             v'     (:v first')
-                             wk'    (:wk first')
-                             wv'    (:wv first')
-                             type'  (cond
-                                      (and wk' wv') :write
-                                      (and k' v')   :read
-                                      :else         :nil)]
-                         (cond
-                           (#{:w} f)
-                           (do
-                             (when (or (not= type' :write)
-                                       (not= k wk')
-                                       (not= v wv'))
-                               (throw+ {:type :sql-result-parse-error :mops mops :result result}))
-                             [(conj mops' mop) rest'])
+(defn electric-findMany->txn
+  "Given the original transaction and the result of an ElectricSQL findMany,
+   returns the transaction with thr result merged."
+  [txn result]
+  (let [result (->> result
+                    (reduce (fn [acc {:keys [k v] :as _row}]
+                              (assoc acc k v))
+                            {}))]
+    (->> txn
+         (map (fn [[f k v :as mop]]
+                (assert (= :r f)  (str "findMany must be reads: " mop))
+                (assert (= nil v) (str "malformed mop: " mop))
+                [:r k (get result k)]))
+         (into []))))
 
-                           (and (#{:r} f)
-                                (= type' :write))
-                           [(conj mops' [:r k nil]) rslts]
+(defn txn->electric-createMany
+  "Given a transaction, returns the JSON necessary to use ElectricSQL createMany.
+   Transaction is assumed to be all writes, and all write k,v are unique."
+  [txn]
+  (let [records (->> txn
+                     (reduce (fn [acc [f k v :as mop]]
+                               (assert (= :w f)  (str "createMany is writes only: " mop))
+                               (assert (not (contains? acc k)) (str "duplicate keys: " mop))
+                               (conj acc {:k k :v v}))
+                             []))]
+    (->> {:data records}
+         json/generate-string)))
 
-                           (and (#{:r} f)
-                                (= type' :read)
-                                (= k k'))
-                           [(conj mops' [:r k v']) rest']
+(defn electric-createMany->txn
+  "Given the original transaction and the ElectricSQL createMany result,
+   return the transaction with the results merged in."
+  [txn result]
+  (assert (= (count txn)
+             (:count result)))
+  txn)
 
-                           (and (#{:r} f)
-                                (= type' :read)
-                                (not= k k'))
-                           [(conj mops' [:r k nil]) rslts]
+(defrecord ElectricSQLClient [conn]
+  client/Client
+  (open!
+    [this _test node]
+    (assoc this
+           :node node
+           :url  (str "http://" node ":8089")))
 
-                           (and (#{:r} f)
-                                (= type' :nil))
-                           [(conj mops' [:r k nil]) rslts]
+  (setup!
+    [_this _test])
 
-                           :else (throw+ {:type :sql-result-parse-error :mops mops :result result}))))
-                     [[] result]))]
-    (when (or (not= 0 (count rslts))
-              (not= (count mops) (count mops')))
-      (throw+ {:type :sql-result-parse-error :mops mops :result result :rslts rslts}))
-    mops'))
+  (invoke!
+    [{:keys [node url] :as _this} _test {:keys [f value] :as op}]
+    (let [op (assoc op :node node)]
+      (assert (= f :txn) "Ops must be txns.")
+      (let [[r-or-w _ _] (first value)
+            [url body]   (case r-or-w
+                           :r [(str url "/electric-findMany")
+                               (txn->electric-findMany value)]
+                           :w [(str url "/electric-createMany")
+                               (txn->electric-createMany value)])
+            result (http/post url
+                              {:body               body
+                               :content-type       :json
+                               :socket-timeout     1000
+                               :connection-timeout 1000
+                               :accept             :json})
+            result (case r-or-w
+                     :r (electric-findMany->txn   value result)
+                     :w (electric-createMany->txn value result))]
+        (assoc op
+               :type  :ok
+               :value result))))
+
+  (teardown!
+    [_this _test])
+
+  (close!
+    [this _test]
+    (dissoc this
+            :node
+            :url)))
 
 (defn op->better-sqlite3
   "Given an op, return the JSON for a better-sqlite3 transaction."
@@ -213,7 +243,71 @@
             :node
             :url)))
 
-(defrecord SQLITE3CliClient [conn]
+(defn txn->sqlite3-cli
+  "Given a txn of mops, builds an SQLite3 transaction."
+  [txn]
+  (let [stmts (->> txn
+                   (map (fn [[f k v]]
+                          (case f
+                            :r (str "SELECT k,v FROM lww_registers WHERE k = " k ";")
+                            :w (str "INSERT INTO lww_registers(k,v)"
+                                    " VALUES(" k "," v ")"
+                                    " ON CONFLICT(k) DO UPDATE SET v=" v
+                                    " RETURNING k as wk, v as wv;"))))
+                   (str/join " "))]
+    (str "BEGIN; " stmts " END;")))
+
+(defn sqlite3-cli->txn
+  "Merges the result of an SQLite3 statement back into the original txn of mops."
+  [mops result]
+  (let [[mops' rslts]
+        (->> mops
+             (reduce (fn [[mops' rslts] [f k v :as mop]]
+                       (let [first' (first rslts)
+                             rest'  (rest  rslts)
+                             k'     (:k first')
+                             v'     (:v first')
+                             wk'    (:wk first')
+                             wv'    (:wv first')
+                             type'  (cond
+                                      (and wk' wv') :write
+                                      (and k' v')   :read
+                                      :else         :nil)]
+                         (cond
+                           (#{:w} f)
+                           (do
+                             (when (or (not= type' :write)
+                                       (not= k wk')
+                                       (not= v wv'))
+                               (throw+ {:type :sql-result-parse-error :mops mops :result result}))
+                             [(conj mops' mop) rest'])
+
+                           (and (#{:r} f)
+                                (= type' :write))
+                           [(conj mops' [:r k nil]) rslts]
+
+                           (and (#{:r} f)
+                                (= type' :read)
+                                (= k k'))
+                           [(conj mops' [:r k v']) rest']
+
+                           (and (#{:r} f)
+                                (= type' :read)
+                                (not= k k'))
+                           [(conj mops' [:r k nil]) rslts]
+
+                           (and (#{:r} f)
+                                (= type' :nil))
+                           [(conj mops' [:r k nil]) rslts]
+
+                           :else (throw+ {:type :sql-result-parse-error :mops mops :result result}))))
+                     [[] result]))]
+    (when (or (not= 0 (count rslts))
+              (not= (count mops) (count mops')))
+      (throw+ {:type :sql-result-parse-error :mops mops :result result :rslts rslts}))
+    mops'))
+
+(defrecord SQLite3CliClient [conn]
   client/Client
   (open!
     [this _test node]
@@ -228,7 +322,7 @@
     [{:keys [node] :as _this} test {:keys [f value] :as op}]
     (let [op (assoc op :node node)]
       (assert (= f :txn) "Ops must be txns.")
-      (try+ (let [sql-stmt (txn->sql value)
+      (try+ (let [sql-stmt (txn->sqlite3-cli value)
                   result   (get (c/on-nodes test [node]
                                             (fn [_test _node]
                                               (c/exec :echo sql-stmt :| :sqlite3 :-json sqlite3/database-file)))
@@ -237,7 +331,7 @@
                                 (str/split-lines)
                                 (mapcat #(json/parse-string % true))
                                 vec)
-                  mops'    (mops+sql-result value result)]
+                  mops'    (sqlite3-cli->txn value result)]
               (assoc op
                      :type  :ok
                      :value mops'))
@@ -257,10 +351,10 @@
             :node
             :url)))
 
-(defn get-connection
+(defn get-jdbc-connection
   "Tries to get a `jdbc` connection for a total of ms, default 5000, every 1000ms.
    Throws if no client can be gotten."
-  ([db-spec] (get-connection db-spec 5000))
+  ([db-spec] (get-jdbc-connection db-spec 5000))
   ([db-spec ms]
    (let [conn (u/timeout ms nil (u/retry 1 (->> db-spec
                                                 jdbc/get-datasource
@@ -269,13 +363,13 @@
        (throw+ {:connection-failure db-spec}))
      conn)))
 
-(defrecord JDBCClient [db-spec]
+(defrecord PostgreSQLJDBCClient [db-spec]
   client/Client
   (open!
     [this _test node]
     (assoc this
            :node node
-           :conn (get-connection db-spec)))
+           :conn (get-jdbc-connection db-spec)))
 
   (setup!
     [_this _test])
@@ -336,29 +430,31 @@
 ;; TODO: why isn't electricsql allowing a connection using jdbc?
 ;;       just connecting to postgresql for now
 (defn node->client
-  "Maps a node name to its `client` protocol, e.g.:
-     - 'postgresql'  -> `JDBCClient`
-     - 'electricsql` -> `JDBCClient`
-     - client nodes  -> `SQLITE3Client`
-     - node is in `noop-nodes` -> NOOPClient
-     - etc."
-  [{:keys [better-sqlite3-nodes noop-nodes] :as _test} node]
+  "Maps a node name to its `client` protocol.
+   BetterSQLite3Client is default."
+  [{:keys [better-sqlite3-nodes electricsql-nodes noop-nodes sqlite3-cli-nodes] :as _test} node]
   (cond
     (contains? noop-nodes node)
     (NOOPClient. nil)
 
+    (contains? electricsql-nodes node)
+    (ElectricSQLClient. nil)
+
     (contains? better-sqlite3-nodes node)
     (BetterSQLite3Client. nil)
 
+    (contains? sqlite3-cli-nodes node)
+    (SQLite3CliClient. nil)
+
     (= "postgresql" node)
-    (JDBCClient. (get db-specs "postgresql"))
+    (PostgreSQLJDBCClient. (get db-specs "postgresql"))
 
     (= "electricsql" node)
     ; TODO: electricsql pg proxy doesn't play well with jdbc
-    (JDBCClient. (get db-specs "postgresql"))
+    (PostgreSQLJDBCClient. (get db-specs "postgresql"))
 
     :else
-    (SQLITE3CliClient. nil)))
+    (BetterSQLite3Client. nil)))
 
 (defrecord LWWClient [conn]
   client/Client

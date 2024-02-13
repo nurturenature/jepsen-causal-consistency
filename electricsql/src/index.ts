@@ -38,7 +38,14 @@ app.get("/r/:k", async (req: Request, res: Response) => {
             k: parseInt(req.params.k, 10)
         }
     })
-    res.send(value);
+    if (value == null) {
+        res.send({
+            'k': req.params.k,
+            'v': null
+        });
+    } else {
+        res.send(value);
+    }
 });
 
 app.get("/w/:k/:v", async (req: Request, res: Response) => {
@@ -65,6 +72,16 @@ app.get("/list", async (req: Request, res: Response) => {
 app.get("/list-sql", async (req: Request, res: Response) => {
     const result = await electric.db.raw({ sql: "SELECT * FROM lww_registers;" })
     res.send(result);
+});
+
+app.post("/electric-findMany", async (req: Request, res: Response) => {
+    const result = await electric.db.lww_registers.findMany(req.body)
+    res.send(result)
+});
+
+app.post("/electric-createMany", async (req: Request, res: Response) => {
+    const result = await electric.db.lww_registers.createMany(req.body)
+    res.send(result)
 });
 
 app.post("/better-sqlite3", (req: Request, res: Response) => {

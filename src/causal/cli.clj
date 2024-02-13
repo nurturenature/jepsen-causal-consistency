@@ -1,13 +1,13 @@
 (ns causal.cli
   "Command-line entry point for ElectricSQL tests."
   (:require [causal
-             [cluster :as cluster]
              [lww-register :as lww]]
             [causal.checker
              [fairness :as fairness]
              [strong-convergence :as sc]
              [without-noops :refer [without-noops]]]
             [causal.db
+             [cluster :as cluster]
              [electricsql :as electricsql]
              [postgresql :as postgresql]
              [sqlite3 :as sqlite3]]
@@ -129,8 +129,8 @@
                        ; :logs-postgresql  (checker/log-file-pattern #".*ERROR\:  deadlock detected.*" postgresql/log-file-short)
                        ; TODO: are all [error] errors?
                        ; :logs-electricsql (checker/log-file-pattern #".*Client is not responding to ping, disconnecting.*" electricsql/log-file-short)
-                        :logs-electricsql (checker/log-file-pattern #".*\[error\].*" electricsql/log-file-short)
-                        :logs-client      (checker/log-file-pattern #"SatelliteError\:" sqlite3/log-file-short)
+                        :logs-electricsql (checker/log-file-pattern #"error" electricsql/log-file-short)
+                        :logs-client      (checker/log-file-pattern #"SatelliteError" sqlite3/log-file-short)
                         :fairness         (fairness/fairness)
                         :workload (:checker workload)}))
             :client    (:client workload)
@@ -160,6 +160,11 @@
     :parse-fn parse-nemesis-spec
     :validate [(partial every? cm/all-models)
                (str "Must be one or more of " cm/all-models)]]
+
+   [nil "--electricsql-nodes NODES" "A comma-separated list of nodes that should get ElectricSQL clients"
+    :parse-fn parse-nodes-spec
+    :validate [(partial every? #{"n1" "n2" "n3" "n4" "n5"})
+               (str "Nodes must be " #{"n1" "n2" "n3" "n4" "n5"})]]
 
    [nil "--linearizable-keys?" "Use the realtime process order to derive a version order, i.e. Last Write Wins."]
 
@@ -207,6 +212,11 @@
     :default 100
     :parse-fn read-string
     :validate [pos? "Must be a positive number."]]
+
+   [nil "--sqlite3-cli-nodes NODES" "A comma-separated list of nodes that should get SQLite3 CLI clients"
+    :parse-fn parse-nodes-spec
+    :validate [(partial every? #{"n1" "n2" "n3" "n4" "n5"})
+               (str "Nodes must be " #{"n1" "n2" "n3" "n4" "n5"})]]
 
    ["-w" "--workload NAME" "What workload should we run?"
     :default  :lww-register
