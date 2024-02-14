@@ -65,35 +65,28 @@
   (close!
     [_client _test]))
 
-(defn txn->electric-findMany
-  "Given a transaction, returns the JSON necessary to use ElectricSQL findMany.
-   Transaction is assumed to be all reads."
+(defn txn->electric-findUnique
+  "Given a transaction, returns the JSON necessary to use ElectricSQL findUnique.
+   Transaction is assumed to be a read."
   [txn]
-  (let [keys-to-read (->> txn
-                          (reduce (fn [acc [f k v :as mop]]
-                                    (assert (= :r f)  (str "findMany is reads only: " mop))
-                                    (assert (= nil v) (str "malformed read: " mop))
-                                    (assert (not (contains? acc k)) (str "duplicate keys: " mop))
-                                    (conj acc k))
-                                  []))]
-    (->> {:where   {:k {:in keys-to-read}}
-          :orderBy [{:k :asc} {:v :asc}]}
+  (assert (= 1 (count txn)))
+  (let [[f k v :as mop] (first txn)]
+    (assert (= :r f)  (str "findUnique is read only: " mop))
+    (assert (= nil v) (str "malformed read: " mop))
+    (->> {:where {:k k}}
          json/generate-string)))
 
-(defn electric-findMany->txn
-  "Given the original transaction and the result of an ElectricSQL findMany,
+(defn electric-findUnique->txn
+  "Given the original transaction and the result of an ElectricSQL findUnique,
    returns the transaction with thr result merged."
   [txn result]
-  (let [result (->> result
-                    (reduce (fn [acc {:keys [k v] :as _row}]
-                              (assoc acc k v))
-                            {}))]
-    (->> txn
-         (map (fn [[f k v :as mop]]
-                (assert (= :r f)  (str "findMany must be reads: " mop))
-                (assert (= nil v) (str "malformed mop: " mop))
-                [:r k (get result k)]))
-         (into []))))
+  (let [[_fm km _vm]             (first txn)
+        {:keys [k v] :as result} (json/parse-string result true)]
+    (if (seq result)
+      (do
+        (assert (= km k) (str "different keys for txn " txn " and result " result))
+        [[:r km v]])
+      txn)))
 
 (defn txn->electric-upsert
   "Given a transaction, returns the JSON necessary to use ElectricSQL upsert.
@@ -140,7 +133,7 @@
       (let [[r-or-w _ _] (first value)
             [url body]   (case r-or-w
                            :r [(str url "/electric-findMany")
-                               (txn->electric-findMany value)]
+                               (txn->electric-findUnique value)]
                            :w [(str url "/electric-upsert")
                                (txn->electric-upsert value)])
             result (http/post url
@@ -151,7 +144,7 @@
                                :accept             :json})
             result (:body result)
             result (case r-or-w
-                     :r (electric-findMany->txn value result)
+                     :r (electric-findUnique->txn value result)
                      :w (electric-upsert->txn   value result))]
         (assoc op
                :type  :ok
@@ -501,7 +494,9 @@
                    (gen/log "Quiesce...")
                    (gen/sleep 5)
                    (gen/log "Final reads...")
-                   (->> (gen/once {:type :invoke :f :txn :value final-r :final-read? true})
+                   (->> (range 100)
+                        (map (fn [k]
+                               {:type :invoke :f :txn :value [[:r k nil]] :final-read? true}))
                         (gen/each-thread)
                         (gen/clients)
                         (gen/stagger (/ rate))))]
@@ -521,13 +516,11 @@
 
 (defn workload-basic
   "A basic workload that conforms to the ElectricSQL TypeScript client API.
-   - 1 mop/txn
-   - consistency model of monotonic atomic view"
+   - 1 mop/txn"
   [opts]
   (let [opts (assoc opts
                     :min-txn-length 1
-                    :max-txn-length 1
-                    :consistency-models [:monotonic-atomic-view])]
+                    :max-txn-length 1)]
     (workload opts)))
 
 (defn cyclic-versions-helper
