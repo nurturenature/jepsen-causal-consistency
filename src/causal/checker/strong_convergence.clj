@@ -28,8 +28,11 @@
                               (h/filter :final-read?))
             node-finals  (->> history'
                               (reduce (fn [acc {:keys [node value] :as _op}]
-                                        (assoc acc node (mops->map value)))
-                                      {}))
+                                        (update acc node (fn [old]
+                                                           (if (nil? old)
+                                                             (into (sorted-map) (mops->map value))
+                                                             (merge old (mops->map value))))))
+                                      (sorted-map)))
             summary      (->> node-finals
                               (reduce (fn [acc [node reads]]
                                         (->> reads
@@ -56,9 +59,13 @@
         (merge
          {:valid? true}
          ; final read from all nodes?
-         (when (seq (set/difference nodes (set (keys node-finals))))
-           {:valid? false
-            :missing-node-reads (set/difference nodes (set (keys node-finals)))})
+         (let [nodes-with-final-reads    (set (keys node-finals))
+               nodes-missing-final-reads (set/difference nodes nodes-with-final-reads)]
+           (when (seq nodes-missing-final-reads)
+             {:valid? false
+              :nodes nodes
+              :nodes-with-final-reads nodes-with-final-reads
+              :nodes-missing-final-reads nodes-missing-final-reads}))
 
          ; all reads are the same?
          (when (= 1 (count value-finals))
