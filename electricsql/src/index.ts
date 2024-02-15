@@ -24,7 +24,7 @@ conn.pragma('journal_mode = WAL')
 const electric = await electrify(conn, schema, config)
 
 /* sync database */
-const { synced } = await electric.db.lww_registers.sync()
+const { synced } = await electric.db.gset.sync()
 await synced
 
 /* webserver */
@@ -33,7 +33,7 @@ const app: Express = express();
 app.use(express.json())
 
 app.get("/r/:k", async (req: Request, res: Response) => {
-    const value = await electric.db.lww_registers.findUnique({
+    const value = await electric.db.gset.findMany({
         where: {
             k: parseInt(req.params.k, 10)
         }
@@ -48,48 +48,50 @@ app.get("/r/:k", async (req: Request, res: Response) => {
     }
 });
 
-app.get("/w/:k/:v", async (req: Request, res: Response) => {
-    const result = await electric.db.lww_registers.upsert({
+app.get("/w/:id/:k/:v", async (req: Request, res: Response) => {
+    const result = await electric.db.gset.upsert({
         create: {
+            id: parseInt(req.params.id, 10),
             k: parseInt(req.params.k, 10),
             v: parseInt(req.params.v, 10)
         },
         update: {
+            k: parseInt(req.params.k, 10),
             v: parseInt(req.params.v, 10)
         },
         where: {
-            k: parseInt(req.params.k, 10)
+            id: parseInt(req.params.id, 10)
         }
     })
     res.send(result);
 });
 
 app.get("/list", async (req: Request, res: Response) => {
-    const result = await electric.db.lww_registers.findMany()
+    const result = await electric.db.gset.findMany()
     res.send(result);
 });
 
 app.get("/list-sql", async (req: Request, res: Response) => {
-    const result = await electric.db.raw({ sql: "SELECT * FROM lww_registers;" })
+    const result = await electric.db.raw({ sql: "SELECT * FROM gset;" })
     res.send(result);
 });
 
 app.post("/electric-findMany", async (req: Request, res: Response) => {
-    const result = await electric.db.lww_registers.findMany(req.body)
+    const result = await electric.db.gset.findMany(req.body)
     res.send(result)
 });
 
 app.post("/electric-upsert", async (req: Request, res: Response) => {
-    const result = await electric.db.lww_registers.upsert(req.body)
+    const result = await electric.db.gset.upsert(req.body)
     res.send(result)
 });
 
 app.post("/better-sqlite3", (req: Request, res: Response) => {
     const insert = conn.prepare(
-        'INSERT INTO lww_registers (k,v) VALUES (@k, @v) ON CONFLICT(k) DO UPDATE SET v = @v');
+        'INSERT INTO gset (id,k,v) VALUES (@id, @k, @v)');
 
     const select = conn.prepare(
-        'SELECT k,v FROM lww_registers WHERE k = @k');
+        'SELECT k,v FROM gset WHERE k = @k');
 
     const result = Array()
 
@@ -97,11 +99,11 @@ app.post("/better-sqlite3", (req: Request, res: Response) => {
         for (const mop of mops)
             switch (mop.f) {
                 case 'r':
-                    const read = <any>select.get(mop)
-                    if (read == undefined) {
+                    const read = <any>select.all(mop)
+                    if (read.length == 0) {
                         result.push({ 'f': 'r', 'k': mop.k, 'v': null })
                     } else {
-                        result.push({ 'f': 'r', 'k': mop.k, 'v': read.v })
+                        result.push({ 'f': 'r', 'k': mop.k, 'v': read })
                     }
                     break;
                 case 'w':

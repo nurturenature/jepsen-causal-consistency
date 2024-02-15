@@ -1,4 +1,4 @@
-(ns causal.lww-register-test
+(ns causal.gset-test
   (:require [clojure.test :refer :all]
             [causal.lww-register :as lww]
             [elle.rw-register :as rw]))

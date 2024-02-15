@@ -1,7 +1,7 @@
 (ns causal.cli
   "Command-line entry point for ElectricSQL tests."
   (:require [causal
-             [lww-register :as lww]]
+             [gset :as gset]]
             [causal.checker
              [fairness :as fairness]
              [strong-convergence :as sc]
@@ -35,14 +35,12 @@
 (def workloads
   "A map of workload names to functions that take CLI options and return
   workload maps."
-  {:lww-register         lww/workload
-   :lww-register-strong  lww/workload-strong
-   :basic                lww/workload-basic
-   :none                (fn [_] tests/noop-test)})
+  {:gset gset/workload
+   :none (fn [_] tests/noop-test)})
 
 (def all-workloads
   "A collection of workloads we run by default."
-  [:lww-register])
+  [:gset])
 
 (def all-nemeses
   "Combinations of nemeses for tests"
@@ -206,7 +204,7 @@
                (str "Nodes must be " #{"n1" "n2" "n3" "n4" "n5"})]]
 
    ["-w" "--workload NAME" "What workload should we run?"
-    :default  :basic
+    :default  :gset
     :parse-fn keyword
     :missing  (str "Must specify a workload: " (cli/one-of workloads))
     :validate [workloads (cli/one-of workloads)]]])

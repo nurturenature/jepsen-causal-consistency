@@ -60,14 +60,14 @@
       ; one client sets up ElectricSQL
       (locking electricsql-setup?
         (when-not @electricsql-setup?
-          (info "Setting up ElectricSQL lww_registers table:")
+          (info "Setting up ElectricSQL gset table:")
           (c/exec :psql :-d "postgresql://postgres:postgres@electricsql:65432"
-                  :-c "CREATE TABLE public.lww_registers (k integer PRIMARY KEY, v integer);")
+                  :-c "CREATE TABLE public.gset (id integer PRIMARY KEY, k integer, v integer);")
           (c/exec :psql :-d "postgresql://postgres:postgres@electricsql:65432"
-                  :-c "ALTER TABLE public.lww_registers ENABLE ELECTRIC;")
+                  :-c "ALTER TABLE public.gset ENABLE ELECTRIC;")
           (info
            (c/exec :psql :-d "postgresql://postgres:postgres@electricsql:65432"
-                   :-c "TABLE public.lww_registers;"))
+                   :-c "TABLE public.gset;"))
           (swap! electricsql-setup? (fn [_] true))))
 
       ; `client` may use `sqlite3` CLI

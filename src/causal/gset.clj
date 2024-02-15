@@ -1,4 +1,4 @@
-(ns causal.lww-register
+(ns causal.gset
   "A test which looks for cycles in write/read transactions.
    Writes are assumed to be unique, but this is the only constraint.
    See jepsen.tests.cycle.wr and elle.rw-register for docs."
@@ -162,7 +162,10 @@
   [{:keys [value] :as _op}]
   (let [value (->> value
                    (map (fn [[f k v]]
-                          {"f" f "k" k "v" v}))
+                          (case f
+                            :r {"f" f "k" k "v" v}
+                            :w {"f" f "k" k "v" v "id" (+ (* k 10000)
+                                                          v)})))
                    (into []))
         op     {:type  :invoke
                 :value value}]
@@ -185,7 +188,15 @@
                                           (= k k'))
                                      (str "Original op: " op ", result: " rslt ", mismatch"))
                              (case f
-                               :r [f k v']
+                               :r (if (nil? v')
+                                    [:r k nil]
+                                    (let [v' (->> v'
+                                                  (map (fn [{:keys [k v]}]
+                                                         (assert (= k k')
+                                                                 (str ":r for k contain non-k results: " op ", " rslt))
+                                                         v))
+                                                  (into (sorted-set)))]
+                                      [:r k v']))
                                :w (do
                                     (assert (= v v')
                                             (str "Munged write value in result, expected " v ", actual " v'))
@@ -451,7 +462,7 @@
     :else
     (BetterSQLite3Client. nil)))
 
-(defrecord LWWClient [conn]
+(defrecord GSetClient [conn]
   client/Client
   (open!
     [_this test node]
@@ -473,16 +484,14 @@
    })
 
 (defn workload
-  "Last write wins register workload.
-   `opts` are merged with `causal-opts` to configure `checker`."
+  "Gset workload."
   [{:keys [rate] :as opts}]
   (let [opts (merge
               {:directory      "."
                :max-plot-bytes 1048576
                :plot-timeout   10000}
-              causal-opts
               opts)
-        wr-test (wr/test opts)
+        gen       (wr/gen opts)
         final-gen (gen/phases
                    (gen/log "Quiesce...")
                    (gen/sleep 5)
@@ -493,28 +502,10 @@
                         (gen/each-thread)
                         (gen/clients)
                         (gen/stagger (/ rate))))]
-    (merge
-     wr-test
-     {:client (LWWClient. nil)
-      :final-generator final-gen
-      :checker (checker/compose
-                {:strong-convergence (sc/final-reads)
-                 :wr-test            (:checker wr-test)})})))
-
-(defn workload-strong
-  "Workload with only a strong convergence checker."
-  [opts]
-  (assoc (workload opts)
-         :checker (sc/final-reads)))
-
-(defn workload-basic
-  "A basic workload that conforms to the ElectricSQL TypeScript client API.
-   - 1 mop/txn"
-  [opts]
-  (let [opts (assoc opts
-                    :min-txn-length 1
-                    :max-txn-length 1)]
-    (workload opts)))
+    {:client          (GSetClient. nil)
+     :generator       gen
+     :final-generator final-gen
+     :checker         (sc/final-reads)}))
 
 (defn cyclic-versions-helper
   "Given a cyclic-versions result map and a history, filter history for involved transactions."
