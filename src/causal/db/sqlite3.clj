@@ -1,6 +1,5 @@
 (ns causal.db.sqlite3
-  (:require [causal.db.promises :as promises]
-            [clojure.string :refer [split-lines]]
+  (:require [clojure.string :refer [split-lines]]
             [clojure.tools.logging :refer [info warn]]
             [jepsen
              [db :as db]
@@ -36,6 +35,10 @@
 
 (def app-ps-name "node")
 
+(def electricsql-setup?
+  "Is ElectricSQL setup?"
+  (atom false))
+
 (defn db
   "ElectricSQL SQLite database."
   []
@@ -44,7 +47,30 @@
       [this test node]
       (info "Setting up SQLite3 client")
 
-      ; `client` will use `sqlite3` CLI
+      ; `client` may use `psql` CLI
+      (when-not (cu/file? "/etc/apt/sources.list.d/pgdg.list")
+        ; add key, repository, update, and add package
+        (c/su
+         (deb/install [:wget :gpg])
+         (c/exec :wget :--quiet :-O :- "https://www.postgresql.org/media/keys/ACCC4CF8.asc" :| :sudo :apt-key :add :-)
+         (deb/add-repo! :pgdg "deb https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main")
+         (deb/update!)
+         (deb/install [:postgresql-client])))
+
+      ; one client sets up ElectricSQL
+      (locking electricsql-setup?
+        (when-not @electricsql-setup?
+          (info "Setting up ElectricSQL lww_registers table:")
+          (c/exec :psql :-d "postgresql://postgres:postgres@electricsql:65432"
+                  :-c "CREATE TABLE public.lww_registers (k integer PRIMARY KEY, v integer);")
+          (c/exec :psql :-d "postgresql://postgres:postgres@electricsql:65432"
+                  :-c "ALTER TABLE public.lww_registers ENABLE ELECTRIC;")
+          (info
+           (c/exec :psql :-d "postgresql://postgres:postgres@electricsql:65432"
+                   :-c "TABLE public.lww_registers;"))
+          (swap! electricsql-setup? (fn [_] true))))
+
+      ; `client` may use `sqlite3` CLI
       (c/su
        (deb/install [:sqlite3]))
 
@@ -74,9 +100,6 @@
          (c/exec :mkdir :-p install-dir)
          (c/exec :git :clone "https://github.com/nurturenature/jepsen-causal-consistency.git" install-dir)))
 
-      (assert (deref promises/electricsql-available? 600000 false)
-              "ElectricSQL not available")
-
       ; building client migrations via ElectricSQL can be fussy, retry
       (assert (u/timeout
                60000 false
@@ -89,9 +112,7 @@
                       true)))
               (str "Unable to build SQLite3 client on " node))
 
-      (db/start! this test node)
-
-      (swap! promises/sqlite3-teardown?s assoc node (promise)))
+      (db/start! this test node))
 
     (teardown!
       [this test node]
@@ -99,11 +120,7 @@
       (db/kill! this test node)
       (c/su
        (c/exec :rm :-rf database-files)
-       (c/exec :rm :-rf log-file))
-
-      ; node may have never been `setup!` 
-      (when-let [p (get @promises/sqlite3-teardown?s node)]
-        (deliver p true)))
+       (c/exec :rm :-rf log-file)))
 
     ; ElectricSQL doesn't have `primaries`.
     ; db/Primary

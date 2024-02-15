@@ -9,8 +9,6 @@
              [set :as bs]]
             [causal.checker.strong-convergence :as sc]
             [causal.db
-             [electricsql :as electricsql]
-             [postgresql :as postgresql]
              [sqlite3 :as sqlite3]]
             [cheshire.core :as json]
             [clj-http.client :as http]
@@ -416,15 +414,15 @@
 
 (def db-specs
   "Map of node names to db-specs."
-  {"postgresql" {:dbtype  "postgresql"
-                 :host     postgresql/host
-                 :user     postgresql/user
-                 :password postgresql/password}
+  {"postgresql"  {:dbtype   "postgresql"
+                  :host     "postgresql"
+                  :user     "postgres"
+                  :password "postgres"}
    "electricsql" {:dbtype   "postgresql"
-                  :host     electricsql/host
-                  :port     electricsql/pg-proxy-port
-                  :user     postgresql/user
-                  :password electricsql/pg-proxy-password
+                  :host     "electricsql"
+                  :port     65432
+                  :user     "postgres"
+                  :password "postgres"
                   :dbname   "postgres"}})
 
 ;; TODO: why isn't electricsql allowing a connection using jdbc?
@@ -432,11 +430,8 @@
 (defn node->client
   "Maps a node name to its `client` protocol.
    BetterSQLite3Client is default."
-  [{:keys [better-sqlite3-nodes electricsql-nodes noop-nodes sqlite3-cli-nodes] :as _test} node]
+  [{:keys [better-sqlite3-nodes electricsql-nodes sqlite3-cli-nodes] :as _test} node]
   (cond
-    (contains? noop-nodes node)
-    (NOOPClient. nil)
-
     (contains? electricsql-nodes node)
     (ElectricSQLClient. nil)
 
@@ -488,8 +483,6 @@
               causal-opts
               opts)
         wr-test (wr/test opts)
-        final-r (->> (range 100)
-                     (reduce (fn [mops k] (conj mops [:r k nil])) []))
         final-gen (gen/phases
                    (gen/log "Quiesce...")
                    (gen/sleep 5)

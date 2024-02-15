@@ -7,9 +7,6 @@
              [strong-convergence :as sc]
              [without-noops :refer [without-noops]]]
             [causal.db
-             [cluster :as cluster]
-             [electricsql :as electricsql]
-             [postgresql :as postgresql]
              [sqlite3 :as sqlite3]]
             [clojure
              [set :as set]
@@ -81,11 +78,10 @@
 
 (defn causal-test
   "Given options from the CLI, constructs a test map."
-  [{:keys [nodes noop-nodes] :as opts}]
-  (let [nodes'        (set/difference (into #{} nodes) noop-nodes)
-        workload-name (:workload opts)
+  [{:keys [nodes] :as opts}]
+  (let [workload-name (:workload opts)
         workload ((workloads workload-name) opts)
-        db       (cluster/db)
+        db       (sqlite3/db)
         nemesis  (nc/nemesis-package
                   {:db db
                    :nodes (:nodes opts)
@@ -93,7 +89,7 @@
                    :partition {:targets [:one :minority-third :majority]}
                    :pause {:targets [:one :minority :majority :all]}
                    :kill  {:targets (->> (repeatedly 3 (fn []
-                                                         (->> nodes'
+                                                         (->> nodes
                                                               shuffle
                                                               (take 3)
                                                               sort
@@ -102,7 +98,7 @@
                    :packet {:targets   [:one :minority :majority :all]
                             :behaviors [{:delay {}}]}
                    :clock {:targets (->> (repeatedly 3 (fn []
-                                                         (->> nodes'
+                                                         (->> nodes
                                                               shuffle
                                                               (take 3)
                                                               sort
@@ -126,11 +122,6 @@
                         :stats (checker/stats)
                         :exceptions (checker/unhandled-exceptions)
                         :clock (checker/clock-plot)
-                       ; deadlocks are to be expected
-                       ; :logs-postgresql  (checker/log-file-pattern #".*ERROR\:  deadlock detected.*" postgresql/log-file-short)
-                       ; TODO: are all [error] errors?
-                       ; :logs-electricsql (checker/log-file-pattern #".*Client is not responding to ping, disconnecting.*" electricsql/log-file-short)
-                        :logs-electricsql (checker/log-file-pattern #"error" electricsql/log-file-short)
                         :logs-client      (checker/log-file-pattern #"SatelliteError" sqlite3/log-file-short)
                         :fairness         (fairness/fairness)
                         :workload (:checker workload)}))
@@ -204,11 +195,6 @@
     :parse-fn read-string
     :validate [pos? "Must be a positive number."]]
 
-   [nil "--noop-nodes NODES" "A comma-separated list of nodes that should get noop clients"
-    :parse-fn parse-nodes-spec
-    :validate [(partial every? #{"postgresql" "electricsql" "n1" "n2" "n3" "n4" "n5"})
-               (str "Nodes must be " #{"postgresql" "electricsql" "n1" "n2" "n3" "n4" "n5"})]]
-
    ["-r" "--rate HZ" "Approximate request rate, in hz"
     :default 100
     :parse-fn read-string
@@ -236,10 +222,6 @@
 (defn opt-fn
   "Transforms CLI options before execution."
   [parsed]
-  (let [nodes (->> (get-in parsed [:options :nodes])
-                   (into #{}))]
-    (assert (contains? nodes "postgresql")  "PostgreSQL is required")
-    (assert (contains? nodes "electricsql") "ElectricSQL is required"))
   parsed)
 
 (defn -main

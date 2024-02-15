@@ -6,19 +6,11 @@
 
 (defn without-noops
   "A checker that filters:
-     - noop-nodes from nodes
      - noop? true from history"
   [checker]
   (reify checker/Checker
-    (check [_this {:keys [nodes noop-nodes] :as test} history opts]
-      (let [nodes        (into #{} nodes)
-            nodes        (->> noop-nodes
-                              (set/difference nodes)
-                              seq)
-            test         (-> test
-                             (assoc :nodes nodes)
-                             (dissoc :noop-nodes))
-            history      (->> history
+    (check [_this test history opts]
+      (let [history      (->> history
                               (h/remove (fn [{:keys [noop?] :as op}]
                                           (if (h/invoke? op)
                                             (:noop? (h/completion history op))
