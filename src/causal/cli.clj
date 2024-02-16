@@ -3,8 +3,6 @@
   (:require [causal
              [gset :as gset]]
             [causal.checker
-             [fairness :as fairness]
-             [strong-convergence :as sc]
              [without-noops :refer [without-noops]]]
             [causal.db
              [sqlite3 :as sqlite3]]
@@ -121,7 +119,6 @@
                         :exceptions (checker/unhandled-exceptions)
                         :clock (checker/clock-plot)
                         :logs-client      (checker/log-file-pattern #"SatelliteError" sqlite3/log-file-short)
-                        :fairness         (fairness/fairness)
                         :workload (:checker workload)}))
             :client    (:client workload)
             :nemesis   (:nemesis nemesis)

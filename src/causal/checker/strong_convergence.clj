@@ -1,65 +1,87 @@
 (ns causal.checker.strong-convergence
   (:require [clojure.set :as set]
+            [elle.rw-register :as rw]
             [jepsen
              [checker :as checker]
-             [history :as h]]))
+             [history :as h]
+             [txn :as txn]]))
 
-(defn mops->map
-  "Takes a sequence of read mops and returns a k/v map with nils removed."
-  [mops]
-  (->> mops
-       (reduce (fn [mops' [f k v]]
-                 (assert (= :r f))
-                 (if (nil? v)
-                   mops'
-                   (assoc mops' k v)))
+(defn r-mop->kv-set
+  "Given a [:r k #{v v'...}] mop,
+   return #{[k v] [k v']...}"
+  [[f k v :as mop]]
+  (assert (= f :r) (str "mop is not a read: " mop))
+  (->> v
+       (map (fn [v'] [k v']))
+       (into (sorted-set))))
+
+(defn kv-set->map
+  [kv-set]
+  (->> kv-set
+       (reduce (fn [acc [k v]]
+                 (update acc k (fn [old]
+                                 (if (nil? old)
+                                   (sorted-set v)
+                                   (conj old v)))))
                (sorted-map))))
 
 (defn final-reads
-  "Do `:final-read? true` reads strongly converge?"
+  "Do `:final-read? true` reads strongly converge?
+   Check:
+     - final read from all nodes
+     - final read contains all ok writes and all info writes that were read
+     - all read values were written"
   []
   (reify checker/Checker
     (check [_this {:keys [nodes] :as _test} history _opts]
-      (let [nodes        (->> nodes (into (sorted-set)))
-            history      (->> history
-                              h/client-ops
-                              h/oks)
-            history'     (->> history
-                              (h/filter :final-read?))
-            node-finals  (->> history'
-                              (reduce (fn [acc {:keys [node value] :as _op}]
-                                        (update acc node (fn [old]
-                                                           (if (nil? old)
-                                                             (into (sorted-map) (mops->map value))
-                                                             (merge old (mops->map value))))))
-                                      (sorted-map)))
-            summary      (->> node-finals
-                              (reduce (fn [acc [node reads]]
-                                        (->> reads
-                                             (reduce (fn [acc [k v]]
-                                                       (-> acc
-                                                           (update k (fn [old]
-                                                                       (if (nil? old)
-                                                                         (sorted-map)
-                                                                         old)))
-                                                           (update-in [k v] (fn [old]
-                                                                              (if (nil? old)
-                                                                                (sorted-set node)
-                                                                                (conj old node))))))
-                                                     acc)))
-                                      (sorted-map))
-                              (remove (fn [[_k vs]]
-                                        (if (->> vs keys count (= 1))
-                                          true
-                                          false))))
-            value-finals (->> node-finals
-                              (group-by val)
-                              (map (fn [[read read-by]]
-                                     [read (keys read-by)])))]
+      (let [nodes           (->> nodes (into (sorted-set)))
+            history         (->> history
+                                 h/client-ops)
+            ext-write-index (rw/ext-index txn/ext-writes history)
+            history'        (->> history
+                                 h/oks
+                                 (h/filter :final-read?))
+            node->final     (->> history'
+                                 (reduce (fn [acc {:keys [node value] :as _op}]
+                                           (->> value
+                                                (reduce (fn [acc mop]
+                                                          (update acc node (fn [old]
+                                                                             (if (nil? old)
+                                                                               ; make initial value a sorted-set
+                                                                               (r-mop->kv-set mop)
+                                                                               (set/union old (r-mop->kv-set mop))))))
+                                                        acc)))
+                                         (sorted-map)))
+            {:keys [ok-r
+                    ok-w
+                    info-w]} (->> history
+                                  (txn/reduce-mops
+                                   (fn [state {:keys [type] :as _op} [f k v :as mop]]
+                                     (case [type f]
+                                       ([:invoke :r]
+                                        [:invoke :w]
+                                        [:info :r]
+                                        [:fail :r]
+                                        [:fail :w])
+                                       state
+
+                                       [:ok :r]
+                                       (update state :ok-r set/union (r-mop->kv-set mop))
+
+                                       [:ok :w]
+                                       (update state :ok-w conj [k v])
+
+                                       [:info :w]
+                                       (update state :info-w conj [k v])))
+                                   {:ok-r   (sorted-set)
+                                    :ok-w   (sorted-set)
+                                    :info-w (sorted-set)}))
+            expected-final (set/union ok-w (set/intersection info-w ok-r))]
         (merge
          {:valid? true}
+
          ; final read from all nodes?
-         (let [nodes-with-final-reads    (set (keys node-finals))
+         (let [nodes-with-final-reads    (set (keys node->final))
                nodes-missing-final-reads (set/difference nodes nodes-with-final-reads)]
            (when (seq nodes-missing-final-reads)
              {:valid? false
@@ -67,11 +89,38 @@
               :nodes-with-final-reads nodes-with-final-reads
               :nodes-missing-final-reads nodes-missing-final-reads}))
 
-         ; all reads are the same?
-         (when (= 1 (count value-finals))
-           {:final-read (->> value-finals
-                             first
-                             first)})
-         (when (< 1 (count value-finals))
-           {:valid? false
-            :divergent-final-reads summary}))))))
+         ; final read has all expected values?
+         (let [incomplete-final-reads (->> node->final
+                                           (map (fn [[node read]]
+                                                  (let [missing  (set/difference expected-final read)
+                                                        missing' (->> missing
+                                                                      kv-set->map
+                                                                      (map (fn [[k vs]]
+                                                                             (let [vs (->> vs
+                                                                                           (reduce (fn [acc v]
+                                                                                                     (assoc acc v
+                                                                                                            (->> (get-in ext-write-index [k v])
+                                                                                                                 first
+                                                                                                                 :node)))
+                                                                                                   (sorted-map)))]
+                                                                               [k vs])))
+                                                                      (into (sorted-map)))]
+                                                    (when (seq missing)
+                                                      [node {:count   (count missing)
+                                                             :missing missing'}]))))
+                                           (into (sorted-map)))]
+           (when (seq incomplete-final-reads)
+             {:valid? false
+              :incomplete-final-reads incomplete-final-reads}))
+
+         ; final read has unexpected values?
+         (let [unexpected-final-reads (->> node->final
+                                           (map (fn [[node read]]
+                                                  (let [unexpected (set/difference read expected-final)]
+                                                    (when (seq unexpected)
+                                                      [node {:count      (count unexpected)
+                                                             :unexpected (kv-set->map unexpected)}]))))
+                                           (into (sorted-map)))]
+           (when (seq unexpected-final-reads)
+             {:valid? false
+              :unexpected-final-reads unexpected-final-reads})))))))

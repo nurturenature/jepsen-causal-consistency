@@ -7,7 +7,9 @@
              [core :as b]
              [graph :as bg]
              [set :as bs]]
-            [causal.checker.strong-convergence :as sc]
+            [causal.checker
+             [fairness :as fairness]
+             [strong-convergence :as sc]]
             [causal.db
              [sqlite3 :as sqlite3]]
             [cheshire.core :as json]
@@ -505,7 +507,9 @@
     {:client          (GSetClient. nil)
      :generator       gen
      :final-generator final-gen
-     :checker         (sc/final-reads)}))
+     :checker         (checker/compose
+                       {:strong-convergence (sc/final-reads)
+                        :fairness           (fairness/fairness)})}))
 
 (defn cyclic-versions-helper
   "Given a cyclic-versions result map and a history, filter history for involved transactions."

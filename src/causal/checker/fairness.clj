@@ -73,12 +73,15 @@
                                                              (.time op)))]
                             (reduce (fn [acc [f k v]]
                                       (if (and (= :r f)
-                                               v)
-                                        (let [node (->> (get-in @ext-index [k v])
-                                                        first
-                                                        :node)
-                                              k [(.f op) node bucket]]
-                                          (assoc! acc k (+ (get acc k 0) td)))
+                                               (seq v))
+                                        (->> v
+                                             (reduce (fn [acc v']
+                                                       (let [node (->> (get-in @ext-index [k v'])
+                                                                       first
+                                                                       :node)
+                                                             k [(.f op) node bucket]]
+                                                         (assoc! acc k (+ (get acc k 0) td))))
+                                                     acc))
                                         acc))
                                     m
                                     (:value op))))
@@ -126,12 +129,15 @@
                                  (reduce (fn [acc op]
                                            (reduce (fn [acc [f k v]]
                                                      (if (and (= :r f)
-                                                              v)
-                                                       (let [node (->> (get-in ext-write-index [k v])
-                                                                       first
-                                                                       :node)
-                                                             node (or node (:node op))] ; may be an txn internal w/r
-                                                         (assoc acc node (+ (get acc node 0) 1)))
+                                                              (seq v))
+                                                       (->> v
+                                                            (reduce (fn [acc v']
+                                                                      (let [node (->> (get-in ext-write-index [k v'])
+                                                                                      first
+                                                                                      :node)
+                                                                            node (or node (:node op))] ; may be a txn internal w/r
+                                                                        (assoc acc node (+ 1 (get acc node 0)))))
+                                                                    acc))
                                                        acc))
                                                    acc
                                                    (:value op)))
