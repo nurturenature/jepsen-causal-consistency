@@ -74,11 +74,11 @@
                         (assert (= :r f)  (str "findMany is read only: " mop))
                         (assert (= nil v) (str "malformed read: " mop))
                         k)))]
-    (->> {:where    {:k {:in ks}}
-          :select   {:k true
-                     :v true}
-          :order-by [{:k :asc}
-                     {:v :asc}]}
+    (->> {:where   {:k {:in ks}}
+          :select  {:k true
+                    :v true}
+          :orderBy [{:k :asc}
+                    {:v :asc}]}
          json/generate-string)))
 
 (defn electric-findMany->txn
@@ -88,12 +88,13 @@
   (let [result (->> (json/parse-string result true)
                     (map (fn [{:keys [k v]}]
                            [k v]))
-                    (into {}))]
+                    (into #{})
+                    sc/kv-set->map)]
     (->> txn
          (mapv (fn [[f k v :as mop]]
                  (assert (= :r f)  (str "findMany is read only: " mop))
                  (assert (= nil v) (str "malformed read: " mop))
-                 [:r k (get-in result k)])))))
+                 [:r k (get result k)])))))
 
 (defn txn->electric-createMany
   "Given a transaction, returns the JSON necessary to use ElectricSQL createMany.
@@ -113,9 +114,8 @@
   "Given the original transaction and the ElectricSQL createMany result,
    return the transaction with the results merged in."
   [txn result]
-  (let [result (json/parse-string result true)
-        count (:count result)]
-    (assert (= count (count txn))
+  (let [result (json/parse-string result true)]
+    (assert (= (:count result) (count txn))
             (str "result count mismatch: " result " for " txn)))
   txn)
 
@@ -533,7 +533,7 @@
                                  (let [[rs ws] (->> value
                                                     (reduce (fn [[rs ws] [f _k _v :as mop]]
                                                               (case f
-                                                                :r (if (contains? rs mop)
+                                                                :r (if (some #(= % mop) rs)
                                                                      [rs ws]
                                                                      [(conj rs mop) ws])
                                                                 :w [rs (conj ws mop)]))
