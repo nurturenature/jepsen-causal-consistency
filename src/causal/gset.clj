@@ -264,63 +264,67 @@
   (let [stmts (->> txn
                    (map (fn [[f k v]]
                           (case f
-                            :r (str "SELECT k,v FROM lww_registers WHERE k = " k ";")
-                            :w (str "INSERT INTO lww_registers(k,v)"
-                                    " VALUES(" k "," v ")"
-                                    " ON CONFLICT(k) DO UPDATE SET v=" v
+                            :r (str "SELECT k,v FROM gset WHERE k = " k ";")
+                            :w (str "INSERT INTO gset (id,k,v)"
+                                    " VALUES(" (->> k (* 10000) (+ v)) "," k "," v ")"
                                     " RETURNING k as wk, v as wv;"))))
                    (str/join " "))]
     (str "BEGIN; " stmts " END;")))
 
 (defn sqlite3-cli->txn
-  "Merges the result of an SQLite3 statement back into the original txn of mops."
-  [mops result]
-  (let [[mops' rslts]
-        (->> mops
-             (reduce (fn [[mops' rslts] [f k v :as mop]]
-                       (let [first' (first rslts)
-                             rest'  (rest  rslts)
-                             k'     (:k first')
-                             v'     (:v first')
-                             wk'    (:wk first')
-                             wv'    (:wv first')
-                             type'  (cond
-                                      (and wk' wv') :write
-                                      (and k' v')   :read
-                                      :else         :nil)]
+  "Merges the result of an SQLite3 statement back into the original txn."
+  [txn result]
+  (let [result (-> (str "[" result "]")
+                   (str/replace #"\]\n\[" "],\n[")
+                   (json/parse-string true))
+        [txn' result']
+        (->> txn
+             (reduce (fn [[txn' result'] [f k v :as mop]]
+                       (let [stmt-rslt (first result')
+                             rest-rslt (rest  result')
+                             {rk :k rv :v wk :wk wv :wv} (first stmt-rslt)]
                          (cond
-                           (#{:w} f)
-                           (do
-                             (when (or (not= type' :write)
-                                       (not= k wk')
-                                       (not= v wv'))
-                               (throw+ {:type :sql-result-parse-error :mops mops :result result}))
-                             [(conj mops' mop) rest'])
+                           ; mop is :w, statement result is the 1 record written
+                           (and (#{:w} f)
+                                (= 1 (count stmt-rslt))
+                                (= k wk)
+                                (= v wv))
+                           [(conj txn' mop) rest-rslt]
 
+                           ; mop is :r, no more statement results, null read
                            (and (#{:r} f)
-                                (= type' :write))
-                           [(conj mops' [:r k nil]) rslts]
+                                (nil? result'))
+                           [(conj txn' [:r k nil]), nil]
 
+                           ; mop is :r, statement result is a :w result [{:wk :wv}], null read
                            (and (#{:r} f)
-                                (= type' :read)
-                                (= k k'))
-                           [(conj mops' [:r k v']) rest']
+                                (= 1 (count stmt-rslt))
+                                wk wv)
+                           [(conj txn' [:r k nil]), result']
 
+                           ; mop is :r, statement result is a :r result [{:k :v} ...] for a different key, null read
                            (and (#{:r} f)
-                                (= type' :read)
-                                (not= k k'))
-                           [(conj mops' [:r k nil]) rslts]
+                                (not= k rk))
+                           [(conj txn' [:r k nil]), result']
 
+                           ; mop is :r, statement result is a :r result [{:k :v} ...] for the same key
                            (and (#{:r} f)
-                                (= type' :nil))
-                           [(conj mops' [:r k nil]) rslts]
+                                (= k rk))
+                           (let [vs (->> stmt-rslt
+                                         (map :v)
+                                         (into (sorted-set)))]
+                             [(conj txn' [:r k vs]) rest-rslt])
 
-                           :else (throw+ {:type :sql-result-parse-error :mops mops :result result}))))
+                           :else
+                           (throw+ {:type :sql-result-parse-error
+                                    :mops txn :result result
+                                    :mop mop :stmt-rslt stmt-rslt
+                                    :k k :v v :rk rk :rv rv :wk wk :wv wv}))))
                      [[] result]))]
-    (when (or (not= 0 (count rslts))
-              (not= (count mops) (count mops')))
-      (throw+ {:type :sql-result-parse-error :mops mops :result result :rslts rslts}))
-    mops'))
+    (when (or (not= 0 (count result'))
+              (not= (count txn) (count txn')))
+      (throw+ {:type :sql-result-parse-error :mops txn :result result :rslts result'}))
+    txn'))
 
 (defrecord SQLite3CliClient [conn]
   client/Client
@@ -342,10 +346,6 @@
                                             (fn [_test _node]
                                               (c/exec :echo sql-stmt :| :sqlite3 :-json sqlite3/database-file)))
                                 node)
-                  result   (->> result
-                                (str/split-lines)
-                                (mapcat #(json/parse-string % true))
-                                vec)
                   mops'    (sqlite3-cli->txn value result)]
               (assoc op
                      :type  :ok

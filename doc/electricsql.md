@@ -28,13 +28,15 @@ END;
 
 ### Clients
 
-Clients are sticky, always:
-  - interact with same node
-  - with same database connection
+Clients are sticky, always interact with:
+  - same node
+  - same database connection
 
 Heterogeneous:
-  - SQLite3 
-    - better-sqlite3
+  - SQLite3
+    - ElectricSQL TypeScript 
+    - better-sqlite3 TypeScript
+    - SQLite3 cli
   - PostgreSQL jdbc driver
 
 ----
