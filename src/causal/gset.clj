@@ -395,15 +395,15 @@
                      (->> value
                           (map (fn [[f k v :as mop]]
                                  (case f
-                                   :r [:r k (->> (jdbc/execute! tx [(str "SELECT v FROM lww_registers WHERE k = " k)])
-                                                 first
-                                                 :lww_registers/v)]
+                                   :r [:r k (->> (jdbc/execute! tx [(str "SELECT k,v FROM gset WHERE k = " k)])
+                                                 (map :gset/v)
+                                                 (into (sorted-set)))]
                                    :w (do
                                         (assert (= 1
-                                                   (->> (jdbc/execute! tx [(str "INSERT INTO lww_registers (k,v) VALUES (" k "," v ")"
-                                                                                " ON CONFLICT(k) DO UPDATE SET v = " v)])
-                                                        first
-                                                        :next.jdbc/update-count)))
+                                                   (let [id (->> k (* 10000) (+ v))]
+                                                     (->> (jdbc/execute! tx [(str "INSERT INTO gset (id,k,v) VALUES (" id "," k "," v ")")])
+                                                          first
+                                                          :next.jdbc/update-count))))
                                         mop))))
                           (into [])))]
          (assoc op
@@ -443,7 +443,7 @@
 (defn node->client
   "Maps a node name to its `client` protocol.
    BetterSQLite3Client is default."
-  [{:keys [better-sqlite3-nodes electricsql-nodes sqlite3-cli-nodes] :as _test} node]
+  [{:keys [better-sqlite3-nodes electricsql-nodes postgresql-nodes sqlite3-cli-nodes] :as _test} node]
   (cond
     (contains? electricsql-nodes node)
     (ElectricSQLClient. nil)
@@ -454,7 +454,7 @@
     (contains? sqlite3-cli-nodes node)
     (SQLite3CliClient. nil)
 
-    (= "postgresql" node)
+    (contains? postgresql-nodes node)
     (PostgreSQLJDBCClient. (get db-specs "postgresql"))
 
     (= "electricsql" node)

@@ -138,9 +138,7 @@
 (def cli-opts
   "Command line options"
   [[nil "--better-sqlite3-nodes NODES" "A comma-separated list of nodes that should get better-sqlite3 clients"
-    :parse-fn parse-nodes-spec
-    :validate [(partial every? #{"n1" "n2" "n3" "n4" "n5"})
-               (str "Nodes must be " #{"n1" "n2" "n3" "n4" "n5"})]]
+    :parse-fn parse-nodes-spec]
 
    [nil "--consistency-models MODELS" "What consistency models to check for."
     :default [:strong-session-consistent-view]
@@ -149,9 +147,7 @@
                (str "Must be one or more of " cm/all-models)]]
 
    [nil "--electricsql-nodes NODES" "A comma-separated list of nodes that should get ElectricSQL clients"
-    :parse-fn parse-nodes-spec
-    :validate [(partial every? #{"n1" "n2" "n3" "n4" "n5"})
-               (str "Nodes must be " #{"n1" "n2" "n3" "n4" "n5"})]]
+    :parse-fn parse-nodes-spec]
 
    [nil "--linearizable-keys?" "Use the realtime process order to derive a version order, i.e. Last Write Wins."]
 
@@ -190,15 +186,16 @@
     :parse-fn read-string
     :validate [pos? "Must be a positive number."]]
 
+   [nil "--postgresql-nodes NODES" "A comma-separated list of nodes that should get PostgreSQL clients"
+    :parse-fn parse-nodes-spec]
+
    ["-r" "--rate HZ" "Approximate request rate, in hz"
     :default 100
     :parse-fn read-string
     :validate [pos? "Must be a positive number."]]
 
    [nil "--sqlite3-cli-nodes NODES" "A comma-separated list of nodes that should get SQLite3 CLI clients"
-    :parse-fn parse-nodes-spec
-    :validate [(partial every? #{"n1" "n2" "n3" "n4" "n5"})
-               (str "Nodes must be " #{"n1" "n2" "n3" "n4" "n5"})]]
+    :parse-fn parse-nodes-spec]
 
    ["-w" "--workload NAME" "What workload should we run?"
     :default  :gset

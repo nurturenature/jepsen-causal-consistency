@@ -1,10 +1,10 @@
 ### Testing ElectricSQL
 
-#### LWW Register
+#### Grow Only Set
 
 ```sql
-CREATE TABLE lww_registers (k integer PRIMARY KEY, v integer);
-ALTER TABLE lww_registers ENABLE ELECTRIC;
+CREATE TABLE gset (id integer PRIMARY KEY, k integer, v integer);
+ALTER TABLE gset ENABLE ELECTRIC;
 ```
 
 Random transactions are generated:
@@ -16,12 +16,11 @@ Random transactions are generated:
 And executed as SQL transactions on random nodes:
 
 ```sql
-
 BEGIN;
   -- [:r k v]
-  SELECT k,v FROM lww_registers WHERE k = ?;
+  SELECT k,v FROM gset WHERE k = ?;
   -- [:w k v]
-  INSERT INTO lww_registers(k,v) VALUES(?, ?) ON CONFLICT(k) DO UPDATE SET v = ?;
+  INSERT INTO gset (id,k,v) VALUES(?, ?, ?);
 END;
 ```
 
@@ -30,11 +29,12 @@ END;
 ### Clients
 
 Clients are sticky, always:
-  - talks to same node
-  - uses same connection
+  - interact with same node
+  - with same database connection
 
 Heterogeneous:
-  - SQLite3 CLI
+  - SQLite3 
+    - better-sqlite3
   - PostgreSQL jdbc driver
 
 ----
@@ -43,14 +43,16 @@ Heterogeneous:
 
 - generate a random mixture of reads and writes across all clients
 - let database briefly quiesce
-- each client does a final read of all keys in a single transaction from each node
+- each client does a final read of all keys from each node
 
 Check:
 
   - all nodes have an ok read
     - total sticky availability
-  - all nodes read the same value for all keys
+  - all nodes read the all the known write value for all keys
     - strong convergence
+- no unexpected read values
+    - Read Committed, no dirty reads
 
 ----
 
