@@ -65,54 +65,58 @@
   (close!
     [_client _test]))
 
-(defn txn->electric-findUnique
-  "Given a transaction, returns the JSON necessary to use ElectricSQL findUnique.
-   Transaction is assumed to be a read."
+(defn txn->electric-findMany
+  "Given a transaction, returns the JSON necessary to use ElectricSQL findMany.
+   Transaction is assumed to be all read mops."
   [txn]
-  (assert (= 1 (count txn)))
-  (let [[f k v :as mop] (first txn)]
-    (assert (= :r f)  (str "findUnique is read only: " mop))
-    (assert (= nil v) (str "malformed read: " mop))
-    (->> {:where {:k k}}
+  (let [ks (->> txn
+                (mapv (fn [[f k v :as mop]]
+                        (assert (= :r f)  (str "findMany is read only: " mop))
+                        (assert (= nil v) (str "malformed read: " mop))
+                        k)))]
+    (->> {:where    {:k {:in ks}}
+          :select   {:k true
+                     :v true}
+          :order-by [{:k :asc}
+                     {:v :asc}]}
          json/generate-string)))
 
-(defn electric-findUnique->txn
-  "Given the original transaction and the result of an ElectricSQL findUnique,
-   returns the transaction with thr result merged."
+(defn electric-findMany->txn
+  "Given the original transaction and the result of an ElectricSQL findMany,
+   returns the transaction with the result merged."
   [txn result]
-  (let [[_fm km _vm]             (first txn)
-        {:keys [k v] :as result} (json/parse-string result true)]
-    (if (seq result)
-      (do
-        (assert (= km k) (str "different keys for txn " txn " and result " result))
-        [[:r km v]])
-      txn)))
+  (let [result (->> (json/parse-string result true)
+                    (map (fn [{:keys [k v]}]
+                           [k v]))
+                    (into {}))]
+    (->> txn
+         (mapv (fn [[f k v :as mop]]
+                 (assert (= :r f)  (str "findMany is read only: " mop))
+                 (assert (= nil v) (str "malformed read: " mop))
+                 [:r k (get-in result k)])))))
 
-(defn txn->electric-upsert
-  "Given a transaction, returns the JSON necessary to use ElectricSQL upsert.
-   Transaction is assumed to be a single write."
+(defn txn->electric-createMany
+  "Given a transaction, returns the JSON necessary to use ElectricSQL createMany.
+   Transaction is assumed to be all writes."
   [txn]
-  (assert (= 1 (count txn))
-          (str "More than 1 mop/txn in " txn))
-  (let [[f k v] (first txn)]
-    (assert (= :w f)
-            (str "mop is not a write in " txn))
-    (->> {:create {:k k :v v}
-          :update {:v v}
-          :where  {:k k}}
+  (let [records (->> txn
+                     (mapv (fn [[f k v :as _mop]]
+                             (assert (= :w f) (str "mop is not a write in " txn))
+                             {:id (->> k (* 10000) (+ v))
+                              :k  k
+                              :v  v})))]
+
+    (->> {:data records}
          json/generate-string)))
 
-(defn electric-upsert->txn
-  "Given the original transaction and the ElectricSQL upsert result,
+(defn electric-createMany->txn
+  "Given the original transaction and the ElectricSQL createMany result,
    return the transaction with the results merged in."
   [txn result]
-  (let [[fm km vm :as mop]       (first txn)
-        {:keys [k v] :as result} (json/parse-string result true)]
-    (assert (= :w fm)
-            (str "mop not a write in " txn))
-    (assert (and (= km k)
-                 (= vm v))
-            (str "mop result mismatch for " txn " and " result)))
+  (let [result (json/parse-string result true)
+        count (:count result)]
+    (assert (= count (count txn))
+            (str "result count mismatch: " result " for " txn)))
   txn)
 
 (defrecord ElectricSQLClient [conn]
@@ -133,9 +137,9 @@
       (let [[r-or-w _ _] (first value)
             [url body]   (case r-or-w
                            :r [(str url "/electric-findMany")
-                               (txn->electric-findUnique value)]
-                           :w [(str url "/electric-upsert")
-                               (txn->electric-upsert value)])
+                               (txn->electric-findMany value)]
+                           :w [(str url "/electric-createMany")
+                               (txn->electric-createMany value)])
             result (http/post url
                               {:body               body
                                :content-type       :json
@@ -144,8 +148,8 @@
                                :accept             :json})
             result (:body result)
             result (case r-or-w
-                     :r (electric-findUnique->txn value result)
-                     :w (electric-upsert->txn   value result))]
+                     :r (electric-findMany->txn value result)
+                     :w (electric-createMany->txn   value result))]
         (assoc op
                :type  :ok
                :value result))))
@@ -510,6 +514,43 @@
      :checker         (checker/compose
                        {:strong-convergence (sc/final-reads)
                         :fairness           (fairness/fairness)})}))
+
+(defn workload-electricsql
+  "A workload with a generator for the ElectricSQL TypeScript client.
+   Generator must only generate txns consisting exclusively of reads or writes
+   to accommodate the API."
+  [{:keys [min-txn-length max-txn-length] :as opts}]
+  (let [min-txn-length (* 2 (or min-txn-length 1))
+        max-txn-length (* 2 (or max-txn-length 4))
+        opts           (assoc opts
+                              :min-txn-length min-txn-length
+                              :max-txn-length max-txn-length
+                              :key-dist       :uniform
+                              :key-count      10)
+        workload (workload opts)
+        generator (->> (:generator workload)
+                       (mapcat (fn [{:keys [value] :as op}]
+                                 (let [[rs ws] (->> value
+                                                    (reduce (fn [[rs ws] [f _k _v :as mop]]
+                                                              (case f
+                                                                :r (if (contains? rs mop)
+                                                                     [rs ws]
+                                                                     [(conj rs mop) ws])
+                                                                :w [rs (conj ws mop)]))
+                                                            [[] []]))]
+                                   (cond (and (seq rs)
+                                              (seq ws))
+                                         (let [r-op (assoc op :value rs)
+                                               w-op (assoc op :value ws)]
+                                           (->> [r-op w-op] shuffle vec))
+
+                                         (seq rs)
+                                         [(assoc op :value rs)]
+
+                                         (seq ws)
+                                         [(assoc op :value ws)])))))]
+    (assoc workload
+           :generator generator)))
 
 (defn cyclic-versions-helper
   "Given a cyclic-versions result map and a history, filter history for involved transactions."

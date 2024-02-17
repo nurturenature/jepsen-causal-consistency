@@ -33,8 +33,9 @@
 (def workloads
   "A map of workload names to functions that take CLI options and return
   workload maps."
-  {:gset gset/workload
-   :none (fn [_] tests/noop-test)})
+  {:gset        gset/workload
+   :electricsql gset/workload-electricsql
+   :none        (fn [_] tests/noop-test)})
 
 (def all-workloads
   "A collection of workloads we run by default."

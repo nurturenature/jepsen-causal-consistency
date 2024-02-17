@@ -81,8 +81,8 @@ app.post("/electric-findMany", async (req: Request, res: Response) => {
     res.send(result)
 });
 
-app.post("/electric-upsert", async (req: Request, res: Response) => {
-    const result = await electric.db.gset.upsert(req.body)
+app.post("/electric-createMany", async (req: Request, res: Response) => {
+    const result = await electric.db.gset.createMany(req.body)
     res.send(result)
 });
 
