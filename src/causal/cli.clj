@@ -34,7 +34,7 @@
   "A map of workload names to functions that take CLI options and return
   workload maps."
   {:gset        gset/workload
-   :electricsql gset/workload-electricsql
+   :homogeneous gset/workload-homogeneous-txns
    :none        (fn [_] tests/noop-test)})
 
 (def all-workloads
@@ -85,12 +85,12 @@
                    :faults (:nemesis opts)
                    :partition {:targets [:one :minority-third :majority]}
                    :pause {:targets [:one :minority :majority :all]}
-                   :kill  {:targets (->> (repeatedly 3 (fn []
-                                                         (->> nodes
-                                                              shuffle
-                                                              (take 3)
-                                                              sort
-                                                              (into []))))
+                   :kill  {:targets (->> (repeatedly 10 (fn []
+                                                          (->> nodes
+                                                               shuffle
+                                                               (take 2)
+                                                               sort
+                                                               (into []))))
                                          (into []))}
                    :packet {:targets   [:one :minority :majority :all]
                             :behaviors [{:delay {}}]}

@@ -515,8 +515,9 @@
                        {:strong-convergence (sc/final-reads)
                         :fairness           (fairness/fairness)})}))
 
-(defn workload-electricsql
-  "A workload with a generator for the ElectricSQL TypeScript client.
+(defn workload-homogeneous-txns
+  "A workload with a generator that emits transactions that are all read or write ops,
+   E.g. for the ElectricSQL TypeScript client.
    Generator must only generate txns consisting exclusively of reads or writes
    to accommodate the API."
   [{:keys [min-txn-length max-txn-length] :as opts}]
