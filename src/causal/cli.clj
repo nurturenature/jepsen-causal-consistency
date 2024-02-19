@@ -3,7 +3,8 @@
   (:require [causal
              [gset :as gset]]
             [causal.checker
-             [without-noops :refer [without-noops]]]
+             [fairness :as fairness]
+             [strong-convergence :as sc]]
             [causal.db
              [sqlite3 :as sqlite3]]
             [clojure
@@ -111,16 +112,17 @@
                        " " (str/join "," (map name (:nemesis opts))))
             :os debian/os
             :db db
-            :checker (without-noops
-                      (checker/compose
-                       {:perf (checker/perf
-                               {:nemeses (:perf nemesis)})
-                        :timeline (timeline/html)
-                        :stats (checker/stats)
-                        :exceptions (checker/unhandled-exceptions)
-                        :clock (checker/clock-plot)
-                        :logs-client      (checker/log-file-pattern #"SatelliteError" sqlite3/log-file-short)
-                        :workload (:checker workload)}))
+            :checker (checker/compose
+                      {:perf               (checker/perf
+                                            {:nemeses (:perf nemesis)})
+                       :timeline           (timeline/html)
+                       :stats              (checker/stats)
+                       :exceptions         (checker/unhandled-exceptions)
+                       :clock              (checker/clock-plot)
+                       :logs-client        (checker/log-file-pattern #"SatelliteError" sqlite3/log-file-short)
+                       :fairness           (fairness/fairness
+                                            {:nemeses (:perf nemesis)})
+                       :strong-convergence (sc/final-reads)})
             :client    (:client workload)
             :nemesis   (:nemesis nemesis)
             :generator (gen/phases

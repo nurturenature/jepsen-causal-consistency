@@ -40,29 +40,6 @@
             [next.jdbc :as jdbc]
             [slingshot.slingshot :refer [try+ throw+]]))
 
-(defrecord NOOPClient [conn]
-  client/Client
-  (open!
-    [this _test node]
-    (assoc this
-           :node node))
-
-  (setup!
-    [_this _test])
-
-  (invoke!
-    [{:keys [node] :as _client} _test op]
-    (assoc op
-           :node  node
-           :type  :fail
-           :noop? true))
-
-  (teardown!
-    [_this _test])
-
-  (close!
-    [_client _test]))
-
 (defn txn->electric-findMany
   "Given a transaction, returns the JSON necessary to use ElectricSQL findMany.
    Transaction is assumed to be all read mops."
@@ -529,10 +506,7 @@
                         (gen/stagger (/ rate))))]
     {:client          (GSetClient. nil)
      :generator       gen
-     :final-generator final-gen
-     :checker         (checker/compose
-                       {:strong-convergence (sc/final-reads)
-                        :fairness           (fairness/fairness)})}))
+     :final-generator final-gen}))
 
 (defn workload-homogeneous-txns
   "A workload with a generator that emits transactions that are all read or write ops,

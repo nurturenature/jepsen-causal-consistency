@@ -118,10 +118,12 @@
   "Plot the rate of reads of each node's writes,
    e.g. are each nodes writes fairly represented, being read by itself and other nodes?
    Count all reads of writes."
-  []
+  [defaults]
   (reify checker/Checker
     (check [_this {:keys [nodes] :as test} history opts]
-      (let [history'  (->> history
+      (let [opts      (merge
+                       defaults opts)
+            history'  (->> history
                            h/client-ops
                            h/oks)
             ext-write-index (rw/ext-index txn/ext-writes history')
