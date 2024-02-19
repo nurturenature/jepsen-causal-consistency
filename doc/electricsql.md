@@ -86,42 +86,53 @@ Jepsen faults are real faults:
     - clients continue to read/write to the database
     - sync service restarted
 
+Less of a fault, and more indicative of normal behavior.
+
+In a local first environment, clients will be coming and going in all manner at all times.
+
 ----
 
 ### ***Preliminary*** Testing of Normal Operation
 
-ElectricSQL is active/active for PostgreSQL and 1 to many SQLite3s.
+ElectricSQL is active/active for PostgreSQL and 1 to many heterogenous SQLite3 clients.
 
 #### Limitations Found
 
-ElectricSQL TypeScript API only supports homogeneous transactions, i.e. all reads or all writes.
-  - tests using this client only generate homogeneous transactions vs mixed transactions
+##### ElectricSQL TypeScript API
+  - only supports homogeneous transactions, i.e. all reads or all writes vs mixed read/write transactions
+  - only supports multiple record create or update, not upsert
+  - so tests default to using homogeneous transactions that read and create many 
 
-Direct writes to PostgreSQL can deadlock the replication service's write transactions losing previously ok'd client writes ([issue](https://github.com/electric-sql/electric/issues/919)).
-  - tests use a grow only set with unique writes
+##### Direct writes to PostgreSQL can deadlock the replication service's write transactions losing previously ok'd client writes ([issue](https://github.com/electric-sql/electric/issues/919))
+  - cannot active/active PostgreSQL/SQLite3 with transactions that update/upsert
+  - so tests use a grow only set with unique writes
 
-#### Capacity
-
-Homogeneous transactions: 100+ tps for <= 300 s
-Mixed transactions: < ~50 tps
-  - valid strong convergence
-    ```bash
-    # can use ElectricSQL client
-    lein run test --workload homogeneous --nodes n1,n2,n3,n4,n5,n6,n7,n8 --postgresql-nodes n1,n2 --electricsql-nodes n3,n4 --better-sqlite3-nodes n5,n6 --sqlite3-cli-nodes n7,n8
-    ```
-
-Homogeneous transactions: 100+ tps for > 300 s
-Mixed transactions: > ~50 tps
-  - invalid strong convergence, each node missing writes
-  - errors in ElectricSQL sync server logs:
+##### At a rate of > ~50tps for 500s
+  - invalid strong convergence, not all writes replicated to every node
+  - errors in ElectricSQL sync server logs w/higher tps:
     ```log
     [error] GenStage consumer #PID<0.3354.0> received $gen_producer message: {:"$gen_producer", {#PID<0.3354.0>, #Reference<0.2284292455.4084727814.83365>},
       {:ask, 500}}
+    ...
+    [error] GenServer {:n, :l, {Electric.Postgres.CachedWal.Producer, "18b6fff8-16b2-404a-82ec-933ec8190c00"}} terminating
+    ** (stop) exited in: GenServer.call(Electric.Postgres.CachedWal.EtsBacked, {:request_notification, 47544136}, 5000)
+         ** (EXIT) an exception was raised:
+             ** (Protocol.UndefinedError) protocol Enumerable not implemented for {:ok, {[[23368800]], {#Reference<0.1031737809.3466199042.61460>, 23368800, [], 1, #Reference<0.1031737809.3466985473.218361>, [], 0, 0}}} of type Tuple.
     ```
-    ```bash
-    # cannot use ElectricSQL client
-    lein run test --nodes n1,n2,n3,n4,n5,n6,n7,n8 --postgresql-nodes n1,n2 --better-sqlite3-nodes n3,n4,n5,n6 --sqlite3-cli-nodes n7,n8
+  - errors in ElectricSQL SQLite3 satellite service logs w/higher tps:
+    ```log
+    SatelliteError: sending a transaction while outbound replication has not started 
+    ...
+    [proto] recv: #SatErrorResp{type: INTERNAL} an error occurred in satellite: server error 
+    Connectivity state changed: disconnected
     ```
+  - so tests are run at ~ 25tps
+
+##### Default test invocation:
+```bash
+lein run test --workload homogeneous --nodes n1,n2,n3,n4,n5,n6,n7,n8 --postgresql-nodes n1,n2 --electricsql-nodes n3,n4 --better-sqlite3-nodes n5,n6 --sqlite3-cli-nodes n7,n8 --rate 25 --time-limit 500
+```
+
 ----
 
 ### ***Preliminary*** Testing of Fairness
@@ -172,7 +183,7 @@ lein run test --nodes postgresql,electricsql,n1,n2,n3,n4,n5 --noop-nodes postgre
 
 ----
 
-### ***Preliminary*** Testing of Strong Convergence With Kills
+### ***Preliminary*** Testing of Client Kills
 
 - 10 SQLite3 client nodes
 - ~50 tps
@@ -213,4 +224,8 @@ lein run test --nodes postgresql,electricsql,n1,n2,n3,n4,n5 --noop-nodes postgre
               8 251,
               9 256,
               ...}}
+```
+
+```bash
+lein run test --workload homogeneous --nodes n1,n2,n3,n4,n5 --electricsql-nodes n1,n2,n3,n4,n5 --rate 25 --time-limit 100 --nemesis kill
 ```
