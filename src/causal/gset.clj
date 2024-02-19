@@ -8,7 +8,6 @@
              [graph :as bg]
              [set :as bs]]
             [causal.checker
-             [fairness :as fairness]
              [strong-convergence :as sc]]
             [causal.db
              [sqlite3 :as sqlite3]]
@@ -544,6 +543,26 @@
 
                                          (seq ws)
                                          [(assoc op :value ws :f :w-txn)])))))]
+    (assoc workload
+           :generator generator)))
+
+(defn workload-single-writes
+  "The default workload with a generator that emits transactions consisting of a single write."
+  [opts]
+  (let [opts      (merge opts
+                         {:min-txn-length     1
+                          :max-txn-length     1
+                          :key-dist           :uniform
+                          :key-count          100
+                          :max-writes-per-key 1000})
+        workload  (workload opts)
+        generator (->> (:generator workload)
+                       (filter #(->> %
+                                     :value
+                                     first
+                                     first
+                                     (= :w)))
+                       (map #(assoc % :f :w-txn)))]
     (assoc workload
            :generator generator)))
 

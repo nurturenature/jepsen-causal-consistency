@@ -33,9 +33,10 @@
 (def workloads
   "A map of workload names to functions that take CLI options and return
   workload maps."
-  {:gset        gset/workload
-   :homogeneous gset/workload-homogeneous-txns
-   :none        (fn [_] tests/noop-test)})
+  {:gset          gset/workload
+   :homogeneous   gset/workload-homogeneous-txns
+   :single-writes gset/workload-single-writes
+   :none          (fn [_] tests/noop-test)})
 
 (def all-workloads
   "A collection of workloads we run by default."
