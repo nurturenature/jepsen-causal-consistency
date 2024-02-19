@@ -38,9 +38,7 @@
              [util :as u]]
             [jepsen.tests.cycle.wr :as wr]
             [next.jdbc :as jdbc]
-            [next.jdbc.result-set :as rs]
-            [slingshot.slingshot :refer [try+ throw+]])
-  (:import (java.sql Connection)))
+            [slingshot.slingshot :refer [try+ throw+]]))
 
 (defrecord NOOPClient [conn]
   client/Client
@@ -133,26 +131,37 @@
   (invoke!
     [{:keys [node url] :as _this} _test {:keys [f value] :as op}]
     (let [op (assoc op :node node)]
-      (assert (= f :txn) "Ops must be txns.")
-      (let [[r-or-w _ _] (first value)
-            [url body]   (case r-or-w
-                           :r [(str url "/electric-findMany")
-                               (txn->electric-findMany value)]
-                           :w [(str url "/electric-createMany")
-                               (txn->electric-createMany value)])
-            result (http/post url
-                              {:body               body
-                               :content-type       :json
-                               :socket-timeout     1000
-                               :connection-timeout 1000
-                               :accept             :json})
-            result (:body result)
-            result (case r-or-w
-                     :r (electric-findMany->txn value result)
-                     :w (electric-createMany->txn   value result))]
-        (assoc op
-               :type  :ok
-               :value result))))
+      (try+ (let [[r-or-w _ _] (first value)
+                  [url body]   (case r-or-w
+                                 :r [(str url "/electric-findMany")
+                                     (txn->electric-findMany value)]
+                                 :w [(str url "/electric-createMany")
+                                     (txn->electric-createMany value)])
+                  result (http/post url
+                                    {:body               body
+                                     :content-type       :json
+                                     :socket-timeout     1000
+                                     :connection-timeout 1000
+                                     :accept             :json})
+                  result (:body result)
+                  result (case r-or-w
+                           :r (electric-findMany->txn value result)
+                           :w (electric-createMany->txn   value result))]
+              (assoc op
+                     :type  :ok
+                     :value result))
+            (catch (and (instance? java.net.ConnectException %)
+                        (re-find #"Connection refused" (.getMessage %)))
+                   {}
+              (assoc op
+                     :type  :fail
+                     :error :connection-refused))
+            (catch (or (instance? java.net.SocketException %)
+                       (instance? org.apache.http.NoHttpResponseException %))
+                   {:keys [cause]}
+              (assoc op
+                     :type  :info
+                     :error cause)))))
 
   (teardown!
     [_this _test])
@@ -238,16 +247,27 @@
 
   (invoke!
     [{:keys [node url] :as _this} test {:keys [f value] :as op}]
-    (let [op (assoc op :node node)]
-      (assert (= f :txn) "Ops must be txns.")
-      (let [body (op->better-sqlite3 op)
-            rslt (http/post url
-                            {:body               body
-                             :content-type       :json
-                             :socket-timeout     1000
-                             :connection-timeout 1000
-                             :accept             :json})]
-        (better-sqlite3->op op rslt))))
+    (let [op   (assoc op :node node)]
+      (try+ (let [body (op->better-sqlite3 op)
+                  rslt (http/post url
+                                  {:body               body
+                                   :content-type       :json
+                                   :socket-timeout     1000
+                                   :connection-timeout 1000
+                                   :accept             :json})]
+              (better-sqlite3->op op rslt))
+            (catch (and (instance? java.net.ConnectException %)
+                        (re-find #"Connection refused" (.getMessage %)))
+                   {}
+              (assoc op
+                     :type  :fail
+                     :error :connection-refused))
+            (catch (or (instance? java.net.SocketException %)
+                       (instance? org.apache.http.NoHttpResponseException %))
+                   {:keys [cause]}
+              (assoc op
+                     :type  :info
+                     :error cause)))))
 
   (teardown!
     [_this _test])
@@ -340,7 +360,6 @@
   (invoke!
     [{:keys [node] :as _this} test {:keys [f value] :as op}]
     (let [op (assoc op :node node)]
-      (assert (= f :txn) "Ops must be txns.")
       (try+ (let [sql-stmt (txn->sqlite3-cli value)
                   result   (get (c/on-nodes test [node]
                                             (fn [_test _node]
@@ -504,7 +523,7 @@
                    (gen/log "Final reads...")
                    (->> (range 100)
                         (map (fn [k]
-                               {:type :invoke :f :txn :value [[:r k nil]] :final-read? true}))
+                               {:type :invoke :f :r-final :value [[:r k nil]] :final-read? true}))
                         (gen/each-thread)
                         (gen/clients)
                         (gen/stagger (/ rate))))]
@@ -524,10 +543,11 @@
   (let [min-txn-length (* 2 (or min-txn-length 1))
         max-txn-length (* 2 (or max-txn-length 4))
         opts           (assoc opts
-                              :min-txn-length min-txn-length
-                              :max-txn-length max-txn-length
-                              :key-dist       :uniform
-                              :key-count      10)
+                              :min-txn-length     min-txn-length
+                              :max-txn-length     max-txn-length
+                              :key-dist           :uniform
+                              :key-count          100
+                              :max-writes-per-key 1000)
         workload (workload opts)
         generator (->> (:generator workload)
                        (mapcat (fn [{:keys [value] :as op}]
@@ -541,15 +561,15 @@
                                                             [[] []]))]
                                    (cond (and (seq rs)
                                               (seq ws))
-                                         (let [r-op (assoc op :value rs)
-                                               w-op (assoc op :value ws)]
+                                         (let [r-op (assoc op :value rs :f :r-txn)
+                                               w-op (assoc op :value ws :f :w-txn)]
                                            (->> [r-op w-op] shuffle vec))
 
                                          (seq rs)
-                                         [(assoc op :value rs)]
+                                         [(assoc op :value rs :f :r-txn)]
 
                                          (seq ws)
-                                         [(assoc op :value ws)])))))]
+                                         [(assoc op :value ws :f :w-txn)])))))]
     (assoc workload
            :generator generator)))
 

@@ -78,7 +78,8 @@
                                     :info-w (sorted-set)}))
             expected-final (set/union ok-w (set/intersection info-w ok-r))]
         (merge
-         {:valid? true}
+         {:valid? true
+          :expected-read-count (count expected-final)}
 
          ; final read from all nodes?
          (let [nodes-with-final-reads    (set (keys node->final))
