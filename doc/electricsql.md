@@ -101,23 +101,22 @@ ElectricSQL is active/active for PostgreSQL and 1 to many heterogenous SQLite3 c
 ##### ElectricSQL TypeScript API
   - only supports homogeneous transactions, i.e. all reads or all writes vs mixed read/write transactions
   - only supports multiple record create or update, not upsert
-  - so tests default to using homogeneous transactions that read and create many 
+
+so tests default to using homogeneous transactions that either read or create many.
 
 ##### Direct writes to PostgreSQL can deadlock the replication service's write transactions losing previously ok'd client writes ([issue](https://github.com/electric-sql/electric/issues/919))
   - cannot active/active PostgreSQL/SQLite3 with transactions that update/upsert
-  - so tests use a grow only set with unique writes
+
+so tests use a grow only set with unique writes.
 
 ##### At a rate of > ~50tps for 500s
-  - invalid strong convergence, not all writes replicated to every node
+Invalid strong convergence, all writes were not replicated to every node
   - errors in ElectricSQL sync server logs w/higher tps:
     ```log
-    [error] GenStage consumer #PID<0.3354.0> received $gen_producer message: {:"$gen_producer", {#PID<0.3354.0>, #Reference<0.2284292455.4084727814.83365>},
+    [error] GenStage consumer #PID<0.3354.0> received $gen_producer message: {:"$gen_producer", ...,
       {:ask, 500}}
     ...
     [error] GenServer {:n, :l, {Electric.Postgres.CachedWal.Producer, "18b6fff8-16b2-404a-82ec-933ec8190c00"}} terminating
-    ** (stop) exited in: GenServer.call(Electric.Postgres.CachedWal.EtsBacked, {:request_notification, 47544136}, 5000)
-         ** (EXIT) an exception was raised:
-             ** (Protocol.UndefinedError) protocol Enumerable not implemented for {:ok, {[[23368800]], {#Reference<0.1031737809.3466199042.61460>, 23368800, [], 1, #Reference<0.1031737809.3466985473.218361>, [], 0, 0}}} of type Tuple.
     ```
   - errors in ElectricSQL SQLite3 satellite service logs w/higher tps:
     ```log
@@ -126,7 +125,8 @@ ElectricSQL is active/active for PostgreSQL and 1 to many heterogenous SQLite3 c
     [proto] recv: #SatErrorResp{type: INTERNAL} an error occurred in satellite: server error 
     Connectivity state changed: disconnected
     ```
-  - so tests are run at ~ 25tps
+
+so tests are run at ~ 25tps.
 
 ##### Default test invocation:
 ```bash
@@ -135,97 +135,46 @@ lein run test --workload homogeneous --nodes n1,n2,n3,n4,n5,n6,n7,n8 --postgresq
 
 ----
 
-### ***Preliminary*** Testing of Fairness
-
-Check the rate at which each node's writes are being read across the cluster.
-E.g. are my document edits, puzzle solving moves, inventory control edits, etc. being fairly represented in reads across the cluster.
-
-5 SQLite3 clients do transactions with a random mix of reads/writes against random keys, write values are sequential per key:
-```clj
-5	:ok	:txn	[[:r 29 8] [:w 7 13]]
-2	:ok	:txn	[[:w 3 10] [:r 83 11]]
-3	:ok	:txn	[[:w 56 7] [:r 53 10]]
-4	:ok	:txn	[[:w 88 13] [:w 10 13]]
-...
-```
-
-Always check for strong convergence at the end of the test, final reads available and == on each node:
-```clj
-:strong-convergence {:valid? true,
-                     :final-read {0 92,
-                                  1 89,
-                                  2 99,
-                                  ...
-                                  97 108,
-                                  98 87,
-                                  99 90}}
-```
-
-Total each node's writes that were read:
-```clj
-:fairness {:valid? true,
-           :reads-of-writes {"n1" 1317,
-                             "n2" 1289,
-                             "n3" 1289,
-                             "n4" 1320,
-                             "n5" 1284}}
-```
-
-And for every read, plot which node wrote the value:
-
-![Fairness](fairness.png)
-
-It's a gross measurement, and you can see the random ebb and flow, but it shows relative fairness of each node's writes being read.
-
-```bash
-lein run test --nodes postgresql,electricsql,n1,n2,n3,n4,n5 --noop-nodes postgresql,electricsql --workload lww-register-strong --time-limit 200 --key-dist uniform --key-count 100 --max-writes-per-key 1000 --min-txn-length 2 --max-txn-length 2 --rate 50
-```
-
-----
-
 ### ***Preliminary*** Testing of Client Kills
 
-- 10 SQLite3 client nodes
-- ~50 tps
+Workload
+  - ~25 tps
+  - homogeneous transactions
+  - 5 client nodes, all ElectricSQL TypeScript clients
 
 ```clj
-;; ~5s kill the Electric sync service on a random third of the nodes
-:nemesis	:info	:kill	["n1" "n4" "n6"]
-:nemesis	:info	:kill	{"n1" :killed, "n4" :killed, "n6" :killed}
+;; ~5s kill client sync service on 2 random nodes
+:nemesis	:info	:kill	["n2" "n5"]
+:nemesis	:info	:kill	{"n2" :killed, "n5" :killed}
 
-;; keep doing local transactions even with no sync service
-7	:ok	:txn	[[:w 9 12] [:r 8 6] [:r 9 12]]
-9	:ok	:txn	[[:w 9 13] [:r 9 13]]
-10	:ok	:txn	[[:w 8 15] [:r 9 6] [:r 8 15] [:w 4 1]]
-11	:ok	:txn	[[:r 9 7] [:w 8 16]]
-3	:ok	:txn	[[:r 9 10] [:w 9 17] [:r 6 nil]]
-4	:ok	:txn	[[:w 8 19] [:w 9 18] [:w 6 2] [:w 6 3]]
-6	:ok	:txn	[[:r 4 nil] [:r 9 nil]]
-
-;; ~5s restart sync service on nodes forcing it to catch-up with local and remote writes,
-;; and hopefully forcing it to deal with timing/recovery of sync in progress kills 😈 
+;; ~5s restart client sync service
+;; client resyncs into an active cluster, resumes local transactions
+;; exposes sync service to timing/recovery of sync in progress interruptions 😈 
 :nemesis	:info	:start	:all
-:nemesis	:info	:start	{"n1" :started, "n2" :already-running, "n3" :already-running, "n4" :started, ...}
+:nemesis	:info	:start	{"n1" :already-running, "n2" :started, "n3" :already-running, "n4" :already-running, "n5" :started}
 ```
 
-![Strong Convergence with Kills](strong-convergence-kill-latency.png)
+#### Does not strongly converge.
 
 ```clj
-;; strong convergence
-{:valid? true,
- :final-read {0 6,
-              1 12,
-              2 23,
-              3 56,
-              4 91,
-              5 171,
-              6 254,
-              7 247,
-              8 251,
-              9 256,
-              ...}}
+;; node n5 never reads 2 writes from node n1
+:strong-convergence {:valid? false,
+                     :expected-read-count 1624,
+                     :incomplete-final-reads {"n5" {:count 2,
+                                                    :missing {43 {1 "n1"},
+                                                              44 {2 "n1"}}}}}
 ```
 
+The logs show that n1 wrote the values while n5 was offline and n5 did not resync correctly:
+```clj
+:nemesis :info :kill  {"n2" :killed, "n5" :killed}
+...
+"n1"     :ok   :w-txn [[:w 44 2] [:w 43 1]]
+...
+:nemesis :info :start {"n1" :already-running, "n2" :started, "n3" :already-running, "n4" :already-running, "n5" :started}
+```
+
+Test command:
 ```bash
-lein run test --workload homogeneous --nodes n1,n2,n3,n4,n5 --electricsql-nodes n1,n2,n3,n4,n5 --rate 25 --time-limit 100 --nemesis kill
+lein run test --workload homogeneous --nodes n1,n2,n3,n4,n5 --electricsql-nodes n1,n2,n3,n4,n5 --rate 25 --nemesis kill
 ```
