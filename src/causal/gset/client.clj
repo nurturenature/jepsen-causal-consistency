@@ -1,13 +1,12 @@
-(ns causal.client
-  (:require [causal.checker
-             [strong-convergence :as sc]]
-            [causal.db
-             [sqlite3 :as sqlite3]]
+(ns causal.gset.client
+  (:require [causal.gset.strong-convergence :as sc]
+            [causal.sqlite3 :as sqlite3]
             [cheshire.core :as json]
             [clj-http.client :as http]
             [clojure
              [string :as str]]
             [jepsen
+             [client :as client]
              [control :as c]
              [util :as u]]
             [next.jdbc :as jdbc]

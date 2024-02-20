@@ -1,11 +1,9 @@
 (ns causal.cli
   "Command-line entry point for ElectricSQL tests."
-  (:require [causal
-             [gset :as gset]]
-            [causal.checker
-             [strong-convergence :as sc]]
-            [causal.db
-             [sqlite3 :as sqlite3]]
+  (:require [causal.gset
+             [strong-convergence :as sc]
+             [workload :as gset]]
+            [causal.sqlite3 :as sqlite3]
             [clojure
              [set :as set]
              [string :as str]]
@@ -17,7 +15,6 @@
              [txn :as txn]]
             [jepsen
              [checker :as checker]
-             [client :as client]
              [cli :as cli]
              [control :as c]
              [generator :as gen]
@@ -33,10 +30,10 @@
 (def workloads
   "A map of workload names to functions that take CLI options and return
   workload maps."
-  {:gset          gset/workload
-   :homogeneous   gset/workload-homogeneous-txns
-   :single-writes gset/workload-single-writes
-   :none          (fn [_] tests/noop-test)})
+  {:gset               gset/workload
+   :gset-homogeneous   gset/workload-homogeneous-txns
+   :gset-single-writes gset/workload-single-writes
+   :none               (fn [_] tests/noop-test)})
 
 (def all-workloads
   "A collection of workloads we run by default."

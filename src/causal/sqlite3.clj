@@ -1,4 +1,4 @@
-(ns causal.db.sqlite3
+(ns causal.sqlite3
   (:require [clojure.string :refer [split-lines]]
             [clojure.tools.logging :refer [info warn]]
             [jepsen

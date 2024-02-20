@@ -133,7 +133,7 @@ so tests are run at ~ 25tps (mix of read or write txns) for 1-2 minutes.
 
 ##### Default test invocation:
 ```bash
-lein run test --workload homogeneous --nodes n1,n2,n3,n4,n5,n6,n7,n8,n9,n10 --postgresql-nodes n1 --electricsql-nodes n2,n3,n4 --better-sqlite3-nodes n5,n6,n7 --sqlite3-cli-nodes n8,n9,n10 --rate 25 --time-limit 100
+lein run test --workload gset-homogeneous --nodes n1,n2,n3,n4,n5,n6,n7,n8,n9,n10 --postgresql-nodes n1 --electricsql-nodes n2,n3,n4 --better-sqlite3-nodes n5,n6,n7 --sqlite3-cli-nodes n8,n9,n10 --rate 25 --time-limit 100
 ```
 
 ----
@@ -189,7 +189,7 @@ ElectricSQL sync service logs:
 
 Test command:
 ```bash
-lein run test --workload single-writes --nodes n1,n2,n3,n4,n5,n6,n7,n8,n9,n10 --electricsql-nodes n1,n2,n3,n4,n5,n6,n7,n8,n9,n10 --rate 10 --time-limit 600
+lein run test --workload gset-single-writes --nodes n1,n2,n3,n4,n5,n6,n7,n8,n9,n10 --electricsql-nodes n1,n2,n3,n4,n5,n6,n7,n8,n9,n10 --rate 10 --time-limit 600
 ```
 
 ----
@@ -235,5 +235,5 @@ The logs show that n1 wrote the values while n5 was offline and n5 did not resyn
 
 Test command:
 ```bash
-lein run test --workload homogeneous --nodes n1,n2,n3,n4,n5 --electricsql-nodes n1,n2,n3,n4,n5 --rate 25 --nemesis kill
+lein run test --workload gset-homogeneous --nodes n1,n2,n3,n4,n5 --electricsql-nodes n1,n2,n3,n4,n5 --rate 25 --nemesis kill
 ```

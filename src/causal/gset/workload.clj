@@ -1,10 +1,8 @@
-(ns causal.gset
+(ns causal.gset.workload
   "A test which looks for cycles in write/read transactions.
    Writes are assumed to be unique, but this is the only constraint.
    See jepsen.tests.cycle.wr and elle.rw-register for docs."
-  (:refer-clojure :exclude [test])
-  (:require [causal
-             [client :as client]]
+  (:require [causal.gset.client :as client]
             [jepsen
              [history :as h]
              [generator :as gen]]
@@ -44,7 +42,7 @@
                         (gen/each-thread)
                         (gen/clients)
                         (gen/stagger (/ rate))))]
-    {:client          (client/GSetClient. nil)
+    {:client          (client/->GSetClient nil)
      :generator       gen
      :final-generator final-gen}))
 
