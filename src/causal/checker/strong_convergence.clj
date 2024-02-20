@@ -107,8 +107,8 @@
                                                                                [k vs])))
                                                                       (into (sorted-map)))]
                                                     (when (seq missing)
-                                                      [node {:count   (count missing)
-                                                             :missing missing'}]))))
+                                                      [node {:missing-count (count missing)
+                                                             :missing       missing'}]))))
                                            (into (sorted-map)))]
            (when (seq incomplete-final-reads)
              {:valid? false
@@ -119,8 +119,8 @@
                                            (map (fn [[node read]]
                                                   (let [unexpected (set/difference read expected-final)]
                                                     (when (seq unexpected)
-                                                      [node {:missing-count (count unexpected)
-                                                             :unexpected    (kv-set->map unexpected)}]))))
+                                                      [node {:unexpected-count (count unexpected)
+                                                             :unexpected       (kv-set->map unexpected)}]))))
                                            (into (sorted-map)))]
            (when (seq unexpected-final-reads)
              {:valid? false
