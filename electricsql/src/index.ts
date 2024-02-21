@@ -27,6 +27,9 @@ const electric = await electrify(conn, schema, config)
 const { synced } = await electric.db.gset.sync()
 await synced
 
+const lww_register = await electric.db.lww_register.sync()
+await lww_register.synced
+
 /* webserver */
 const port = process.env.PORT || 3000;
 const app: Express = express();
@@ -86,6 +89,16 @@ app.post("/electric-createMany", async (req: Request, res: Response) => {
     res.send(result)
 });
 
+app.post("/lww_register/findMany", async (req: Request, res: Response) => {
+    const result = await electric.db.lww_register.findMany(req.body)
+    res.send(result)
+});
+
+app.post("/lww_register/upsert", async (req: Request, res: Response) => {
+    const result = await electric.db.lww_register.upsert(req.body)
+    res.send(result)
+});
+
 app.post("/better-sqlite3", (req: Request, res: Response) => {
     const insert = conn.prepare(
         'INSERT INTO gset (id,k,v) VALUES (@id, @k, @v)');
@@ -118,7 +131,6 @@ app.post("/better-sqlite3", (req: Request, res: Response) => {
         txn(req.body.value)
         res.send({ 'type': 'ok', 'value': result })
     } catch (e) {
-        // TODO: SQLITE_LOCKED 
         res.send({ 'type': 'info', 'error': e })
     }
 });

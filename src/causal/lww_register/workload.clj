@@ -1,15 +1,15 @@
-(ns causal.gset.workload
+(ns causal.lww-register.workload
   "A test which looks for cycles in write/read transactions.
    Writes are assumed to be unique, but this is the only constraint.
    See jepsen.tests.cycle.wr and elle.rw-register for docs."
-  (:require [causal.gset
-             [client :as client]
-             [strong-convergence :as sc]]
+  (:require [causal.lww-register
+             [client :as client]]
             [jepsen
              [checker :as checker]
              [history :as h]
              [generator :as gen]]
-            [jepsen.tests.cycle.wr :as wr]))
+            [jepsen.tests.cycle.wr :as wr]
+            [jepsen.checker :as checker]))
 
 (def causal-opts
   "Opts to configure Elle for causal consistency."
@@ -27,7 +27,6 @@
    })
 
 (defn workload
-  "Gset workload."
   [{:keys [rate] :as opts}]
   (let [opts (merge
               {:directory      "."
@@ -45,11 +44,13 @@
                         (gen/each-thread)
                         (gen/clients)
                         (gen/stagger (/ rate))))]
-    {:client          (client/->GSetClient nil)
+    {:client          (client/->LWWRegisterClient nil)
      :generator       gen
      :final-generator final-gen
      :checker (checker/compose
-               {:strong-convergence (sc/final-reads)})}))
+               {:TODO (checker/noop)
+                ; TODO :strong-convergence (sc/final-reads)
+                })}))
 
 (defn workload-homogeneous-txns
   "A workload with a generator that emits transactions that are all read or write ops,

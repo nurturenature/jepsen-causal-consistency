@@ -10,6 +10,7 @@
              [history :as h]
              [txn :as txn]])
   (:import (jepsen.history Op)))
+
 (defn op-internal-case
   "Given an op, returns a map describing internal consistency violations, or
   nil otherwise. Our maps are:

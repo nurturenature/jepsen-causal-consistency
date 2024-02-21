@@ -1,8 +1,7 @@
 (ns causal.cli
   "Command-line entry point for ElectricSQL tests."
-  (:require [causal.gset
-             [strong-convergence :as sc]
-             [workload :as gset]]
+  (:require [causal.gset.workload :as gset]
+            [causal.lww-register.workload :as lww-register]
             [causal.sqlite3 :as sqlite3]
             [clojure
              [set :as set]
@@ -33,6 +32,7 @@
   {:gset               gset/workload
    :gset-homogeneous   gset/workload-homogeneous-txns
    :gset-single-writes gset/workload-single-writes
+   :lww-register       lww-register/workload
    :none               (fn [_] tests/noop-test)})
 
 (def all-workloads
@@ -117,7 +117,7 @@
                        :exceptions         (checker/unhandled-exceptions)
                        :clock              (checker/clock-plot)
                        :logs-client        (checker/log-file-pattern #"SatelliteError" sqlite3/log-file-short)
-                       :strong-convergence (sc/final-reads)})
+                       :workload           (:checker workload)})
             :client    (:client workload)
             :nemesis   (:nemesis nemesis)
             :generator (gen/phases
