@@ -2,14 +2,14 @@
   "A test which looks for cycles in write/read transactions.
    Writes are assumed to be unique, but this is the only constraint.
    See jepsen.tests.cycle.wr and elle.rw-register for docs."
-  (:require [causal.lww-register
-             [client :as client]]
+  (:require [causal.util :as util]
+            [causal.lww-register
+             [client :as client]
+             [strong-convergence :as strong-convergence]]
             [jepsen
              [checker :as checker]
-             [history :as h]
-             [generator :as gen]]
-            [jepsen.tests.cycle.wr :as wr]
-            [jepsen.checker :as checker]))
+             [history :as h]]
+            [jepsen.tests.cycle.wr :as wr]))
 
 (def causal-opts
   "Opts to configure Elle for causal consistency."
@@ -27,89 +27,20 @@
    })
 
 (defn workload
-  [{:keys [rate] :as opts}]
-  (let [opts (merge
-              {:directory      "."
-               :max-plot-bytes 1048576
-               :plot-timeout   10000}
-              opts)
-        gen       (wr/gen opts)
-        final-gen (gen/phases
-                   (gen/log "Quiesce...")
-                   (gen/sleep 5)
-                   (gen/log "Final reads...")
-                   (->> (range 100)
-                        (map (fn [k]
-                               {:type :invoke :f :r-final :value [[:r k nil]] :final-read? true}))
-                        (gen/each-thread)
-                        (gen/clients)
-                        (gen/stagger (/ rate))))]
-    {:client          (client/->LWWRegisterClient nil)
-     :generator       gen
-     :final-generator final-gen
-     :checker (checker/compose
-               {:TODO (checker/noop)
-                ; TODO :strong-convergence (sc/final-reads)
-                })}))
-
-(defn workload-homogeneous-txns
-  "A workload with a generator that emits transactions that are all read or write ops,
-   E.g. for the ElectricSQL TypeScript client.
-   Generator must only generate txns consisting exclusively of reads or writes
-   to accommodate the API."
-  [{:keys [min-txn-length max-txn-length] :as opts}]
-  (let [min-txn-length (* 2 (or min-txn-length 1))
-        max-txn-length (* 2 (or max-txn-length 4))
-        opts           (assoc opts
-                              :min-txn-length     min-txn-length
-                              :max-txn-length     max-txn-length
-                              :key-dist           :uniform
-                              :key-count          100
-                              :max-writes-per-key 1000)
-        workload (workload opts)
-        generator (->> (:generator workload)
-                       (mapcat (fn [{:keys [value] :as op}]
-                                 (let [[rs ws] (->> value
-                                                    (reduce (fn [[rs ws] [f _k _v :as mop]]
-                                                              (case f
-                                                                :r (if (some #(= % mop) rs)
-                                                                     [rs ws]
-                                                                     [(conj rs mop) ws])
-                                                                :w [rs (conj ws mop)]))
-                                                            [[] []]))]
-                                   (cond (and (seq rs)
-                                              (seq ws))
-                                         (let [r-op (assoc op :value rs :f :r-txn)
-                                               w-op (assoc op :value ws :f :w-txn)]
-                                           (->> [r-op w-op] shuffle vec))
-
-                                         (seq rs)
-                                         [(assoc op :value rs :f :r-txn)]
-
-                                         (seq ws)
-                                         [(assoc op :value ws :f :w-txn)])))))]
-    (assoc workload
-           :generator generator)))
-
-(defn workload-single-writes
-  "The default workload with a generator that emits transactions consisting of a single write."
   [opts]
-  (let [opts      (merge opts
-                         {:min-txn-length     1
-                          :max-txn-length     1
-                          :key-dist           :uniform
-                          :key-count          100
-                          :max-writes-per-key 1000})
-        workload  (workload opts)
-        generator (->> (:generator workload)
-                       (filter #(->> %
-                                     :value
-                                     first
-                                     first
-                                     (= :w)))
-                       (map #(assoc % :f :w-txn)))]
-    (assoc workload
-           :generator generator)))
+  (let [opts (merge {:consistency-models [:monotonic-atomic-view] ; atomic transactions
+                     :sequential-keys? true                       ; infer version order from elle/process-graph
+                     :wfr-keys? true                              ; wfr-version-graph when <rw within txns
+                     }
+                    opts)]
+    {:client          (client/->LWWRegisterClient nil)
+     :generator       (util/generator opts)
+     :final-generator (util/final-generator opts)
+     :checker         (checker/compose
+                       {:strong-convergence (strong-convergence/final-reads)
+                        :elle               (wr/checker opts)})}))
+
+
 
 (defn cyclic-versions-helper
   "Given a cyclic-versions result map and a history, filter history for involved transactions."

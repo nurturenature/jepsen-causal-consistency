@@ -139,15 +139,12 @@
     :parse-fn parse-nodes-spec]
 
    [nil "--consistency-models MODELS" "What consistency models to check for."
-    :default [:strong-session-consistent-view]
     :parse-fn parse-nemesis-spec
     :validate [(partial every? cm/all-models)
                (str "Must be one or more of " cm/all-models)]]
 
    [nil "--electricsql-nodes NODES" "A comma-separated list of nodes that should get ElectricSQL clients"
     :parse-fn parse-nodes-spec]
-
-   [nil "--linearizable-keys?" "Use the realtime process order to derive a version order, i.e. Last Write Wins."]
 
    [nil "--key-count NUM" "Number of keys in active rotation."
     :default  10
