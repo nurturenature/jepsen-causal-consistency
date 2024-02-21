@@ -29,6 +29,7 @@
 (defn workload
   [opts]
   (let [opts (merge {:consistency-models [:monotonic-atomic-view] ; atomic transactions
+                     :anomalies-ignored [:cyclic-versions]        ; too many false positives
                      :sequential-keys? true                       ; infer version order from elle/process-graph
                      :wfr-keys? true                              ; wfr-version-graph when <rw within txns
                      }

@@ -1,4 +1,4 @@
-(ns causal.checker.strong-convergence-test
+(ns causal.gset.strong-convergence-test
   (:require [clojure.test :refer :all]
             [causal.gset.strong-convergence :as sc]
             [jepsen
@@ -35,11 +35,18 @@
 
 (deftest strong-convergence
   (testing "strong-convergence"
-    (is (= {:valid? true}
+    (is (= {:valid? true
+            :expected-read-count 2}
            (checker/check (sc/final-reads) {:nodes ["n1" "n2"]} valid-final-reads {})))
-    (is (= {:valid? false, :incomplete-final-reads {"n2" #{[1 1]}}, :unexpected-final-reads {"n2" #{[1 0]}}}
+    (is (= {:valid?
+            false,
+            :expected-read-count 2
+            :incomplete-final-reads {"n2" {:missing-count 1, :missing {1 {1 "n1"}}}},
+            :unexpected-final-reads {"n2" {:unexpected-count 1, :unexpected {1 #{0}}}}}
            (checker/check (sc/final-reads) {:nodes ["n1" "n2"]} invalid-final-reads {})))
-    (is (= {:valid? false, :unexpected-final-reads {"n2" #{[1 2]}}}
+    (is (= {:valid? false,
+            :expected-read-count 2
+            :unexpected-final-reads {"n2" {:unexpected-count 1, :unexpected {1 #{2}}}}}
            (checker/check (sc/final-reads) {:nodes ["n1" "n2"]} unexpected-final-reads {})))))
 
 
