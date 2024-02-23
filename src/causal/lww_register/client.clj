@@ -123,10 +123,7 @@
   [{:keys [value] :as _op}]
   (let [value (->> value
                    (map (fn [[f k v]]
-                          (case f
-                            :r {"f" f "k" k "v" v}
-                            :w {"f" f "k" k "v" v "id" (+ (* k 10000)
-                                                          v)})))
+                          {"f" f "k" k "v" v}))
                    (into []))
         op     {:type  :invoke
                 :value value}]
@@ -136,7 +133,7 @@
 (defn better-sqlite3->op
   "Given the original op and a better-sqlite3 JSON result,
    return the op updated with better-sqlite3 results."
-  [{:keys [value] :as op} {:keys [status body] :as rslt}]
+  [{:keys [value] :as op} {:keys [status body] :as _rslt}]
   (let [_                     (assert (= status 200))
         rslt                  (json/parse-string body true)
         [type' value' error'] [(keyword (:type rslt)) (:value rslt) (:error rslt)]
@@ -149,19 +146,14 @@
                                           (= k k'))
                                      (str "Original op: " op ", result: " rslt ", mismatch"))
                              (case f
-                               :r (if (nil? v')
-                                    [:r k nil]
-                                    (let [v' (->> v'
-                                                  (map (fn [{:keys [k v]}]
-                                                         (assert (= k k')
-                                                                 (str ":r for k contain non-k results: " op ", " rslt))
-                                                         v))
-                                                  (into (sorted-set)))]
-                                      [:r k v']))
+                               :r (do
+                                    (assert (not (nil? v))
+                                            (str "Munged read value in mop for " op " with result " rslt))
+                                    [:r k v'])
                                :w (do
                                     (assert (= v v')
                                             (str "Munged write value in result, expected " v ", actual " v'))
-                                    [f k v]))))
+                                    [:w k v]))))
                          value)
                     (into []))]
     (case type'
@@ -186,13 +178,13 @@
     [this _test node]
     (assoc this
            :node node
-           :url  (str "http://" node ":8089/better-sqlite3")))
+           :url  (str "http://" node ":8089/lww_register/better-sqlite3")))
 
   (setup!
     [_this _test])
 
   (invoke!
-    [{:keys [node url] :as _this} test {:keys [f value] :as op}]
+    [{:keys [node url] :as _this} _test op]
     (let [op   (assoc op :node node)]
       (try+ (let [body (op->better-sqlite3 op)
                   rslt (http/post url

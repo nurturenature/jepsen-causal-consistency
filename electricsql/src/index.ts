@@ -135,6 +135,42 @@ app.post("/better-sqlite3", (req: Request, res: Response) => {
     }
 });
 
+app.post("/lww_register/better-sqlite3", (req: Request, res: Response) => {
+    const insert = conn.prepare(
+        'INSERT INTO lww_register (k,v) VALUES (@k, @v) ON CONFLICT(k) DO UPDATE SET v = @v');
+
+    const select = conn.prepare(
+        'SELECT k,v FROM lww_register WHERE k = @k');
+
+    const result = Array()
+
+    const txn = conn.transaction((mops) => {
+        for (const mop of mops)
+            switch (mop.f) {
+                case 'r':
+                    const read = <any>select.get(mop)
+                    if (read == undefined) {
+                        result.push({ 'f': 'r', 'k': mop.k, 'v': null })
+                    } else {
+                        result.push({ 'f': 'r', 'k': mop.k, 'v': read.v })
+                    }
+                    break;
+                case 'w':
+                    const write = insert.run(mop);
+                    assert(write.changes == 1)
+                    result.push(mop)
+                    break;
+            }
+    });
+
+    try {
+        txn(req.body.value)
+        res.send({ 'type': 'ok', 'value': result })
+    } catch (e) {
+        res.send({ 'type': 'info', 'error': e })
+    }
+});
+
 app.listen(port, () => {
     console.log(`[server]: Server is running at http://localhost:${port}`);
 });

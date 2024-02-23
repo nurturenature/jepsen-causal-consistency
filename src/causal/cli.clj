@@ -147,29 +147,24 @@
     :parse-fn parse-nodes-spec]
 
    [nil "--key-count NUM" "Number of keys in active rotation."
-    :default  10
     :parse-fn parse-long
     :validate [pos? "Must be a positive integer"]]
 
    [nil "--key-dist DISTRIBUTION" "Exponential or uniform."
-    :default  :exponential
     :parse-fn keyword
     :validate [#{:exponential :uniform} "Must be exponential or uniform."]]
 
-   [nil "--min-txn-length NUM" "Minimum number of operations in a transaction."
-    :default  1
-    :parse-fn parse-long
-    :validate [pos? "Must be a positive integer"]]
-
    [nil "--max-txn-length NUM" "Maximum number of operations in a transaction."
-    :default  4
     :parse-fn parse-long
     :validate [pos? "Must be a positive integer"]]
 
    [nil "--max-writes-per-key NUM" "Maximum number of writes to any given key."
-    :default  256
     :parse-fn parse-long
     :validate [pos? "Must be a positive integer."]]
+
+   [nil "--min-txn-length NUM" "Minimum number of operations in a transaction."
+    :parse-fn parse-long
+    :validate [pos? "Must be a positive integer"]]
 
    [nil "--nemesis FAULTS" "A comma-separated list of nemesis faults to enable"
     :parse-fn parse-nemesis-spec
