@@ -96,44 +96,68 @@ In a local first environment, clients will be coming and going in all manner at 
 
 ElectricSQL is active/active for PostgreSQL and 1 to many heterogenous SQLite3 clients.
 
-We would like to test heterogenous clients doing mixed transactions.
+We would like to test heterogenous clients doing transactions with a mixture of reads and writes.
 
 #### ElectricSQL TypeScript API
   - only supports homogeneous transactions, i.e. all reads or all writes vs mixed read/write transactions
   - only supports multiple record create or update, not upsert
 
-so tests default to using homogeneous transactions that either read or create many.
+So tests that use an ElectricSQL TypeScript API client
+  - must use homogeneous transactions
+  - can only have a single write in the transaction when upsert'ing
 
-#### Direct writes to PostgreSQL can deadlock the replication service's write transactions losing previously ok'd client writes ([issue](https://github.com/electric-sql/electric/issues/919))
-  - cannot active/active PostgreSQL/SQLite3 with transactions that update/upsert
+----
 
-so tests use a grow only set with unique writes.
+### Testing Active/Active (PostgreSQL/SQLite3) Sync with No Introduced Faults
 
-#### Capacity issues at rates of > ~10 writes/s and/or multi-minute test times
-Invalid strong convergence, all writes were not replicated to every node
-  - errors in ElectricSQL sync server logs:
-    ```log
-    [error] GenServer {:n, :l, {Electric.Postgres.CachedWal.Producer, "18b6fff8-16b2-404a-82ec-933ec8190c00"}} terminating
-    
-    # w/higher tps
-    [error] GenStage consumer #PID<0.3354.0> received $gen_producer message: {:"$gen_producer", ...,
-      {:ask, 500}}
-    ...
-    ```
-  - errors in ElectricSQL SQLite3 satellite service logs:
-    ```log
-    # w/higher tps
-    SatelliteError: sending a transaction while outbound replication has not started 
-    ...
-    [proto] recv: #SatErrorResp{type: INTERNAL} an error occurred in satellite: server error 
-    Connectivity state changed: disconnected
-    ```
+#### Workload:
+  - LWW Register
+  - 2 PostgreSQL jdbc clients
+  - 2 better-sqlite3 TypeScript clients
+  - transactions a random mix of reads/writes
 
-so tests are run at ~ 25tps (mix of read or write txns) for 1-2 minutes.
+#### Deadlock in replication service writes leads to ok'd SQLite3 client writes not being stored in PostgreSQL or replicated to other SQLite3 clients
 
-##### Default test invocation:
+On node n3, the SQLite3 client does an ok write of [5 121]:
+```clj
+{:index 3637, :type :ok, :f :txn, :value [[:r 6 224] [:r 20 3] [:w 5 121] [:w 18 171]], :node "n3"}
+```
+
+The ElectricSQL replication satellite on node n3 replicates [5 121]:
+```log
+[proto] send: #SatOpLog{ops: ... new: ["5", "121"], old: data: ["5", "111"] ...}
+...
+```
+
+ElectricSQL replication PL/pgSQL function for the electrified PostgreSQL table fails with a deadlock:
+```log
+ERROR:  deadlock detected
+DETAIL:  Process 182 waits for ShareLock on transaction 2174; blocked by process 225.
+	Process 225 waits for ShareLock on transaction 2172; blocked by process 182.
+	Process 182: INSERT INTO "public"."lww_register"("k","v") VALUES (5,121)
+	Process 225: INSERT INTO lww_register (k,v) VALUES (20,256) ON CONFLICT(k) DO UPDATE SET v = 256
+...
+	PL/pgSQL function electric.reorder_main_op___public__lww_register() line 12 at SQL statement
+STATEMENT:  INSERT INTO "public"."lww_register"("k","v") VALUES (5,121)
+```
+
+PostgreSQL deadlock causes error in ElectricSQL sync service:
+```log
+[error] GenServer #PID<0.2820.0> terminating
+** (RuntimeError) Postgres.Writer failed to execute statement INSERT INTO "public"."lww_register"("k","v") VALUES (5,121) with error {:error, {:error, :error, "40P01", :deadlock_detected, "deadlock detected"...}}
+  (electric 0.9.0) lib/electric/replication/postgres/writer.ex:93: anonymous fn/2 in Electric.Replication.Postgres.Writer.send_transaction/3
+...
+```
+Write appears to not be retried and are not observed by any PostgreSQL clients or the other SQLite3 client. 
+
+This is straightforward to reproduce.
+
+Conclusion, cannot active/active PostgreSQL/SQLite3 with transactions that update/upsert 
+([issue](https://github.com/electric-sql/electric/issues/919)).
+
+Test command:
 ```bash
-lein run test --workload gset-homogeneous --nodes n1,n2,n3,n4,n5,n6,n7,n8,n9,n10 --postgresql-nodes n1 --electricsql-nodes n2,n3,n4 --better-sqlite3-nodes n5,n6,n7 --sqlite3-cli-nodes n8,n9,n10 --rate 25 --time-limit 100
+lein run test --workload lww-register --nodes n1,n2,n3,n4 --postgresql-nodes n1,n2 --better-sqlite3-nodes n3,n4 --min-txn-length 4 --max-txn-length 4
 ```
 
 ----
@@ -190,6 +214,33 @@ ElectricSQL sync service logs:
 Test command:
 ```bash
 lein run test --workload gset-single-writes --nodes n1,n2,n3,n4,n5,n6,n7,n8,n9,n10 --electricsql-nodes n1,n2,n3,n4,n5,n6,n7,n8,n9,n10 --rate 10 --time-limit 600
+```
+
+#### Capacity issues at rates of > ~10 writes/s and/or multi-minute test times
+Invalid strong convergence, all writes were not replicated to every node
+  - errors in ElectricSQL sync server logs:
+    ```log
+    [error] GenServer {:n, :l, {Electric.Postgres.CachedWal.Producer, "18b6fff8-16b2-404a-82ec-933ec8190c00"}} terminating
+    
+    # w/higher tps
+    [error] GenStage consumer #PID<0.3354.0> received $gen_producer message: {:"$gen_producer", ...,
+      {:ask, 500}}
+    ...
+    ```
+  - errors in ElectricSQL SQLite3 satellite service logs:
+    ```log
+    # w/higher tps
+    SatelliteError: sending a transaction while outbound replication has not started 
+    ...
+    [proto] recv: #SatErrorResp{type: INTERNAL} an error occurred in satellite: server error 
+    Connectivity state changed: disconnected
+    ```
+
+so tests are run at ~ 25tps (mix of read or write txns) for 1-2 minutes.
+
+##### Default test invocation:
+```bash
+lein run test --workload gset-homogeneous --nodes n1,n2,n3,n4,n5,n6,n7,n8,n9,n10 --postgresql-nodes n1 --electricsql-nodes n2,n3,n4 --better-sqlite3-nodes n5,n6,n7 --sqlite3-cli-nodes n8,n9,n10 --rate 25 --time-limit 100
 ```
 
 ----

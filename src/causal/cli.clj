@@ -155,10 +155,12 @@
     :validate [#{:exponential :uniform} "Must be exponential or uniform."]]
 
    [nil "--max-txn-length NUM" "Maximum number of operations in a transaction."
+    :default  4
     :parse-fn parse-long
     :validate [pos? "Must be a positive integer"]]
 
    [nil "--max-writes-per-key NUM" "Maximum number of writes to any given key."
+    :default  256
     :parse-fn parse-long
     :validate [pos? "Must be a positive integer."]]
 

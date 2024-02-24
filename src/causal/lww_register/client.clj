@@ -147,7 +147,7 @@
                                      (str "Original op: " op ", result: " rslt ", mismatch"))
                              (case f
                                :r (do
-                                    (assert (not (nil? v))
+                                    (assert (nil? v)
                                             (str "Munged read value in mop for " op " with result " rslt))
                                     [:r k v'])
                                :w (do
@@ -201,6 +201,7 @@
                      :type  :fail
                      :error :connection-refused))
             (catch (or (instance? java.net.SocketException %)
+                       (instance? java.net.SocketTimeoutException %)
                        (instance? org.apache.http.NoHttpResponseException %))
                    {:keys [cause]}
               (assoc op
@@ -356,25 +357,26 @@
                      (->> value
                           (map (fn [[f k v :as mop]]
                                  (case f
-                                   :r [:r k (->> (jdbc/execute! tx [(str "SELECT k,v FROM gset WHERE k = " k)])
-                                                 (map :gset/v)
-                                                 (into (sorted-set)))]
+                                   :r (let [v (->> [(str "SELECT k,v FROM lww_register WHERE k = " k)]
+                                                   (jdbc/execute! tx)
+                                                   first
+                                                   :lww_register/v)]
+                                        [:r k v])
                                    :w (do
                                         (assert (= 1
-                                                   (let [id (->> k (* 10000) (+ v))]
-                                                     (->> (jdbc/execute! tx [(str "INSERT INTO gset (id,k,v) VALUES (" id "," k "," v ")")])
-                                                          first
-                                                          :next.jdbc/update-count))))
+                                                   (->> [(str "INSERT INTO lww_register (k,v) VALUES (" k "," v ")"
+                                                              " ON CONFLICT(k) DO UPDATE SET v = " v)]
+                                                        (jdbc/execute! tx)
+                                                        first
+                                                        :next.jdbc/update-count)))
                                         mop))))
                           (into [])))]
          (assoc op
                 :type  :ok
                 :value mops'))
-       (catch (fn [e]
-                (if (and (instance? org.postgresql.util.PSQLException e)
-                         (re-find #"ERROR\: deadlock detected\n.*" (.getMessage e)))
-                  true
-                  false)) {}
+       (catch (and (instance? org.postgresql.util.PSQLException %)
+                   (re-find #"ERROR\: deadlock detected\n.*" (.getMessage %)))
+              {}
          (assoc op
                 :type  :fail
                 :error :deadlock)))))
