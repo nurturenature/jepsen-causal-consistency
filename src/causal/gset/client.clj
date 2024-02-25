@@ -106,6 +106,7 @@
                      :type  :fail
                      :error :connection-refused))
             (catch (or (instance? java.net.SocketException %)
+                       (instance? java.net.SocketTimeoutException %)
                        (instance? org.apache.http.NoHttpResponseException %))
                    {:keys [cause]}
               (assoc op
@@ -212,6 +213,7 @@
                      :type  :fail
                      :error :connection-refused))
             (catch (or (instance? java.net.SocketException %)
+                       (instance? java.net.SocketTimeoutException %)
                        (instance? org.apache.http.NoHttpResponseException %))
                    {:keys [cause]}
               (assoc op

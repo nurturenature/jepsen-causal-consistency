@@ -2,7 +2,9 @@
   "Command-line entry point for ElectricSQL tests."
   (:require [causal.gset.workload :as gset]
             [causal.lww-register.workload :as lww-register]
-            [causal.sqlite3 :as sqlite3]
+            [causal
+             [sqlite3 :as sqlite3]
+             [nemesis :as nemesis]]
             [clojure
              [set :as set]
              [string :as str]]
@@ -17,13 +19,11 @@
              [cli :as cli]
              [control :as c]
              [generator :as gen]
-             [nemesis :as nemesis]
              [os :as os]
              [store :as store]
              [tests :as tests]
              [util :as u]]
             [jepsen.checker.timeline :as timeline]
-            [jepsen.nemesis.combined :as nc]
             [jepsen.os.debian :as debian]))
 
 (def workloads
@@ -77,29 +77,30 @@
   (let [workload-name (:workload opts)
         workload ((workloads workload-name) opts)
         db       (sqlite3/db)
-        nemesis  (nc/nemesis-package
-                  {:db db
-                   :nodes (:nodes opts)
-                   :faults (:nemesis opts)
-                   :partition {:targets [:one :minority-third :majority]}
-                   :pause {:targets [:one :minority :majority :all]}
-                   :kill  {:targets (->> (repeatedly 10 (fn []
-                                                          (->> nodes
-                                                               shuffle
-                                                               (take 2)
-                                                               sort
-                                                               (into []))))
-                                         (into []))}
-                   :packet {:targets   [:one :minority :majority :all]
-                            :behaviors [{:delay {}}]}
-                   :clock {:targets (->> (repeatedly 3 (fn []
-                                                         (->> nodes
-                                                              shuffle
-                                                              (take 3)
-                                                              sort
-                                                              (into []))))
-                                         (into []))}
-                   :interval (:nemesis-interval opts nc/default-interval)})]
+        nemesis  (nemesis/nemesis-package
+                  {:db         db
+                   :nodes      (:nodes opts)
+                   :faults     (:nemesis opts)
+                   :partition  {:targets [:one :minority-third :majority]}
+                   :pause      {:targets [:one :minority :majority :all]}
+                   :kill       {:targets (->> (repeatedly 10 (fn []
+                                                               (->> nodes
+                                                                    shuffle
+                                                                    (take 2)
+                                                                    sort
+                                                                    (into []))))
+                                              (into []))}
+                   :packet     {:targets   [:one :minority :majority :all]
+                                :behaviors [{:delay {}}]}
+                   :clock      {:targets (->> (repeatedly 3 (fn []
+                                                              (->> nodes
+                                                                   shuffle
+                                                                   (take 3)
+                                                                   sort
+                                                                   (into []))))
+                                              (into []))}
+                   :stop-start {:targets [:minority-third]}
+                   :interval   (:nemesis-interval opts)})]
     (merge tests/noop-test
            opts
            {:name (str "Electric"
@@ -170,8 +171,8 @@
 
    [nil "--nemesis FAULTS" "A comma-separated list of nemesis faults to enable"
     :parse-fn parse-nemesis-spec
-    :validate [(partial every? #{:pause :partition :kill :clock})
-               "Faults must be partition, pause, kill, or clock, or the special faults all or none."]]
+    :validate [(partial every? #{:pause :partition :kill :clock :stop-start})
+               "Faults must be partition, pause, kill, clock, or stop-start, or the special faults all or none."]]
 
    [nil "--nemesis-interval SECS" "Roughly how long between nemesis operations."
     :default 5
