@@ -108,7 +108,7 @@ So tests that use an ElectricSQL TypeScript API client
 
 ----
 
-### Testing Active/Active (PostgreSQL/SQLite3) Sync with No Introduced Faults
+### Testing Active/Active (PostgreSQL/SQLite3) Sync With No Introduced Faults
 
 #### Workload:
   - LWW Register
@@ -162,85 +162,72 @@ lein run test --workload lww-register --nodes n1,n2,n3,n4 --postgresql-nodes n1,
 
 ----
 
-### ***Preliminary*** Testing of Normal Operation
+### Testing Normal Operation With No Introduced Faults
 
 #### Workload:
-  - 10 tps
-  - each transaction is a single unique write operation
+  - gset
+  - 10tps
+  - each transaction is a single write operation
   - 10 ElectricSQL TypeScript client nodes
   - for 600s
 
 #### Invalid Strong Convergence
 
-n1:
-  - reads everyone else's writes
-  - its writes only partially read by everyone else
+Node n1 writes [1 50]:
 ```clj
-:strong-convergence
-{:valid? false,
- :expected-read-count 5948,
- :incomplete-final-reads {"n2" {:missing-count 50,
-                                :missing {1 {64 "n1"},
-                                          2 {57 "n1"},
-                                          3 {65 "n1"},
-                                          ...}},
-                          "n3" {:missing-count 50,
-                                :missing {1 {64 "n1"},
-                                          2 {57 "n1"},
-                                          3 {65 "n1"},
-                                          ...}},
-                           "n10" {:missing-count 50,
-                                 :missing {1 {64 "n1"},
-                                           2 {57 "n1"},
-                                           3 {65 "n1"},
-                                           ...}}}}
+{:index 42, :type :ok, :f :w-txn, :value [[:w 50 1]], :node "n1"}
 ```
 
-Even though n1 dutifully sent out replication messages for its writes:
+n1 sends replication message which is received by all other nodes
 ```log
-[proto] send: #SatOpLog{ops: [#Begin{lsn: AAAD8A==, ts: 1708385205563, isMigration: false}, #Insert{for: 0, tags: [], new: ["10064", "1", "64"]}, #Commit{lsn: }]}
-notify changes
-actually changed notifier
+# n1
+[proto] send: #SatOpLog{ ... new: ["500001", "50", "1"] ... }
+
+# n2-n10
+[proto] recv: #SatOpLog{ ... new: ["500001", "50", "1"] ... }
 ```
+
+Yet only node n1 reads [1 50]:
+```clj
+{:strong-convergence
+  {:valid? false,
+   :expected-read-count 5955,
+   :incomplete-final-reads {"n2" {:missing-count 47,
+                                  :missing {1 {50 "n1",
+                                               52 "n1",
+                                               53 "n1"},
+                                            4 {53 "n1"},
+                                            7 {52 "n1",
+                                               53 "n1",
+                                               55 "n1"},
+                                            ...}},
+                            "n3" {:missing-count 47,
+                                  :missing {1 {50 "n1",
+                                               52 "n1",
+                                               53 "n1"},
+                                            4 {53 "n1"},
+                                            7 {52 "n1",
+                                               53 "n1",
+                                               55 "n1"},
+                                            ...}}
+                            ...}}}
+```
+
+In total, 47 of node n1's writes were not replicated.
 
 ElectricSQL sync service logs:
 ```log
+# 10+ occurrences
 [error] GenStage consumer #PID<0.3290.0> received $gen_producer message: {:"$gen_producer", {#PID<0.3290.0>, #Reference<0.2906289151.3705143304.108196>},
   {:ask, 500}}
 ...
-# 10+ occurrences
 ```
+
+#### @ 100tps for 30s ~25% of all writes not replicated, no errors in any logs
 
 Test command:
 ```bash
 lein run test --workload gset-single-writes --nodes n1,n2,n3,n4,n5,n6,n7,n8,n9,n10 --electricsql-nodes n1,n2,n3,n4,n5,n6,n7,n8,n9,n10 --rate 10 --time-limit 600
-```
-
-#### Capacity issues at rates of > ~10 writes/s and/or multi-minute test times
-Invalid strong convergence, all writes were not replicated to every node
-  - errors in ElectricSQL sync server logs:
-    ```log
-    [error] GenServer {:n, :l, {Electric.Postgres.CachedWal.Producer, "18b6fff8-16b2-404a-82ec-933ec8190c00"}} terminating
-    
-    # w/higher tps
-    [error] GenStage consumer #PID<0.3354.0> received $gen_producer message: {:"$gen_producer", ...,
-      {:ask, 500}}
-    ...
-    ```
-  - errors in ElectricSQL SQLite3 satellite service logs:
-    ```log
-    # w/higher tps
-    SatelliteError: sending a transaction while outbound replication has not started 
-    ...
-    [proto] recv: #SatErrorResp{type: INTERNAL} an error occurred in satellite: server error 
-    Connectivity state changed: disconnected
-    ```
-
-so tests are run at ~ 25tps (mix of read or write txns) for 1-2 minutes.
-
-##### Default test invocation:
-```bash
-lein run test --workload gset-homogeneous --nodes n1,n2,n3,n4,n5,n6,n7,n8,n9,n10 --postgresql-nodes n1 --electricsql-nodes n2,n3,n4 --better-sqlite3-nodes n5,n6,n7 --sqlite3-cli-nodes n8,n9,n10 --rate 25 --time-limit 100
 ```
 
 ----
