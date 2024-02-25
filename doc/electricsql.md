@@ -1,10 +1,13 @@
 ### Testing ElectricSQL
 
-#### Grow Only Set
-
 ```sql
+-- grow only set
 CREATE TABLE gset (id integer PRIMARY KEY, k integer, v integer);
 ALTER TABLE gset ENABLE ELECTRIC;
+
+-- last write wins register
+CREATE TABLE lww_register (k integer PRIMARY KEY, v integer);
+ALTER TABLE lww_register ENABLE ELECTRIC;
 ```
 
 Random transactions are generated:
@@ -16,15 +19,19 @@ Random transactions are generated:
 And executed as SQL transactions on random nodes:
 
 ```sql
+-- gset
 BEGIN;
-  -- [:r k v]
   SELECT k,v FROM gset WHERE k = ?;
-  -- [:w k v]
   INSERT INTO gset (id,k,v) VALUES(?, ?, ?);
 END;
-```
 
-All writes are unique.
+-- lww register
+BEGIN;
+  SELECT k,v FROM lww_register WHERE k = ?;
+  INSERT INTO lww_register (k,v) VALUES(?, ?) ON CONFLICT(k) DO UPDATE SET v = ?;
+END;
+
+```
 
 ----
 
@@ -78,21 +85,7 @@ Check:
 
 ----
 
-### Fault Injection
-
-Jepsen faults are real faults:
-
-  - kill (-9) the ElectricSQL satellite sync service on each node
-    - clients continue to read/write to the database
-    - sync service restarted
-
-Less of a fault, and more indicative of normal behavior.
-
-In a local first environment, clients will be coming and going in all manner at all times.
-
-----
-
-### Limitations In Testing Normal Operation
+### TypeScript API Limitations
 
 ElectricSQL is active/active for PostgreSQL and 1 to many heterogenous SQLite3 clients.
 
@@ -108,7 +101,7 @@ So tests that use an ElectricSQL TypeScript API client
 
 ----
 
-### Testing Active/Active (PostgreSQL/SQLite3) Sync With No Introduced Faults
+### Testing Active/Active (PostgreSQL/SQLite3) Sync  ❌
 
 #### Workload:
   - LWW Register
@@ -162,7 +155,7 @@ lein run test --workload lww-register --nodes n1,n2,n3,n4 --postgresql-nodes n1,
 
 ----
 
-### Testing Normal Operation With No Introduced Faults
+### Testing Normal Operation  ❌
 
 #### Workload:
   - gset
@@ -232,46 +225,143 @@ lein run test --workload gset-single-writes --nodes n1,n2,n3,n4,n5,n6,n7,n8,n9,n
 
 ----
 
-### ***Preliminary*** Testing of Client Kills
+### Testing Stopping/Starting Clients  ❌
 
-Workload
-  - ~25 tps
-  - homogeneous transactions
-  - 5 client nodes, all ElectricSQL TypeScript clients
+#### Workload:
+  - gset
+  - 25tps, mixture of reads and writes
+  - 10 better-sqlite3 TypeScript client nodes
+  - for 60s
 
-```clj
-;; ~5s kill client sync service on 2 random nodes
-:nemesis	:info	:kill	["n2" "n5"]
-:nemesis	:info	:kill	{"n2" :killed, "n5" :killed}
-
-;; ~5s restart client sync service
-;; client resyncs into an active cluster, resumes local transactions
-;; exposes sync service to timing/recovery of sync in progress interruptions 😈 
-:nemesis	:info	:start	:all
-:nemesis	:info	:start	{"n1" :already-running, "n2" :started, "n3" :already-running, "n4" :already-running, "n5" :started}
-```
-
-#### Does not strongly converge.
+#### Stop/Start Clients
+  - ~5s cleanly stop a random minority-third of the clients
+    - no transactions against the local SQLite3 db are done while stopped
+  - ~5s restart clients
+    - resync local SQLite3 db
+    - resume performing local transactions
 
 ```clj
-;; node n5 never reads 2 writes from node n1
-:strong-convergence {:valid? false,
-                     :expected-read-count 1624,
-                     :incomplete-final-reads {"n5" {:count 2,
-                                                    :missing {43 {1 "n1"},
-                                                              44 {2 "n1"}}}}}
-```
-
-The logs show that n1 wrote the values while n5 was offline and n5 did not resync correctly:
-```clj
-:nemesis :info :kill  {"n2" :killed, "n5" :killed}
+:nemesis :info :stop-node :minority-third
+:nemesis :info :stop-node {"n6" :stopped, "n8" :stopped, "n10" :stopped}
 ...
-"n1"     :ok   :w-txn [[:w 44 2] [:w 43 1]]
-...
-:nemesis :info :start {"n1" :already-running, "n2" :started, "n3" :already-running, "n4" :already-running, "n5" :started}
+:nemesis :info :start-node nil
+:nemesis :info :start-node {"n1" :already-running, ..., "n6" :started, ...}
 ```
+Client log:
+```log
+[electricsql]: stop request received.
+[electricsql]: ElectricSQL closed.
+[electricsql]: DB conn closed.
+Jepsen starting  /usr/bin/npm run start
+...
+starting replication with lsn: ...
+[rpc] send: #SatInStartReplicationReq...
+[proto] send: #SatRpcRequest{method: startReplication, requestId: 2}
+[proto] recv: #SatRpcResponse{method: startReplication, requestId: 2}
+...
+```
+
+You can see Jepsen fail to connect to the client to do a transaction when the client is stopped:
+
+![start stop latency](start-stop-latency.png)
+
+#### Invalid Strong Convergence
+
+Node n5 writes [5 20]:
+```clj
+{:index 1173, :type :ok, :f :txn, :value [[:r 10 #{2 3 4 ...}] [:r 6 #{1 2 3 ...}] [:w 5 20]], :node "n5"}
+```
+
+n5 sends replication message which is replicated to node n1
+```log
+# n5
+[proto] send: #SatOpLog{... new: ["50020", "5", "20"] ...}
+
+# n1
+[proto] recv: #SatOpLog{... new: ["50020", "5", "20"] ...}
+```
+
+Yet node n1 does not read [5 20] on final read:
+```clj
+{:strong-convergence
+ {:valid? false,
+  :expected-read-count 1431,
+  :incomplete-final-reads {"n1" {:missing-count 1,
+                                 :missing {5 {20 "n5"}}}}}}
+```
+
+Node n1 appears to lose the write on later stop/start/resync.
+
+No errors in ElectricSQL sync service logs.
 
 Test command:
 ```bash
-lein run test --workload gset-homogeneous --nodes n1,n2,n3,n4,n5 --electricsql-nodes n1,n2,n3,n4,n5 --rate 25 --nemesis kill
+lein run test --workload gset --nodes n1,n2,n3,n4,n5,n6,n7,n8,n9,n10 --better-sqlite3-nodes n1,n2,n3,n4,n5,n6,n7,n8,n9,n10 --rate 25 --nemesis stop-start
 ```
+
+----
+
+### Testing Offline Replication  ❌
+
+#### Workload:
+  - gset
+  - 10tps, each transaction a single write
+  - 10 SQLite3 CLI client nodes
+  - for 60s
+
+#### Stop/Start Clients
+  - ~5s cleanly stop a random minority-third of the clients
+    - transactions continue against the local SQLite3 db
+  - ~5s restart clients
+    - resync local SQLite3 db
+
+You can see Jepsen continue to perform offline reads/writes when the client is stopped:
+
+![offline latency](offline-latency.png)
+
+#### Invalid Strong Convergence
+
+7 out of 10 nodes are missing replicated writes:
+```clj
+{:strong-convergence
+ {:valid? false,
+  :expected-read-count 646,
+  :incomplete-final-reads {"n1" {:missing-count 1,
+                                 :missing {51 {6 "n2"}}},
+                           "n10" {:missing-count 1,
+                                  :missing {10 {4 "n7"}}},
+                           "n3" {:missing-count 1,
+                                 :missing {90 {1 "n10"}}},
+                           "n4" {:missing-count 1,
+                                 :missing {10 {4 "n7"}}},
+                           "n5" {:missing-count 1,
+                                 :missing {71 {2 "n4"}}},
+                           "n6" {:missing-count 1,
+                                 :missing {10 {4 "n7"}}},
+                           "n7" {:missing-count 1,
+                                 :missing {39 {5 "n1"}}}}}}
+```
+
+No errors in ElectricSQL sync service logs.
+
+Test command:
+```bash
+lein run test --workload gset-single-writes --nodes n1,n2,n3,n4,n5,n6,n7,n8,n9,n10 --sqlite3-cli-nodes n1,n2,n3,n4,n5,n6,n7,n8,n9,n10 --rate 10 --nemesis stop-start
+```
+
+----
+----
+
+### Fault Injection
+
+Jepsen faults are real faults:
+
+  - kill (-9) the ElectricSQL satellite sync service on each node
+    - clients continue to read/write to the database
+    - sync service restarted
+
+Less of a fault, and more indicative of normal behavior.
+
+In a local first environment, clients will be coming and going in all manner at all times.
+
+----
