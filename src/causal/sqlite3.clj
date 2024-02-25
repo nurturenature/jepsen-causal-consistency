@@ -174,16 +174,3 @@
       (c/su
        (cu/grepkill! :cont app-ps-name))
       :resumed)))
-
-(defn start!
-  "Generic start!, justs calls db/start! for this `db`."
-  [test node]
-  (db/start! (db) test node))
-
-(defn stop!
-  "A more polite stop! that sends a SIGTERM before calling db/kill! for this 'db'"
-  [test node]
-  (cu/grepkill! :term app-ps-name)
-  (u/sleep 500)
-  (db/kill! (db) test node)
-  :stopped)

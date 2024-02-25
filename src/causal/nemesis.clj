@@ -1,10 +1,27 @@
 (ns causal.nemesis
   (:require [causal.sqlite3 :as sqlite3]
+            [clj-http.client :as http]
             [jepsen
              [control :as c]
+             [db :as db]
              [generator :as gen]
              [nemesis :as nemesis]]
             [jepsen.nemesis.combined :as nc]))
+
+(defn start!
+  "Generic start!, justs calls db/start! for this `db`."
+  [test node]
+  (db/start! (sqlite3/db) test node))
+
+(defn stop!
+  "A more polite stop! that sends a stop request to the client."
+  [test node]
+  (try
+    (http/post (str "http://" node ":8089/control/stop"))
+    (catch)
+    (finally
+      (db/kill! (sqlite3/db) test node)))
+  :stopped)
 
 (defn stop-start-nemesis
   "A nemesis to politely stop and start the db.
@@ -26,8 +43,8 @@
     (invoke! [_this test {:keys [f value] :as op}]
       (let [result (case f
                      :stop-node  (let [targets (nc/db-nodes test db value)]
-                                   (c/on-nodes test targets sqlite3/stop!))
-                     :start-node (c/on-nodes test sqlite3/start!))]
+                                   (c/on-nodes test targets stop!))
+                     :start-node (c/on-nodes test start!))]
         (assoc op :value result)))
 
     (teardown! [_this _test]

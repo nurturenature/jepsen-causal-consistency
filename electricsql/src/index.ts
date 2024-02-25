@@ -171,14 +171,8 @@ app.post("/lww_register/better-sqlite3", (req: Request, res: Response) => {
     }
 });
 
-const webserver = app.listen(port, () => {
-    console.log(`[electricsql]: Server is listening at http://localhost:${port}`);
-});
-
-process.on('SIGTERM', async () => {
-    console.log('[electricsql]: SIGTERM signal received.')
-
-    webserver.close()
+app.post("/control/stop", async (req: Request, res: Response) => {
+    console.log('[electricsql]: stop request received.')
 
     await electric.close()
     console.log('[electricsql]: ElectricSQL closed.')
@@ -187,4 +181,8 @@ process.on('SIGTERM', async () => {
     console.log('[electricsql]: DB conn closed.')
 
     process.exit(0)
+});
+
+const webserver = app.listen(port, () => {
+    console.log(`[electricsql]: Server is listening at http://localhost:${port}`);
 });
