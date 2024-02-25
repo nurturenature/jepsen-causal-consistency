@@ -18,7 +18,7 @@
   [test node]
   (try
     (http/post (str "http://" node ":8089/control/stop"))
-    (catch)
+    (catch Exception _e)
     (finally
       (db/kill! (sqlite3/db) test node)))
   :stopped)

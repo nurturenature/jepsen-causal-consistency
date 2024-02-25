@@ -147,7 +147,6 @@
         :already-running
         (do
           (c/su
-           (c/exec :rm :-f pid-file log-file)
            (cu/start-daemon!
             {:chdir   app-dir
              :logfile log-file

@@ -325,6 +325,12 @@
                     :err "Runtime error near line 1: database is locked (5)\n"] {}
               (assoc op
                      :type  :fail
+                     :error :database-locked))
+            (catch [:type :jepsen.control/nonzero-exit
+                    :exit 1
+                    :err "Parse error near line 1: database is locked (5)\n"] {}
+              (assoc op
+                     :type  :fail
                      :error :database-locked)))))
 
   (teardown!
