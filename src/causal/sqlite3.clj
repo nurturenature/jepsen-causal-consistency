@@ -39,6 +39,12 @@
   "Is ElectricSQL setup?"
   (atom false))
 
+(defn wipe
+  "Wipes local SQLite3 db files.
+   Assumes on node and privs for file deletion."
+  []
+  (c/exec :rm :-rf database-files))
+
 (defn db
   "ElectricSQL SQLite database."
   []
@@ -129,7 +135,7 @@
       (info "Tearing down SQLite3")
       (db/kill! this test node)
       (c/su
-       (c/exec :rm :-rf database-files)
+       (wipe)
        (c/exec :rm :-rf log-file)))
 
     ; ElectricSQL doesn't have `primaries`.

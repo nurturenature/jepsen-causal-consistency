@@ -100,6 +100,7 @@
                                                                    (into []))))
                                               (into []))}
                    :stop-start {:targets [:minority-third]}
+                   :reset-db   {:targets [:minority-third]}
                    :interval   (:nemesis-interval opts)})]
     (merge tests/noop-test
            opts
@@ -171,8 +172,8 @@
 
    [nil "--nemesis FAULTS" "A comma-separated list of nemesis faults to enable"
     :parse-fn parse-nemesis-spec
-    :validate [(partial every? #{:pause :partition :kill :clock :stop-start})
-               "Faults must be partition, pause, kill, clock, or stop-start, or the special faults all or none."]]
+    :validate [(partial every? #{:pause :partition :kill :clock :stop-start :reset-db})
+               "Faults must be partition, pause, kill, clock, stop-start, or reset-db, or the special faults all or none."]]
 
    [nil "--nemesis-interval SECS" "Roughly how long between nemesis operations."
     :default 5

@@ -5,7 +5,8 @@
              [control :as c]
              [db :as db]
              [generator :as gen]
-             [nemesis :as nemesis]]
+             [nemesis :as nemesis]
+             [util :as u]]
             [jepsen.nemesis.combined :as nc]))
 
 (defn start!
@@ -56,7 +57,7 @@
    Opts:
    ```clj
    {:stop-start {:targets [...]}}  ; A collection of node specs, e.g. [:one, :all]
-  ```."
+  ```"
   [{:keys [db faults interval stop-start] :as _opts}]
   (let [needed?    (contains? faults :stop-start)
         targets    (:targets stop-start (nc/node-specs db))
@@ -77,11 +78,78 @@
                          :stop  #{:start-node}
                          :color "#D1E8A0"}}}))
 
+(defn reset-db!
+  "Resets a client db:
+     - stop client
+     - rm local SQLite3 db
+     - start client
+     - which resyncs db and resumes processing transactions"
+  [test node]
+  (stop! test node)
+  (sqlite3/wipe)
+  (start! test node)
+  (u/sleep 3000)  ; time to sync
+  :reset-db)
+
+(defn reset-db-nemesis
+  "A nemesis to reset the client db.
+   This nemesis responds to:
+  ```
+  {:f :reset-db  :value :node-spec}   ; target nodes as interpreted by `db-nodes`
+   ```"
+  [db]
+  (reify
+    nemesis/Reflection
+    (fs [_this]
+      [:reset-db])
+
+    nemesis/Nemesis
+    (setup! [this _test]
+      this)
+
+    (invoke! [_this test {:keys [f value] :as op}]
+      (let [result (case f
+                     :reset-db (let [targets (nc/db-nodes test db value)]
+                                 (c/on-nodes test targets reset-db!)))]
+        (assoc op :value result)))
+
+    (teardown! [_this _test]
+      nil)))
+
+(defn reset-db-package
+  "A nemesis and generator package that resets the client db.
+   
+   Opts:
+   ```clj
+   {:reset-db {:targets [...]}}  ; A collection of node specs, e.g. [:one, :all]
+  ```"
+  [{:keys [db faults interval reset-db] :as _opts}]
+  (let [needed?   (contains? faults :reset-db)
+        targets   (:targets reset-db (nc/node-specs db))
+        reset-db  (fn reset-db [_ _]
+                    {:type  :info
+                     :f     :reset-db
+                     :value (rand-nth targets)})
+        gen       (->> reset-db
+                       (gen/stagger (or interval nc/default-interval)))
+        final-gen {:type  :info
+                   :f     :reset-db
+                   :value :all}]
+    {:generator       (when needed? gen)
+     :final-generator (when needed? final-gen)
+     :nemesis         (reset-db-nemesis db)
+     :perf            #{{:name  "reset-db"
+                         :fs    #{:reset-db}
+                         :start #{}
+                         :stop  #{}
+                         :color "#ADE8A0"}}}))
+
 (defn nemesis-package
   "Constructs combined nemeses and generators into a nemesis package."
   [opts]
   (let [opts (update opts :faults set)]
-    (->> [(stop-start-package opts)]
+    (->> [(stop-start-package opts)
+          (reset-db-package   opts)]
          (concat (nc/nemesis-packages opts))
          (remove nil?)
          nc/compose-packages)))
