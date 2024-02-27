@@ -23,19 +23,19 @@ const conn = new Database('electric.db')
 conn.pragma('journal_mode = WAL')
 const electric = await electrify(conn, schema, config)
 
-/* sync database */
-const { synced } = await electric.db.gset.sync()
-await synced
+/* sync databases */
+const { synced: gset } = await electric.db.gset.sync()
+await gset
 
-const lww_register = await electric.db.lww_register.sync()
-await lww_register.synced
+const { synced: lww_register } = await electric.db.lww_register.sync()
+await lww_register
 
 /* webserver */
 const port = process.env.PORT || 3000;
 const app: Express = express();
 app.use(express.json())
 
-app.get("/r/:k", async (req: Request, res: Response) => {
+app.get("/gset/r/:k", async (req: Request, res: Response) => {
     const value = await electric.db.gset.findMany({
         where: {
             k: parseInt(req.params.k, 10)
@@ -51,7 +51,7 @@ app.get("/r/:k", async (req: Request, res: Response) => {
     }
 });
 
-app.get("/w/:id/:k/:v", async (req: Request, res: Response) => {
+app.get("/gset/w/:id/:k/:v", async (req: Request, res: Response) => {
     const result = await electric.db.gset.upsert({
         create: {
             id: parseInt(req.params.id, 10),
@@ -69,37 +69,32 @@ app.get("/w/:id/:k/:v", async (req: Request, res: Response) => {
     res.send(result);
 });
 
-app.get("/list", async (req: Request, res: Response) => {
+app.get("/gset/list", async (req: Request, res: Response) => {
     const result = await electric.db.gset.findMany()
     res.send(result);
 });
 
-app.get("/list-sql", async (req: Request, res: Response) => {
-    const result = await electric.db.raw({ sql: "SELECT * FROM gset;" })
-    res.send(result);
-});
-
-app.post("/electric-findMany", async (req: Request, res: Response) => {
+app.post("/gset/electric-findMany", async (req: Request, res: Response) => {
     const result = await electric.db.gset.findMany(req.body)
     res.send(result)
 });
 
-app.post("/electric-createMany", async (req: Request, res: Response) => {
+app.post("/gset/electric-createMany", async (req: Request, res: Response) => {
     const result = await electric.db.gset.createMany(req.body)
     res.send(result)
 });
 
-app.post("/lww_register/findMany", async (req: Request, res: Response) => {
+app.post("/lww_register/electric-findMany", async (req: Request, res: Response) => {
     const result = await electric.db.lww_register.findMany(req.body)
     res.send(result)
 });
 
-app.post("/lww_register/upsert", async (req: Request, res: Response) => {
+app.post("/lww_register/electric-upsert", async (req: Request, res: Response) => {
     const result = await electric.db.lww_register.upsert(req.body)
     res.send(result)
 });
 
-app.post("/better-sqlite3", (req: Request, res: Response) => {
+app.post("/gset/better-sqlite3", (req: Request, res: Response) => {
     const insert = conn.prepare(
         'INSERT INTO gset (id,k,v) VALUES (@id, @k, @v)');
 

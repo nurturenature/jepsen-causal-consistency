@@ -82,9 +82,9 @@
     (let [op (assoc op :node node)]
       (try+ (let [[r-or-w _ _] (first value)
                   [url body]   (case r-or-w
-                                 :r [(str url "/electric-findMany")
+                                 :r [(str url "/gset/electric-findMany")
                                      (txn->electric-findMany value)]
-                                 :w [(str url "/electric-createMany")
+                                 :w [(str url "/gset/electric-createMany")
                                      (txn->electric-createMany value)])
                   result (http/post url
                                     {:body               body
@@ -190,7 +190,7 @@
     [this _test node]
     (assoc this
            :node node
-           :url  (str "http://" node ":8089/better-sqlite3")))
+           :url  (str "http://" node ":8089/gset/better-sqlite3")))
 
   (setup!
     [_this _test])

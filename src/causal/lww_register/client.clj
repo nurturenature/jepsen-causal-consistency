@@ -79,9 +79,9 @@
     (let [op (assoc op :node node)]
       (try+ (let [[r-or-w _ _] (first value)
                   [url body]   (case r-or-w
-                                 :r [(str url "/findMany")
+                                 :r [(str url "/electric-findMany")
                                      (txn->electric-findMany value)]
-                                 :w [(str url "/upsert")
+                                 :w [(str url "/electric-upsert")
                                      (txn->electric-upsert value)])
                   result (http/post url
                                     {:body               body
