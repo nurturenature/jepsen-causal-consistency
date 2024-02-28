@@ -35,6 +35,29 @@ Adds strong-session-consistent-view:
 
 ### Adya Anomalies Expressed
 
+#### write -> read
+- `[:G1c-process]`
+  ```clj
+  [{:process 0, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 1}
+   {:process 0, :type :ok, :f :txn, :value [[:w :y 0]], :index 3}
+   {:process 2, :type :ok, :f :txn, :value [[:r :y #{0}]], :index 5}
+   {:process 2, :type :ok, :f :txn, :value [[:w :x 0]], :index 7}]
+  ```
+  ```txt
+  Let:
+    T1 = {:index 5, :type :ok, :process 2, :f :txn, :value [[:r :y #{0}]]}
+    T2 = {:index 7, :type :ok, :process 2, :f :txn, :value [[:w :x 0]]}
+    T3 = {:index 1, :type :ok, :process 0, :f :txn, :value [[:r :x #{0}]]}
+    T4 = {:index 3, :type :ok, :process 0, :f :txn, :value [[:w :y 0]]}
+
+  Then:
+    - T1 < T2, because process 2 executed T1 before T2.
+    - T2 < T3, because T2 wrote :x = 0, which was read by T3.
+    - T3 < T4, because process 0 executed T3 before T4.
+    - However, T4 < T1, because T4 wrote :y = 0, which was read by T1: a contradiction!
+  ```
+  ![w -> r G1c-process](doc/wr-G1c-process.svg)
+
 #### Read Your Writes
   - `[:G-single-item-process :cyclic-versions]`
     ```clj
