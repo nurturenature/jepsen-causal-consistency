@@ -8,8 +8,7 @@
              [util :as util :refer [index-of]]]
             [jepsen
              [checker :as checker]
-             [history :as h]
-             [txn :as txn]]
+             [history :as h]]
             [clojure.set :as set])
   (:import (jepsen.history Op)))
 
@@ -174,17 +173,29 @@
 (defrecord WRExplainer []
   elle/DataExplainer
   (explain-pair-data [_ a b]
-    (let [writes (txn/ext-writes (:value a))
-          reads  (txn/ext-reads  (:value b))]
-      (reduce (fn [_ [k v]]
-                (when (and (contains? reads k)
-                           (= v (get reads k)))
-                  (reduced
-                   {:type  :wr
-                    :key   k
-                    :value v
-                    :a-mop-index (index-of (:value a) [:w k v])
-                    :b-mop-index (index-of (:value b) [:r k v])})))
+    (let [writes (ext-writes (:value a))
+          reads  (ext-reads  (:value b))]
+      ; v's are #{}
+      (reduce (fn [_ [wk wv]]
+                (when (and (contains? reads wk)
+                           (seq (set/intersection wv (get reads wk))))
+                  ; there may be more than one write that was read, first is fine
+                  ; similar with reads, first is also fine
+                  (let [v'    (first (set/intersection wv (get reads wk)))
+                        r-mop (->> (:value b)
+                                   (reduce (fn [_ [f rk rv :as mop]]
+                                             (case f
+                                               :r (if (and (= rk wk)
+                                                           (contains? rv v'))
+                                                    (reduced mop)
+                                                    nil)
+                                               :w nil))))]
+                    (reduced
+                     {:type  :wr
+                      :key   wk
+                      :value v'
+                      :a-mop-index (index-of (:value a) [:w wk v'])
+                      :b-mop-index (index-of (:value b) r-mop)}))))
               nil
               writes)))
 
@@ -197,8 +208,8 @@
   an order over txns based on the external writes and reads of key k: any txn
   that reads value v must come after the txn that wrote v."
   [history]
-  (let [ext-writes (ext-index txn/ext-writes history)
-        ext-reads  (ext-index txn/ext-reads  history)]
+  (let [ext-writes (ext-index ext-writes history)
+        ext-reads  (ext-index ext-reads  history)]
     ; Take all reads and relate them to prior writes.
     {:graph
      (b/forked
@@ -263,8 +274,7 @@
   [opts history]
   (let [; Build our combined analyzers
         analyzers (into [elle/process-graph
-                         ;; TODO: wr-graph
-                         ]
+                         wr-graph]
                         (ct/additional-graphs opts))
         analyzer (apply elle/combine analyzers)]
     ; And go!
