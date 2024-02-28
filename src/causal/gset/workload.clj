@@ -1,6 +1,7 @@
 (ns causal.gset.workload
   (:require [causal.gset
              [client :as client]
+             [causal-consistency :as cc]
              [strong-convergence :as sc]]
             [causal.util :as util]
             [jepsen.checker :as checker]))
@@ -22,7 +23,8 @@
    :generator       (util/generator opts)
    :final-generator (util/final-generator opts)
    :checker         (checker/compose
-                     {:strong-convergence (sc/final-reads)})})
+                     {:causal-consistency (cc/checker causal-opts)
+                      :strong-convergence (sc/final-reads)})})
 
 (defn workload-homogeneous-txns
   "A workload with a generator that emits transactions that are all read or write ops,

@@ -7,8 +7,10 @@
              [rels :refer [ww wr rw]]
              [util :as util :refer [index-of]]]
             [jepsen
+             [checker :as checker]
              [history :as h]
-             [txn :as txn]])
+             [txn :as txn]]
+            [clojure.set :as set])
   (:import (jepsen.history Op)))
 
 (defn op-internal-case
@@ -97,6 +99,55 @@
                         :writer   (h/get-index history writer-index)})))))
          seq)))
 
+(defn r-mop->kv-set
+  [[f k v :as _r-mop]]
+  (assert (= :r f))
+  (->> v
+       (reduce (fn [acc v']
+                 (conj acc [k v']))
+               #{})))
+
+(defn kv-set->kv-map
+  [kv-set]
+  (->> kv-set
+       (reduce (fn [acc [k v]]
+                 (update acc k (fn [old]
+                                 (if (nil? old)
+                                   #{v}
+                                   (conj old v)))))
+               {})))
+
+(defn ext-reads
+  "Given a transaction, returns a map of {k #{v ...}} for its external reads:
+  values that transaction observed which it did not write itself."
+  [txn]
+  (loop [ext      #{}
+         ignore?  #{}
+         txn      txn]
+    (if (seq txn)
+      (let [[f k v :as mop] (first txn)]
+        (recur (case f
+                 :r (set/union ext (set/difference (r-mop->kv-set mop) ignore?))
+                 :w ext)
+               (case f
+                 :r ignore?
+                 :w (conj ignore? [k v]))
+               (next txn)))
+      (kv-set->kv-map ext))))
+
+(defn ext-writes
+  "Given a transaction, returns the map of {k #{v ...}} for its external writes."
+  [txn]
+  (loop [ext #{}
+         txn txn]
+    (if (seq txn)
+      (let [[f k v] (first txn)]
+        (recur (case f
+                 :r ext
+                 :w (conj ext [k v]))
+               (next txn)))
+      (kv-set->kv-map ext))))
+
 (defn ext-index
   "Given a function that takes a txn and returns a map of external keys to
   written values for that txn, and a history, computes a map like {k {v [op1,
@@ -112,7 +163,10 @@
        h/oks
        (reduce (fn [idx op]
                  (reduce (fn [idx [k v]]
-                           (update-in idx [k v] conj op))
+                           (reduce (fn [idx v']
+                                     (update-in idx [k v'] conj op))
+                                   idx
+                                   v))
                          idx
                          (ext-fn (:value op))))
                {})))
@@ -208,7 +262,9 @@
   TODO: maybe use writes-follow-reads(?) to infer more versions from wr deps?"
   [opts history]
   (let [; Build our combined analyzers
-        analyzers (into [elle/process-graph wr-graph]
+        analyzers (into [elle/process-graph
+                         ;; TODO: wr-graph
+                         ]
                         (ct/additional-graphs opts))
         analyzer (apply elle/combine analyzers)]
     ; And go!
@@ -264,6 +320,18 @@
                                               history))
          _            @type-sanity ; Will throw if problems
          ; Build up anomaly map
-         anomalies (cond-> cycles)]
+         anomalies (cond-> cycles
+                    ;;  @internal     (assoc :internal @internal)
+                    ;;  @g1a          (assoc :G1a @g1a)
+                    ;;  @g1b          (assoc :G1b @g1b)
+                    ;;  @lost-update  (assoc :lost-update @lost-update)
+                     )]
      (ct/result-map opts anomalies))))
 
+(defn checker
+  "For Jepsen test map."
+  [defaults]
+  (reify checker/Checker
+    (check [_this _test history opts]
+      (let [opts (merge defaults opts)]
+        (check opts history)))))
