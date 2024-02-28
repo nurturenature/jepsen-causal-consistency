@@ -85,6 +85,20 @@ Check:
 
 ----
 
+### Fault Injection
+
+Jepsen faults are real faults:
+
+  - kill (-9) the ElectricSQL satellite sync service on each node
+    - clients continue to read/write to the database
+    - sync service restarted
+
+Less of a fault, and more indicative of normal behavior.
+
+In a local first environment, clients will be coming and going in all manner at all times.
+
+----
+
 ### Public Alpha, Failure Modes
 
 > ElectricSQL is in public alpha phase.
@@ -95,7 +109,7 @@ Check:
 
 -- ElectricSQL [roadmap](https://electric-sql.com/docs/reference/roadmap), [failure modes](https://electric-sql.com/docs/reference/roadmap#failure-modes)
 
-The tests below show failure modes in all normal operations and even when frequently resetting the database.
+The tests below show failure modes in all normal operations at relatively low transaction rates and over short periods of time.
 
 ----
 
@@ -112,71 +126,6 @@ We would like to test heterogenous clients doing transactions with a mixture of 
 So tests that use an ElectricSQL TypeScript API client
   - must use homogeneous transactions
   - can only have a single write in the transaction when upsert'ing
-
-----
-
-### Testing With Local DB Resets  ❌
-
-#### Workload:
-  - gset
-  - 100tps, mixture of reads and writes
-  - 10 better-sqlite3 TypeScript client nodes
-  - for 60s
-
-#### Local Db Resets
-  - ~10s reset a minority-third of the local client dbs
-    - stop client
-    - remove local SQLite3 db
-    - start client
-    - sync local db
-    - resume performing transactions
-  - at the end of the test
-    - before final reads
-    - reset all clients
-
-```clj
-:nemesis :info :reset-db :minority-third
-:nemesis :info :reset-db {"n3" :reset-db,  "n6" :reset-db, "n7" :reset-db}
-```
-
-Client log:
-```log
-[electricsql]: stop request received.
-[electricsql]: ElectricSQL closed.
-[electricsql]: DB conn closed.
-Jepsen starting  /usr/bin/npm run start
-...
-no lsn retrieved from store
-connecting to electric server
-...
-no previous LSN, start replication from scratch
-...
-```
-
-#### Invalid Strong Convergence
-
-```clj
-{:strong-convergence
- {:valid? false,
-  :expected-read-count 5754,
-  :incomplete-final-reads {"n1" {:missing-count 1016,
-                                 :missing {1 {10 "n2",
-                                              11 "n7",
-                                              12 "n2"},
-                                           2 {19 "n3",
-                                              ...}
-                                           ...}}
-                           ...}}}
-```
-
-All nodes are missing ~20% of writes.
-
-No errors in ElectricSQL sync service logs.
-
-Test command:
-```bash
-lein run test --workload gset --nodes n1,n2,n3,n4,n5,n6,n7,n8,n9,n10 --better-sqlite3-nodes n1,n2,n3,n4,n5,n6,n7,n8,n9,n10 --nemesis reset-db --nemesis-interval 10
-```
 
 ----
 
@@ -429,18 +378,112 @@ lein run test --workload gset-single-writes --nodes n1,n2,n3,n4,n5,n6,n7,n8,n9,n
 ```
 
 ----
+
+### Testing With Local DB Resets  ❌
+
+#### Workload:
+  - gset
+  - 100tps, mixture of reads and writes
+  - 10 better-sqlite3 TypeScript client nodes
+  - for 60s
+
+#### Local Db Resets
+  - ~10s reset a minority-third of the local client dbs
+    - stop client
+    - remove local SQLite3 db
+    - start client
+    - sync local db
+    - resume performing transactions
+  - at the end of the test
+    - before final reads
+    - reset all clients
+
+```clj
+:nemesis :info :reset-db :minority-third
+:nemesis :info :reset-db {"n3" :reset-db,  "n6" :reset-db, "n7" :reset-db}
+```
+
+Client log:
+```log
+[electricsql]: stop request received.
+[electricsql]: ElectricSQL closed.
+[electricsql]: DB conn closed.
+Jepsen starting  /usr/bin/npm run start
+...
+no lsn retrieved from store
+connecting to electric server
+...
+no previous LSN, start replication from scratch
+...
+```
+
+#### Invalid Strong Convergence
+
+```clj
+{:strong-convergence
+ {:valid? false,
+  :expected-read-count 5754,
+  :incomplete-final-reads {"n1" {:missing-count 1016,
+                                 :missing {1 {10 "n2",
+                                              11 "n7",
+                                              12 "n2"},
+                                           2 {19 "n3",
+                                              ...}
+                                           ...}}
+                           ...}}}
+```
+
+All nodes are missing ~20% of writes.
+
+No errors in ElectricSQL sync service logs.
+
+Test command:
+```bash
+lein run test --workload gset --nodes n1,n2,n3,n4,n5,n6,n7,n8,n9,n10 --better-sqlite3-nodes n1,n2,n3,n4,n5,n6,n7,n8,n9,n10 --nemesis reset-db --nemesis-interval 10
+```
+
 ----
 
-### Fault Injection
+### Testing With Client Sync Kills  ❌
 
-Jepsen faults are real faults:
+#### Workload:
+  - gset
+  - 10tps, each transaction a single write
+  - 5 SQLite3 CLI client nodes
+  - for 60s
 
-  - kill (-9) the ElectricSQL satellite sync service on each node
-    - clients continue to read/write to the database
-    - sync service restarted
+#### Client Sync Service Kills
+  - ~5s kill a single node's client sync service
+  - ~5s restart node's client
+  - perform transactions throughout
 
-Less of a fault, and more indicative of normal behavior.
+```clj
+:nemesis :info :kill :minority-third
+:nemesis :info :kill {"n1" :killed}
+...
+:nemesis :info :start :all
+:nemesis :info :start {"n1" :started, "n2" :already-running, ...}
+```
 
-In a local first environment, clients will be coming and going in all manner at all times.
+#### Invalid Strong Convergence
 
-----
+```clj
+{:strong-convergence
+ {:valid? false,
+  :expected-read-count 613,
+  :incomplete-final-reads {"n1" {:missing-count 1,
+                                 :missing {80 {1 "n5"}}},
+                           "n4" {:missing-count 1,
+                                 :missing {6 {2 "n2"}}},
+                           "n5" {:missing-count 1,
+                                 :missing {34 {4 "n1"}}}}}
+```
+
+Majority of nodes missing a write.
+
+No errors in ElectricSQL or client sync service logs.
+
+Test command:
+```bash
+lein run test --workload gset-single-writes --nodes n1,n2,n3,n4,n5 --sqlite3-cli-nodes n1,n2,n3,n4,n5 --nemesis kill --rate 10 --time-limit 60
+```

@@ -1,14 +1,12 @@
 (ns causal.sqlite3
-  (:require [clojure.string :refer [split-lines]]
-            [clojure.tools.logging :refer [info warn]]
+  (:require [clojure.tools.logging :refer [info]]
             [jepsen
              [db :as db]
              [control :as c]
              [util :as u]]
             [jepsen.control
              [util :as cu]]
-            [jepsen.os.debian :as deb]
-            [slingshot.slingshot :refer [try+]]))
+            [jepsen.os.debian :as deb]))
 
 (def install-dir
   "Directory to install into."

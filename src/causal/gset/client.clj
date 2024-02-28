@@ -78,7 +78,7 @@
     [_this _test])
 
   (invoke!
-    [{:keys [node url] :as _this} _test {:keys [f value] :as op}]
+    [{:keys [node url] :as _this} _test {:keys [value] :as op}]
     (let [op (assoc op :node node)]
       (try+ (let [[r-or-w _ _] (first value)
                   [url body]   (case r-or-w
@@ -140,7 +140,7 @@
 (defn better-sqlite3->op
   "Given the original op and a better-sqlite3 JSON result,
    return the op updated with better-sqlite3 results."
-  [{:keys [value] :as op} {:keys [status body] :as rslt}]
+  [{:keys [value] :as op} {:keys [status body] :as _rslt}]
   (let [_                     (assert (= status 200))
         rslt                  (json/parse-string body true)
         [type' value' error'] [(keyword (:type rslt)) (:value rslt) (:error rslt)]
@@ -196,7 +196,7 @@
     [_this _test])
 
   (invoke!
-    [{:keys [node url] :as _this} test {:keys [f value] :as op}]
+    [{:keys [node url] :as _this} _test op]
     (let [op   (assoc op :node node)]
       (try+ (let [body (op->better-sqlite3 op)
                   rslt (http/post url
@@ -309,7 +309,7 @@
     [_this _test])
 
   (invoke!
-    [{:keys [node] :as _this} test {:keys [f value] :as op}]
+    [{:keys [node] :as _this} test {:keys [value] :as op}]
     (let [op (assoc op :node node)]
       (try+ (let [sql-stmt (txn->sqlite3-cli value)
                   result   (get (c/on-nodes test [node]

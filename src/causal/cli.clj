@@ -5,24 +5,13 @@
             [causal
              [sqlite3 :as sqlite3]
              [nemesis :as nemesis]]
-            [clojure
-             [set :as set]
-             [string :as str]]
-            [clojure.tools.logging :refer [info warn]]
-            [elle
-             [consistency-model :as cm]
-             [graph :as g]
-             [rw-register :as rw]
-             [txn :as txn]]
+            [clojure.string :as str]
+            [elle.consistency-model :as cm]
             [jepsen
              [checker :as checker]
              [cli :as cli]
-             [control :as c]
              [generator :as gen]
-             [os :as os]
-             [store :as store]
-             [tests :as tests]
-             [util :as u]]
+             [tests :as tests]]
             [jepsen.checker.timeline :as timeline]
             [jepsen.os.debian :as debian]))
 
@@ -73,7 +62,7 @@
 
 (defn causal-test
   "Given options from the CLI, constructs a test map."
-  [{:keys [nodes] :as opts}]
+  [opts]
   (let [workload-name (:workload opts)
         workload ((workloads workload-name) opts)
         db       (sqlite3/db)
@@ -83,22 +72,10 @@
                    :faults     (:nemesis opts)
                    :partition  {:targets [:one :minority-third :majority]}
                    :pause      {:targets [:one :minority :majority :all]}
-                   :kill       {:targets (->> (repeatedly 10 (fn []
-                                                               (->> nodes
-                                                                    shuffle
-                                                                    (take 2)
-                                                                    sort
-                                                                    (into []))))
-                                              (into []))}
+                   :kill       {:targets [:minority-third]}
                    :packet     {:targets   [:one :minority :majority :all]
                                 :behaviors [{:delay {}}]}
-                   :clock      {:targets (->> (repeatedly 3 (fn []
-                                                              (->> nodes
-                                                                   shuffle
-                                                                   (take 3)
-                                                                   sort
-                                                                   (into []))))
-                                              (into []))}
+                   :clock      {:targets [:minority-third]}
                    :stop-start {:targets [:minority-third]}
                    :reset-db   {:targets [:minority-third]}
                    :interval   (:nemesis-interval opts)})]

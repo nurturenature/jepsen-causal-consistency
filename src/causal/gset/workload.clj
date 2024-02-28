@@ -3,10 +3,7 @@
              [client :as client]
              [strong-convergence :as sc]]
             [causal.util :as util]
-            [jepsen
-             [checker :as checker]
-             [generator :as gen]]
-            [jepsen.tests.cycle.wr :as wr]))
+            [jepsen.checker :as checker]))
 
 (def causal-opts
   "Opts to configure Elle for causal consistency."
@@ -16,11 +13,6 @@
   ;   - ww and rw dependencies, as derived from a version order
   {:consistency-models [:strong-session-consistent-view] ; Elle's strong-session with Adya's formalism for causal consistency
    :anomalies-ignored [:lost-update]                     ; `lost-update`s are causally Ok, they are PL-2+, Adya 4.1.3
-   :sequential-keys? true                                ; infer version order from elle/process-graph
-   ;:linearizable-keys? true                             ; TODO: should be LWW?
-   :wfr-keys? true                                       ; wfr-version-graph when <rw within txns
-   ;:wfr-process? true TODO: valid? explainer?           ; wfr-process-graph used to infer version order
-   ;:additional-graphs [rw/wfr-ww-transaction-graph] TODO: valid? explainer?
    })
 
 (defn workload

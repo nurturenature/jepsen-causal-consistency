@@ -1,5 +1,5 @@
 (ns causal.gset.strong-convergence-test
-  (:require [clojure.test :refer :all]
+  (:require [clojure.test :refer [deftest is testing]]
             [causal.gset.strong-convergence :as sc]
             [jepsen
              [checker :as checker]

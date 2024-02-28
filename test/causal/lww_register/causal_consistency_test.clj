@@ -1,5 +1,5 @@
 (ns causal.lww-register.causal-consistency-test
-  (:require [clojure.test :refer :all]
+  (:require [clojure.test :refer [deftest is testing]]
             [causal.lww-register.workload :as lww]
             [elle.rw-register :as rw]))
 

@@ -3,7 +3,7 @@
             [jepsen.tests.cycle.wr :as wr]))
 
 (defn generator
-  "wr/get with common options."
+  "wr/gen with common options."
   [opts]
   (let [opts (merge
               {:directory      "."
@@ -15,7 +15,7 @@
 
 (defn final-generator
   "final-generator for generator."
-  [{:keys [rate] :as _opts}]
+  [_opts]
   (gen/phases
    (gen/log "Quiesce...")
    (gen/sleep 3)
@@ -24,6 +24,5 @@
         (map (fn [k]
                {:type :invoke :f :r-final :value [[:r k nil]] :final-read? true}))
         (gen/each-thread)
-        (gen/clients)
-        (gen/stagger (/ rate)))))
+        (gen/clients))))
 
