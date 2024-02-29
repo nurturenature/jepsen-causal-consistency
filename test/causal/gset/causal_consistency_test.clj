@@ -27,12 +27,32 @@
         {:process 2, :type :ok, :f :txn, :value [[:w :x 0]], :index 7, :time -1}]
        h/history))
 
+(def valid-ryw (->> [{:process 0, :type :ok, :f :txn, :value [[:r :x nil]], :index 1, :time -1}
+                     {:process 0, :type :ok, :f :txn, :value [[:w :x 0]],   :index 3, :time -1}
+                     {:process 0, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 5, :time -1}]
+                    h/history))
+
+(def invalid-ryw (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]],   :index 1, :time -1}
+                       {:process 0, :type :ok, :f :txn, :value [[:r :x nil]], :index 3, :time -1}]
+                      h/history))
+
 (deftest causal-consistency
   (testing "causal-consistency"
     (is (= {:valid? true}
-           (cc/check workload/causal-opts valid-causal)))
+           (cc/check workload/causal-opts valid-causal)))))
+
+(deftest wr
+  (testing "w->r"
     (is (= {:valid? false :anomaly-types [:G1c-process]}
            (-> (cc/check workload/causal-opts invalid-wr)
+               (select-keys [:valid? :anomaly-types]))))))
+
+(deftest ryw
+  (testing "ryw"
+    (is (= {:valid? true}
+           (cc/check workload/causal-opts valid-ryw)))
+    (is (= {:valid? false :anomaly-types [:G-single-item-process]}
+           (-> (cc/check workload/causal-opts invalid-ryw)
                (select-keys [:valid? :anomaly-types]))))))
 
 

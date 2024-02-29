@@ -58,12 +58,26 @@ Adds strong-session-consistent-view:
   ```
   ![w -> r G1c-process](doc/wr-G1c-process.svg)
 
+----
+
 #### Read Your Writes
-  - `[:G-single-item-process :cyclic-versions]`
+  - `[:G-single-item-process]`
     ```clj
-    [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]],   :index 1, :time -1}
-     {:process 0, :type :ok, :f :txn, :value [[:r :x nil]], :index 3, :time -1}]
+    [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]],   :index 1}
+     {:process 0, :type :ok, :f :txn, :value [[:r :x nil]], :index 3}]
     ```
+    ```txt
+    Let:
+      T1 = {:index 3, :time -1, :type :ok, :process 0, :f :txn, :value [[:r :x nil]]}
+      T2 = {:index 1, :time -1, :type :ok, :process 0, :f :txn, :value [[:w :x 0]]}
+
+    Then:
+      - T1 < T2, because in process 0, T1's read of key :x did not observe T2's write of 0.
+      - However, T2 < T1, because process 0 executed T2 before T1: a contradiction!
+    ```
+    ![read your writes G-single-item-process](doc/ryw-G-single-item-process.svg)
+
+----
 
 #### Monotonic Writes
   - `[:G-single-item-process :cyclic-versions]`
