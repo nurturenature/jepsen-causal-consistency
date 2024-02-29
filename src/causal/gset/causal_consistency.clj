@@ -2,7 +2,8 @@
   (:require [bifurcan-clj
              [core :as b]]
             [clojure.set :as set]
-            [elle [core :as elle]
+            [elle
+             [core :as elle]
              [graph :as g]
              [rels :refer [ww wr rw]]
              [txn :as ct]
@@ -115,6 +116,15 @@
                                    #{v}
                                    (conj old v)))))
                {})))
+
+(defn kv-map->kv-set
+  [kv-map]
+  (->> kv-map
+       (mapcat (fn [[k vs]]
+                 (->> vs
+                      (map (fn [v]
+                             [k v])))))
+       (into #{})))
 
 (defn ext-reads
   "Given a transaction, returns a map of {k #{v ...}} for its external reads:
@@ -337,34 +347,106 @@
     {:graph     graph
      :explainer (RWRYWExplainer.)}))
 
+(defrecord WWWFRExplainer [ext-read-index]
+  elle/DataExplainer
+  (explain-pair-data [_ a b]
+    (let [a-writes  (ext-writes (:value a))
+          b-writes  (ext-writes (:value b))
+          b-index   (:index b)
+          b-process (:process b)]
+      (when (and (seq a-writes)
+                 (seq b-writes))
+        ; did b already read any of a's writes?
+        (let [b-1st-w (->> (:value b)
+                           (reduce (fn [_ [f _k _v :as mop]]
+                                     (when (= :w f)
+                                       (reduced mop)))
+                                   nil))
+              [k v] (->> a-writes
+                         kv-map->kv-set
+                         (reduce (fn [_ [k v]]
+                                   (when (seq (->> [k v]
+                                                   (get-in ext-read-index)
+                                                   (filter #(-> % :process (= b-process)))
+                                                   (filter #(-> % :index   (< b-index)))))
+                                     (reduced [k v])))
+                                 nil))]
+          (when (and k v)
+            {:type        :ww
+             :a-mop-index (index-of (:value a) [:w k v])
+             :b-mop-index (index-of (:value b) b-1st-w)
+             :process     b-process
+             :k           k
+             :v           v})))))
+
+  (render-explanation [_ {:keys [process k v]} a-name b-name]
+    (str "in process " process ", " a-name "'s write of " [k v] " was observed before " b-name)))
+
+(defn ww-wfr-order
+  "Given a history and a process, create a w->w transaction graph with writes follow reads ordering."
+  [history ext-write-index process]
+  (let [history         (->> history
+                             (h/filter (comp #{process} :process)))
+        [g _observed-kv] (->> history
+                              (reduce (fn [[g observed-kv] {:keys [process value] :as op}]
+                                        (let [ext-reads    (ext-reads  value)
+                                              ext-writes   (ext-writes value)
+                                              observed-kv' (set/union observed-kv (kv-map->kv-set ext-reads))]
+                                          (if (seq ext-writes)
+                                            (let [observed-w-ops (->> observed-kv
+                                                                      (reduce (fn [acc [k v]]
+                                                                                (into acc (get-in ext-write-index [k v])))
+                                                                              #{}))
+                                                  ; don't link to self
+                                                  observed-w-ops (disj observed-w-ops op)]
+                                              (if (seq observed-w-ops)
+                                                [(g/link-all-to g observed-w-ops op ww) observed-kv']
+                                                [g observed-kv']))
+                                            [g observed-kv'])))
+                                      [(b/linear (g/op-digraph))
+                                       #{}]))]
+    (b/forked g)))
+
+(defn ww-wfr-graph
+  "Given a history, creates a w->w transaction graph with writes follows reads ordering for each process.
+   TODO: account for :info writes"
+  [history]
+  (let [history         (h/oks history)
+        processes       (h/task history :processes []
+                                (->> history
+                                     (h/map :process)
+                                     distinct))
+        ext-read-index  (h/task history :ext-read-index []
+                                (ext-index ext-reads  history))
+        ext-write-index (h/task history :ext-write-index []
+                                (ext-index ext-writes history))
+        graph           (->> @processes
+                             (map (partial ww-wfr-order history @ext-write-index))
+                             (apply g/digraph-union))]
+    {:graph     graph
+     :explainer (WWWFRExplainer. @ext-read-index)}))
+
 (defn graph
   "Given options and a history, computes a {:graph g, :explainer e} map of
    dependencies. We combine several pieces:
 
      - process graph
    
-     - w->r graph, a write of v happen before all reads of v ordering
+     - w->r graph, a write of v happens before all reads of v ordering
    
      - r->w graph, read your writes within a process ordering
+   
+     - w->w graph, writes follow reads ordering
 
      - additional graphs, as given by (:additional-graphs opts).
-
-    3. ww and rw dependencies, as derived from a version order, which we derive
-       on the basis of...
-
-       a. nil precedes *every* read value
-
-       b. If either :linearizable-keys? or :sequential-keys? is passed, we
-          assume individual keys are linearizable/sequentially consistent, and
-          use that to infer (partial) version graphs from either the realtime
-          or process order, respectively.
 
    The graph we return combines all this information."
   [opts history]
   (let [; Build our combined analyzers
         analyzers (into [elle/process-graph
                          wr-graph
-                         rw-ryw-graph]
+                         rw-ryw-graph
+                         ww-wfr-graph]
                         (ct/additional-graphs opts))
         analyzer (apply elle/combine analyzers)]
     ; And go!

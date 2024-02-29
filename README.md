@@ -36,7 +36,7 @@ Adds strong-session-consistent-view:
 ### Adya Anomalies Expressed
 
 #### write -> read
-- `[:G1c-process]`
+- `[:G0, :G1c-process]`
   ```clj
   [{:process 0, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 1}
    {:process 0, :type :ok, :f :txn, :value [[:w :y 0]], :index 3}
@@ -44,6 +44,7 @@ Adds strong-session-consistent-view:
    {:process 2, :type :ok, :f :txn, :value [[:w :x 0]], :index 7}]
   ```
   ```txt
+  G1c-process
   Let:
     T1 = {:index 5, :type :ok, :process 2, :f :txn, :value [[:r :y #{0}]]}
     T2 = {:index 7, :type :ok, :process 2, :f :txn, :value [[:w :x 0]]}
@@ -67,6 +68,7 @@ Adds strong-session-consistent-view:
      {:process 0, :type :ok, :f :txn, :value [[:r :x nil]], :index 3}]
     ```
     ```txt
+    G-single-item-process
     Let:
       T1 = {:index 3, :time -1, :type :ok, :process 0, :f :txn, :value [[:r :x nil]]}
       T2 = {:index 1, :time -1, :type :ok, :process 0, :f :txn, :value [[:w :x 0]]}
@@ -79,6 +81,29 @@ Adds strong-session-consistent-view:
 
 ----
 
+#### Writes Follow Reads
+  - `[:G0 :G-single-item :G-single-item-process]`
+    ```clj
+    [{:process 0, :type :ok, :f :txn, :value [[:r :y #{1}]], :index 1}
+     {:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 3}
+     {:process 1, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 5}
+     {:process 1, :type :ok, :f :txn, :value [[:w :x 1]], :index 7}
+     {:process 1, :type :ok, :f :txn, :value [[:w :y 1]], :index 9}]
+    ```
+    ```txt
+    G0
+    Let:
+      T1 = {:index 9, :time -1, :type :ok, :process 1, :f :txn, :value [[:w :y 1]]}
+      T2 = {:index 3, :time -1, :type :ok, :process 0, :f :txn, :value [[:w :x 0]]}
+
+    Then:
+      - T1 < T2, because in process 0, T1's write of [:y 1] was observed before T2.
+      - However, T2 < T1, because in process 1, T2's write of [:x 0] was observed before T1: a contradiction!
+      ```
+      ![writes follow reads G0](doc/wfr-G0.svg)
+
+----
+
 #### Monotonic Writes
   - `[:G-single-item-process :cyclic-versions]`
     ```clj
@@ -88,13 +113,6 @@ Adds strong-session-consistent-view:
      {:process 1, :type :ok, :f :txn, :value [[:r :x 0]], :index 7, :time -1}]
     ```
 
-#### Writes Follow Reads
-  - `[:G-single-item :G-single-item-process]`
-    ```clj
-    [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1, :time -1}
-     {:process 1, :type :ok, :f :txn, :value [[:r :x 0] [:w :y 1]], :index 3, :time -1}
-     {:process 2, :type :ok, :f :txn, :value [[:r :y 1] [:r :x nil]], :index 5, :time -1}]
-    ```
 
 #### Causal
   - `[:G-single-item]`

@@ -36,6 +36,14 @@
                        {:process 0, :type :ok, :f :txn, :value [[:r :x nil]], :index 3, :time -1}]
                       h/history))
 
+(def invalid-wfr (->> [{:process 0, :type :ok, :f :txn, :value [[:r :y #{1}]], :index 1}
+                       {:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 3}
+                       {:process 1, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 5}
+                       {:process 1, :type :ok, :f :txn, :value [[:w :x 1]], :index 7}
+                       {:process 1, :type :ok, :f :txn, :value [[:w :y 1]], :index 9}]
+                      h/history))
+
+
 (deftest causal-consistency
   (testing "causal-consistency"
     (is (= {:valid? true}
@@ -43,7 +51,7 @@
 
 (deftest wr
   (testing "w->r"
-    (is (= {:valid? false :anomaly-types [:G1c-process]}
+    (is (= {:valid? false :anomaly-types [:G0]}
            (-> (cc/check workload/causal-opts invalid-wr)
                (select-keys [:valid? :anomaly-types]))))))
 
@@ -53,6 +61,12 @@
            (cc/check workload/causal-opts valid-ryw)))
     (is (= {:valid? false :anomaly-types [:G-single-item-process]}
            (-> (cc/check workload/causal-opts invalid-ryw)
+               (select-keys [:valid? :anomaly-types]))))))
+
+(deftest wfr
+  (testing "wfr"
+    (is (= {:valid? false :anomaly-types [:G0]}
+           (-> (cc/check workload/causal-opts invalid-wfr)
                (select-keys [:valid? :anomaly-types]))))))
 
 
