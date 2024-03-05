@@ -99,332 +99,287 @@
                         :writer   (h/get-index history writer-index)})))))
          seq)))
 
-(defn r-mop->kv-set
-  [[f k v :as _r-mop]]
-  (assert (= :r f))
-  (->> v
-       (reduce (fn [acc v']
-                 (conj acc [k v']))
+(defn r-kvs
+  "Given a transaction, returns #{[k v] ...} of all [k v] read by the transaction.
+   This is includes self-writes that were read.
+   TODO: does not include [k nil] reads. How to accommodate?"
+  [txn]
+  (->> txn
+       (reduce (fn [r-kvs [f k v :as _mop]]
+                 (case f
+                   :r (->> v
+                           (map (fn [v']
+                                  [k v']))
+                           (into r-kvs))
+                   :w r-kvs))
                #{})))
 
-(defn kv-col->kv-map
-  [kv-col]
-  (->> kv-col
-       (reduce (fn [acc [k v]]
-                 (update acc k (fn [old]
-                                 (if (nil? old)
-                                   #{v}
-                                   (conj old v)))))
-               {})))
-
-(defn kv-map->kv-set
-  [kv-map]
-  (->> kv-map
-       (mapcat (fn [[k vs]]
-                 (->> vs
-                      (map (fn [v]
-                             [k v])))))
-       (into #{})))
-
-(defn ext-reads
-  "Given a transaction, returns a map of {k #{v ...}} for its external reads:
-  values that transaction observed which it did not write itself."
+(defn w-kvs
+  "Given a transaction, returns #{[k v] ...} of all [k v] written by the transaction.
+   This includes multiple writes to the same k with a different v."
   [txn]
-  (loop [ext      #{}
-         ignore?  #{}
-         txn      txn]
-    (if (seq txn)
-      (let [[f k v :as mop] (first txn)]
-        (recur (case f
-                 :r (set/union ext (set/difference (r-mop->kv-set mop) ignore?))
-                 :w ext)
-               (case f
-                 :r ignore?
-                 :w (conj ignore? [k v]))
-               (next txn)))
-      (kv-col->kv-map ext))))
+  (->> txn
+       (reduce (fn [w-kvs [f k v :as _mop]]
+                 (case f
+                   :w (conj w-kvs [k v])
+                   :r w-kvs))
+               #{})))
 
-(defn ext-writes
-  "Given a transaction, returns the map of {k #{v ...}} for its external writes."
-  [txn]
-  (loop [ext #{}
-         txn txn]
-    (if (seq txn)
-      (let [[f k v] (first txn)]
-        (recur (case f
-                 :r ext
-                 :w (conj ext [k v]))
-               (next txn)))
-      (kv-col->kv-map ext))))
+(defn kvs-diff
+  "Given kvs and kvs', two #{[k v] ...}, returns
+   kvs with:
+     - any kv in kvs' removed
+     - any kv with k not in kvs' removed"
+  [kvs kvs']
+  (let [ks' (->> kvs'
+                 (reduce (fn [ks' [k' _v']]
+                           (conj ks' k'))
+                         #{}))
+        kvs (set/difference kvs kvs')
+        kvs (->> kvs
+                 (reduce (fn [kvs [k _v :as kv]]
+                           (if (contains? ks' k)
+                             kvs
+                             (disj kvs kv)))
+                         kvs))]
+    kvs))
 
-(defn ext-index
-  "Given a function that takes a txn and returns a map of external keys to
-  written values for that txn, and a history, computes a map like {k {v [op1,
-  op2, ...]}}, where k is a key, v is a particular value for that key, and op1,
-  op2, ... are operations which externally wrote k=v.
-
-  Right now we index only :ok ops. Later we should do :infos too, but we need
-  to think carefully about how to interpret the meaning of their nil reads.
-
-  TODO: we fail to index external writes of type :info. That's bad."
-  [ext-fn history]
+(defn r-index
+  "Given a history, returns a read index:
+   ```
+   {[k v] {process [op ...]} ;; ops are in process order
+   ```
+   for all :ok transactions."
+  [history]
   (->> history
        h/oks
-       (reduce (fn [idx op]
-                 (reduce (fn [idx [k v]]
-                           (reduce (fn [idx v']
-                                     (update-in idx [k v'] conj op))
-                                   idx
-                                   v))
-                         idx
-                         (ext-fn (:value op))))
+       (reduce (fn [index {:keys [value process] :as op}]
+                 ; add every [k v] that was read to the map
+                 (->> (r-kvs value)
+                      (reduce (fn [index kv]
+                                (update-in index [kv process] (fn [old]
+                                                                (if (nil? old)
+                                                                  [op]
+                                                                  (conj old op)))))
+                              index)))
+               {})))
+
+(defn w-index
+  "Given a history, returns a write index:
+   ```
+   {[k v] op} ;; writes are unique
+   ```
+   for all :ok transactions."
+  [history]
+  (->> history
+       h/oks
+       (reduce (fn [index {:keys [value] :as op}]
+                 ; add every [k v] that was written to the map
+                 (->> (w-kvs value)
+                      (reduce (fn [index kv]
+                                (assert (nil? (get index kv)) (str kv " for " op " is already in the index!"))
+                                (assoc index kv op))
+                              index)))
                {})))
 
 (defrecord WRExplainer []
   elle/DataExplainer
   (explain-pair-data [_ a b]
-    (let [writes (ext-writes (:value a))
-          reads  (ext-reads  (:value b))]
-      ; v's are #{}
-      (reduce (fn [_ [wk wv]]
-                (when (and (contains? reads wk)
-                           (seq (set/intersection wv (get reads wk))))
-                  ; there may be more than one write that was read, first is fine
-                  ; similar with reads, first is also fine
-                  (let [v'    (first (set/intersection wv (get reads wk)))
-                        r-mop (->> (:value b)
-                                   (reduce (fn [_ [f rk rv :as mop]]
-                                             (case f
-                                               :r (if (and (= rk wk)
-                                                           (contains? rv v'))
-                                                    (reduced mop)
-                                                    nil)
-                                               :w nil))))]
-                    (reduced
-                     {:type  :wr
-                      :key   wk
-                      :value v'
-                      :a-mop-index (index-of (:value a) [:w wk v'])
-                      :b-mop-index (index-of (:value b) r-mop)}))))
-              nil
-              writes)))
+    (let [a-w-kvs (w-kvs (:value a))
+          b-r-kvs (r-kvs (:value b))
+          ; first shared kv is fine
+          [k v]   (->> (set/intersection a-w-kvs b-r-kvs)
+                       first)]
+      (when (and k v)
+        (let [; 1st read mop of kv is fine
+              r-mop (->> (:value b)
+                         (reduce (fn [_ [mf mk mv _as mop]]
+                                   (if (and (= mf :r)
+                                            (= mk k)
+                                            (contains? mv v))
+                                     (reduced mop)
+                                     nil))))]
+          {:type  :wr
+           :key   k
+           :value v
+           :a-mop-index (index-of (:value a) [:w k v])
+           :b-mop-index (index-of (:value b) r-mop)}))))
 
-  (render-explanation [_ {:keys [key value]} a-name b-name]
-    (str a-name " wrote " (pr-str key) " = " (pr-str value)
-         ", which was read by " b-name)))
+  (render-explanation [_ {:keys [k v]} a-name b-name]
+    (str a-name " wrote [" (pr-str k) " " (pr-str v) "]"
+         ", which was read by " b-name " (w->r)")))
 
 (defn wr-graph
-  "Given a history where ops are txns (e.g. [[:r :x 2] [:w :y 3]]), constructs
-  an order over txns based on the external writes and reads of key k: any txn
-  that reads value v must come after the txn that wrote v."
-  [history]
-  (let [ext-writes (ext-index ext-writes history)
-        ext-reads  (ext-index ext-reads  history)]
-    ; Take all reads and relate them to prior writes.
-    {:graph
-     (b/forked
-      (reduce (fn [graph [k values->reads]]
-                 ; OK, we've got a map of values to ops that read those values
-                (reduce (fn [graph [v reads]]
-                           ; Find ops that set k=v
-                          (let [writes (-> ext-writes (get k) (get v))]
-                            (case (count writes)
-                               ; Huh. We read a value that came out of nowhere.
-                               ; This is probably an initial state. Later on
-                               ; we could do something interesting here, like
-                               ; enforcing that there's only one of these
-                               ; values and they have to precede all writes.
-                              0 graph
-
-                               ; OK, in this case, we've got exactly one
-                               ; txn that wrote this value, which is good!
-                               ; We can generate dependency edges here!
-                              1 (g/link-to-all graph (first writes) reads wr)
-
-                               ; But if there's more than one, we can't do this
-                               ; sort of cycle analysis because there are
-                               ; multiple alternative orders. Technically, it'd
-                               ; be legal to ignore these, but I think it's
-                               ; likely the case that users will want a big
-                               ; flashing warning if they mess this up.
-                              (assert (< (count writes) 2)
-                                      (throw (IllegalArgumentException.
-                                              (str "Key " (pr-str k)
-                                                   " had value " (pr-str v)
-                                                   " written by more than one op: "
-                                                   (pr-str writes))))))))
-                        graph
-                        values->reads))
-              (b/linear (g/op-digraph))
-              ext-reads))
+  "Given indexes for a history, and an unused history to match the calling APIs,
+   creates a w->r edge for every write of [k v] to the first read of [k v] in a process.
+  
+   Only create an edge to the first read of [k v] in a process as the process order graph
+   will transitively order any successive reads of [k v] in that process."
+  [{:keys [read-index write-index] :as _opts} _history]
+  (let [g (->> write-index
+               (reduce (fn [g [kv write-op]]
+                         (let [read-ops (->> (get kv read-index)
+                                             (map (fn [[_process ops]]
+                                                    (first ops)))
+                                             (into #{}))
+                               ; don't self link
+                               read-ops (disj read-ops write-op)]
+                           (if (seq read-ops)
+                             (g/link-to-all write-op read-ops wr)
+                             g)))
+                       (b/linear (g/op-digraph))))]
+    {:graph     (b/forked g)
      :explainer (WRExplainer.)}))
 
-(defrecord RWRYWExplainer []
+(defrecord RYWExplainer []
   elle/DataExplainer
   (explain-pair-data [_ a b]
-    (let [a-process (:process a)
-          b-process (:process b)
-          ; nil reads count
-          a-reads   (->> (:value a)
-                         (reduce (fn [acc [f k v :as _mop]]
-                                   (case f
-                                     :r (assoc acc k v)
-                                     :w acc))
-                                 {}))
-          b-writes  (ext-writes (:value b))
-          common-k  (set/intersection (set (keys a-reads)) (set (keys b-writes)))]
+    (let [a-process  (:process a)
+          b-process  (:process b)
+          a-reads    (r-kvs (:value a))
+          b-writes   (w-kvs (:value b))
+          [k v]      (first (set/difference b-writes a-reads))]
       (when (and (= a-process b-process)
-                 (seq a-reads)
-                 (seq b-writes)
-                 (seq common-k))
-        (->> common-k
-             (reduce (fn [_ k]
-                       (let [missing (set/difference (get b-writes k) (get a-reads k))
-                             v       (first missing) ; any v will do
-                             a-mop (->> (:value a)
-                                        (reduce (fn [_ [mf mk mv :as mop]]
-                                                  (when (and (= :r mf)
-                                                             (= k mk)
-                                                             (not (contains? mv v)))
-                                                    (reduced mop)))
-                                                nil))]
-                         (when (seq missing)
-                           (reduced {:type        :rw
-                                     :a-mop-index (index-of (:value a) a-mop)
-                                     :b-mop-index (index-of (:value b) [:w k v])
-                                     :process     a-process
-                                     :k           k
-                                     :v           v}))))
-                     nil)))))
+                 k v)
+        (let [; first mop that didn't read k v
+              read-mop (->> (:value a)
+                            (reduce (fn [_ [mf mk mv :as mop]]
+                                      (case mf
+                                        :r (if (and (= mk k)
+                                                    (not (contains? mv v)))
+                                             (reduced mop)
+                                             nil)
+                                        :w nil))))]
+          {:type        :rw
+           :a-mop-index (index-of (:value a) read-mop)
+           :b-mop-index (index-of (:value b) [:w k v])
+           :process     a-process
+           :k           k
+           :v           v}))))
 
   (render-explanation [_ {:keys [process k v]} a-name b-name]
-    (str "in process " process ", " a-name "'s read of key " k " did not observe " b-name "'s write of " v)))
+    (str " process " process ", " a-name "'s read of key " k " did not observe " b-name "'s write of " v " (ryw)")))
 
-(defn rw-ryw-order
+(defn ryw-order
   "Given a history and a process, create a r->w transaction graph with read your writes ordering."
-  [history process]
-  (let [history         (->> history
-                             (h/filter (comp #{process} :process)))
-        ext-write-index (ext-index ext-writes history)
-        all-w's         (->> ext-write-index
-                             (mapcat (fn [[k v->ops]]
-                                       (map (fn [[v _ops]]
-                                              [k v])
-                                            v->ops)))
-                             kv-col->kv-map)]
+  [write-index history process]
+  (let [history     (->> history
+                         (h/filter (comp #{process} :process)))
+        write-index (->> write-index
+                         (filter (fn [[_kv op]]
+                                   (= process (:process op))))
+                         (into {}))
+        all-w-kvs   (->> write-index
+                         keys
+                         (into #{}))]
     (->> history
-         ct/op-mops
-         (reduce (fn [g [op [f k v :as _mop]]]
-                   (case f
-                     :r (let [unread-w's (set/difference (get all-w's k) v)
-                              unread-ops (->> unread-w's
-                                              (reduce (fn [acc v]
-                                                        (->> [k v]
-                                                             (get-in ext-write-index)
-                                                             first
-                                                             (conj acc)))
-                                                      #{}))
-                              ; don't link to self
-                              unread-ops (disj unread-ops op)]
-                          (if (seq unread-ops)
-                            (g/link-to-all g op unread-ops rw)
-                            g))
-                     :w g))
+         (reduce (fn [g {:keys [value] :as op}]
+                   (let [r-kvs      (r-kvs value)
+                         unread-kvs (when (seq r-kvs)
+                                      (kvs-diff all-w-kvs r-kvs))
+                         ; first in process order op whose's writes were not read
+                         unread-op (->> unread-kvs
+                                        (map (partial get write-index))
+                                        ; don't link to self
+                                        (remove (partial = op))
+                                        (reduce (fn
+                                                  ([] nil)
+                                                  ([op op']
+                                                   (if (< (:index op) (:index op'))
+                                                     op
+                                                     op')))))]
+                     (if unread-op
+                       (g/link g op unread-op rw)
+                       g)))
                  (b/linear (g/op-digraph)))
          b/forked)))
 
-(defn rw-ryw-graph
-  "Given a history, creates a r->w transaction graph with read your writes ordering in each process.
-   TODO: account for :info writes"
-  [history]
-  (let [history   (h/oks history)
-        processes (->> history
+(defn ryw-graph
+  "Given a history, creates a r->w transaction graph with read your writes ordering in each process."
+  [{:keys [write-index] :as _opts} history]
+  (let [processes (->> history
                        (h/map :process)
                        distinct)
         graph     (->> processes
-                       (map (partial rw-ryw-order history))
+                       (map (partial ryw-order write-index history))
                        (apply g/digraph-union))]
     {:graph     graph
-     :explainer (RWRYWExplainer.)}))
+     :explainer (RYWExplainer.)}))
 
-(defrecord WWWFRExplainer [ext-read-index]
+(defrecord WFRExplainer [read-index]
   elle/DataExplainer
   (explain-pair-data [_ a b]
-    (let [a-writes  (ext-writes (:value a))
-          b-writes  (ext-writes (:value b))
+    (let [a-writes  (w-kvs (:value a))
+          b-writes  (w-kvs (:value b))
           b-index   (:index b)
           b-process (:process b)]
       (when (and (seq a-writes)
                  (seq b-writes))
         ; did b already read any of a's writes?
-        (let [b-1st-w (->> (:value b)
-                           (reduce (fn [_ [f _k _v :as mop]]
-                                     (when (= :w f)
-                                       (reduced mop)))
-                                   nil))
-              [k v] (->> a-writes
-                         kv-map->kv-set
-                         (reduce (fn [_ [k v]]
-                                   (when (seq (->> [k v]
-                                                   (get-in ext-read-index)
-                                                   (filter #(-> % :process (= b-process)))
-                                                   (filter #(-> % :index   (< b-index)))))
-                                     (reduced [k v])))
+        ; if so, first found is fine
+        (let [[k v] (->> a-writes
+                         (reduce (fn [_ kv]
+                                   (let [b-read (->> (get-in read-index [kv b-process])
+                                                     first)]
+                                     (when (and b-read
+                                                (< (:index b-read) b-index))
+                                       (reduced kv))))
                                  nil))]
           (when (and k v)
-            {:type        :ww
-             :a-mop-index (index-of (:value a) [:w k v])
-             :b-mop-index (index-of (:value b) b-1st-w)
-             :process     b-process
-             :k           k
-             :v           v})))))
+            (let [; any write is fine
+                  [bk bv] (first b-writes)]
+              {:type        :ww
+               :a-mop-index (index-of (:value a) [:w k v])
+               :b-mop-index (index-of (:value b) [:w bk bv])
+               :process     b-process
+               :k           k
+               :v           v}))))))
 
   (render-explanation [_ {:keys [process k v]} a-name b-name]
-    (str "in process " process ", " a-name "'s write of " [k v] " was observed before " b-name)))
+    (str a-name "'s write of " [k v] " was observed by process " process " before it executed " b-name " (wfr)")))
 
-(defn ww-wfr-order
-  "Given a history and a process, create a w->w transaction graph with writes follow reads ordering."
-  [history ext-write-index process]
-  (let [history         (->> history
-                             (h/filter (comp #{process} :process)))
-        [g _observed-kv] (->> history
-                              (reduce (fn [[g observed-kv] {:keys [process value] :as op}]
-                                        (let [ext-reads    (ext-reads  value)
-                                              ext-writes   (ext-writes value)
-                                              observed-kv' (set/union observed-kv (kv-map->kv-set ext-reads))]
-                                          (if (seq ext-writes)
-                                            (let [observed-w-ops (->> observed-kv
-                                                                      (reduce (fn [acc [k v]]
-                                                                                (into acc (get-in ext-write-index [k v])))
-                                                                              #{}))
-                                                  ; don't link to self
-                                                  observed-w-ops (disj observed-w-ops op)]
-                                              (if (seq observed-w-ops)
-                                                [(g/link-all-to g observed-w-ops op ww) observed-kv']
-                                                [g observed-kv']))
-                                            [g observed-kv'])))
-                                      [(b/linear (g/op-digraph))
-                                       #{}]))]
+(defn wfr-order
+  "Given a write-index, history and a process, create a w->w transaction graph with writes follow reads ordering.
+   
+   Only link to other process' happened before writes once.
+   Process order transitively includes succeeding writes for the process."
+  [{:keys [write-index] :as _opts} history process]
+  (let [history (->> history
+                     (h/filter (comp #{process} :process)))
+        [g _observing _linked]
+        (->> history
+             (reduce (fn [[g observing linked] {:keys [value] :as op}]
+                       (let [r-kvs        (r-kvs value)
+                             w-kvs        (w-kvs value)
+                             before-w-ops (when (seq w-kvs)
+                                            (->> observing
+                                                 (map (partial get write-index))
+                                                 ;; TODO: will be nil if wasn't in write-index
+                                                 ;;       confirm caught in strong convergence
+                                                 ;;       report as :anomalies
+                                                 (remove nil?)
+                                                 (into #{})))
+                             ; don't link to self
+                             before-w-ops (disj before-w-ops op)]
+                         (if (seq before-w-ops)
+                           [(g/link-all-to g before-w-ops op ww)
+                            r-kvs
+                            (set/union linked observing)]
+                           [g
+                            (set/union observing r-kvs)
+                            linked])))
+                     [(b/linear (g/op-digraph)) #{} #{}]))]
     (b/forked g)))
 
-(defn ww-wfr-graph
-  "Given a history, creates a w->w transaction graph with writes follows reads ordering for each process.
-   TODO: account for :info writes"
-  [history]
-  (let [history         (h/oks history)
-        processes       (h/task history :processes []
-                                (->> history
-                                     (h/map :process)
-                                     distinct))
-        ext-read-index  (h/task history :ext-read-index []
-                                (ext-index ext-reads  history))
-        ext-write-index (h/task history :ext-write-index []
-                                (ext-index ext-writes history))
-        graph           (->> @processes
-                             (map (partial ww-wfr-order history @ext-write-index))
-                             (apply g/digraph-union))]
+(defn wfr-graph
+  "Given processes, read/write index, and a history,
+   creates a w->w transaction graph with writes follows reads ordering for each process."
+  [{:keys [processes read-index write-index] :as _opts} history]
+  (let [graph (->> processes
+                   (map (partial wfr-order {:write-index write-index} history))
+                   (apply g/digraph-union))]
     {:graph     graph
-     :explainer (WWWFRExplainer. @ext-read-index)}))
+     :explainer (WFRExplainer. read-index)}))
 
 (defn graph
   "Given options and a history, computes a {:graph g, :explainer e} map of
@@ -440,13 +395,25 @@
 
      - additional graphs, as given by (:additional-graphs opts).
 
-   The graph we return combines all this information."
+   The graph we return combines all this information.
+   
+   TODO: account for :info ops."
   [opts history]
-  (let [; Build our combined analyzers
+  (let [history     (->> history
+                         h/oks)
+        processes   (h/task history :processes []
+                            (->> history
+                                 (h/map :process)
+                                 distinct))
+        read-index  (h/task history :read-index []
+                            (r-index history))
+        write-index (h/task history :write-index []
+                            (w-index history))
+        ; Build our combined analyzers
         analyzers (into [elle/process-graph
-                         wr-graph
-                         rw-ryw-graph
-                         ww-wfr-graph]
+                         (partial wr-graph  {:read-index @read-index :write-index @write-index})
+                         (partial ryw-graph {:write-index @write-index})
+                         (partial wfr-graph {:processes @processes :read-index @read-index :write-index @write-index})]
                         (ct/additional-graphs opts))
         analyzer (apply elle/combine analyzers)]
     ; And go!

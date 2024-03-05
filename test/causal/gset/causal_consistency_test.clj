@@ -6,24 +6,23 @@
             [jepsen.history :as h]))
 
 (def valid-causal
-  (->> [{:process 0, :type :invoke, :f :txn, :value [[:w :x 0]], :index 0, :time -1}
-        {:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1, :time -1}
-        {:process 1, :type :invoke, :f :txn, :value [[:w :y 0]], :index 2, :time -1}
+  (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1, :time -1}
         {:process 1, :type :ok, :f :txn, :value [[:w :y 0]], :index 3, :time -1}
-        {:process 2, :type :invoke, :f :txn, :value [[:r :x nil] [:r :y nil]], :index 4, :time -1}
         {:process 2, :type :ok, :f :txn, :value [[:r :x #{0}] [:r :y nil]], :index 5, :time -1}
-        {:process 2, :type :invoke, :f :txn, :value [[:r :x nil] [:r :y nil]], :index 6, :time -1}
         {:process 2, :type :ok, :f :txn, :value [[:r :x #{0}] [:r :y #{0}]], :index 7, :time -1}]
        h/history))
 
-(def invalid-wr
-  (->> [{:process 0, :type :invoke, :f :txn, :value [[:r :x nil]], :index 0, :time -1}
-        {:process 0, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 1, :time -1}
-        {:process 0, :type :invoke, :f :txn, :value [[:w :y 0]], :index 2, :time -1}
+(def valid-wr
+  (->> [{:process 0, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 1, :time -1}
         {:process 0, :type :ok, :f :txn, :value [[:w :y 0]], :index 3, :time -1}
-        {:process 2, :type :invoke, :f :txn, :value [[:r :y nil]], :index 4, :time -1}
+        {:process 2, :type :ok, :f :txn, :value [[:w :x 0]], :index 5, :time -1}
+        {:process 2, :type :ok, :f :txn, :value [[:r :y #{0}]], :index 7, :time -1}]
+       h/history))
+
+(def invalid-wr
+  (->> [{:process 0, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 1, :time -1}
+        {:process 0, :type :ok, :f :txn, :value [[:w :y 0]], :index 3, :time -1}
         {:process 2, :type :ok, :f :txn, :value [[:r :y #{0}]], :index 5, :time -1}
-        {:process 2, :type :invoke, :f :txn, :value [[:w :x 0]], :index 6, :time -1}
         {:process 2, :type :ok, :f :txn, :value [[:w :x 0]], :index 7, :time -1}]
        h/history))
 
@@ -32,9 +31,23 @@
                      {:process 0, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 5, :time -1}]
                     h/history))
 
+; TODO: doesn't order nill read before first write
 (def invalid-ryw (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]],   :index 1, :time -1}
                        {:process 0, :type :ok, :f :txn, :value [[:r :x nil]], :index 3, :time -1}]
                       h/history))
+
+(def invalid-ryw-not-nil (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]],   :index 1, :time -1}
+                               {:process 0, :type :ok, :f :txn, :value [[:w :x 1]],   :index 3, :time -1}
+                               {:process 0, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 5, :time -1}]
+                              h/history))
+
+(def valid-wfr (->> [{:process 0, :type :ok, :f :txn, :value [[:w :y 1]], :index 1}
+                     {:process 0, :type :ok, :f :txn, :value [[:r :y #{1}]], :index 3}
+                     {:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 5}
+                     {:process 1, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 7}
+                     {:process 1, :type :ok, :f :txn, :value [[:w :x 1]], :index 9}
+                     {:process 1, :type :ok, :f :txn, :value [[:r :y #{1}]], :index 11}]
+                    h/history))
 
 (def invalid-wfr (->> [{:process 0, :type :ok, :f :txn, :value [[:r :y #{1}]], :index 1}
                        {:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 3}
@@ -43,6 +56,18 @@
                        {:process 1, :type :ok, :f :txn, :value [[:w :y 1]], :index 9}]
                       h/history))
 
+(def invalid-wfr-mop (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1}
+                           {:process 1, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 3}
+                           {:process 1, :type :ok, :f :txn, :value [[:w :y 1]], :index 5}
+                           {:process 2, :type :ok, :f :txn, :value [[:r :y #{1}]], :index 7}
+                           {:process 2, :type :ok, :f :txn, :value [[:r :x nil]], :index 9}]
+                          h/history))
+
+(def invalid-wfr-mops (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1}
+                            {:process 1, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 3}
+                            {:process 1, :type :ok, :f :txn, :value [[:w :y 1]], :index 5}
+                            {:process 2, :type :ok, :f :txn, :value [[:r :y #{1}] [:r :x nil]], :index 7}]
+                           h/history))
 
 (deftest causal-consistency
   (testing "causal-consistency"
@@ -51,6 +76,8 @@
 
 (deftest wr
   (testing "w->r"
+    (is (= {:valid? true}
+           (cc/check workload/causal-opts valid-wr)))
     (is (= {:valid? false :anomaly-types [:G0]}
            (-> (cc/check workload/causal-opts invalid-wr)
                (select-keys [:valid? :anomaly-types]))))))
@@ -61,12 +88,26 @@
            (cc/check workload/causal-opts valid-ryw)))
     (is (= {:valid? false :anomaly-types [:G-single-item-process]}
            (-> (cc/check workload/causal-opts invalid-ryw)
+               (select-keys [:valid? :anomaly-types]))))
+    ; TODO: doesn't order nill read before first write
+    (is (= {:valid? false :anomaly-types [:G-single-item-process]}
+           (-> (cc/check workload/causal-opts invalid-ryw-not-nil)
                (select-keys [:valid? :anomaly-types]))))))
 
 (deftest wfr
   (testing "wfr"
-    (is (= {:valid? false :anomaly-types [:G0]}
+    (is (= {:valid? true}
+           (cc/check workload/causal-opts valid-wfr)))
+    (is (= {:valid? false :anomaly-types [:G0-process]}
            (-> (cc/check workload/causal-opts invalid-wfr)
+               (select-keys [:valid? :anomaly-types]))))
+    ;; TODO: wfr version order should fix
+    (is (= {:valid? false :anomaly-types [:G0-process]}
+           (-> (cc/check workload/causal-opts invalid-wfr-mop)
+               (select-keys [:valid? :anomaly-types]))))
+    ;; TODO: wfr version order should fix
+    (is (= {:valid? false :anomaly-types [:G0-process]}
+           (-> (cc/check workload/causal-opts invalid-wfr-mops)
                (select-keys [:valid? :anomaly-types]))))))
 
 
