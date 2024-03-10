@@ -99,6 +99,31 @@
                         :writer   (h/get-index history writer-index)})))))
          seq)))
 
+(defn r-kvm
+  "Given a transaction, returns a
+   {k #{vs}} of all read values.
+   TODO: does not include nil reads."
+  [txn]
+  (->> txn
+       (reduce (fn [kvm [f k v]]
+                 (case f
+                   :r (if (seq v)
+                        (update kvm k set/union v)
+                        kvm)
+                   :w kvm))
+               {})))
+
+(defn w-kvm
+  "Given a transaction, returns a
+   {k #{vs}} of all write values."
+  [txn]
+  (->> txn
+       (reduce (fn [kvm [f k v]]
+                 (case f
+                   :w (update kvm k set/union #{v})
+                   :r kvm))
+               {})))
+
 (defn r-kvs
   "Given a transaction, returns #{[k v] ...} of all [k v] read by the transaction.
    This is includes self-writes that were read.
@@ -296,11 +321,8 @@
 
 (defn ryw-graph
   "Given a history, creates a r->w transaction graph with read your writes ordering in each process."
-  [{:keys [write-index] :as _opts} history]
-  (let [processes (->> history
-                       (h/map :process)
-                       distinct)
-        graph     (->> processes
+  [{:keys [processes write-index] :as _opts} history]
+  (let [graph     (->> processes
                        (map (partial ryw-order write-index history))
                        (apply g/digraph-union))]
     {:graph     graph
@@ -381,6 +403,138 @@
     {:graph     graph
      :explainer (WFRExplainer. read-index)}))
 
+(defn causal-version-order
+  "Given a history and a process, create a [k v]->[k v]' graph with:
+     - [k nil] precedes the first [k v], write or read, observed for each k 
+     - monotonic writes
+     - writes follow reads
+     - monotonic reads
+   ordering for the process.
+   
+   Returns {process {:vg version-graph :anomalies anomalies}}."
+  [history process]
+  (let [history    (->> history
+                        (h/filter (comp #{process} :process)))
+        init-state {:vg (b/linear (g/digraph))}
+
+        ; [k nil] -> [k v]
+        {:keys [vg]}
+        (->> history
+             (reduce (fn [{:keys [vg observed-ks] :as state} {:keys [value] :as _op}]
+                       (let [w-kvm   (w-kvm value)
+                             r-kvm   (r-kvm value)
+                             txn-kvm (merge-with set/union w-kvm r-kvm)
+                             new-ks  (set/difference (set (keys txn-kvm)) observed-ks)
+                             new-kvs (->> new-ks
+                                          (mapcat (fn [k]
+                                                    (->> (get txn-kvm k)
+                                                         (map (fn [v] [k v]))))))
+                             nil-kvs (->> new-ks
+                                          (map (fn [k] [k nil])))]
+                         (if (seq new-ks)
+                           {:vg          (g/link-all-to-all vg nil-kvs new-kvs)
+                            :observed-ks (set/union observed-ks new-ks)}
+                           state)))
+                     (assoc init-state :observed-ks #{})))
+
+        ; monotonic writes
+        {:keys [vg]}
+        (->> history
+             (reduce (fn [{:keys [vg prev-writes] :as state} {:keys [value] :as _op}]
+                       (let [w-kvs (w-kvs value)]
+                         (if (seq w-kvs)
+                           {:vg          (g/link-all-to-all vg prev-writes w-kvs)
+                            :prev-writes w-kvs}
+                           state)))
+                     {:vg          vg
+                      :prev-writes #{}}))
+
+        ; writes follow reads
+        {:keys [vg]}
+        (->> history
+             (reduce (fn [{:keys [vg observed] :as _state} {:keys [value] :as _op}]
+                       (let [w-kvs (w-kvs value)
+                             r-kvs (r-kvs value)]
+                         (if (seq w-kvs)
+                           {:vg (g/link-all-to-all vg observed w-kvs)
+                            :observed r-kvs}
+                           {:vg vg
+                            :observed (set/union observed r-kvs)})))
+                     {:vg vg
+                      :observed #{}}))
+
+        ; monotonic reads
+        ; TODO: anomalies only, possible to interpret read values per process per process for new/missed, but expensive
+        {:keys [anomalies]}
+        (->> history
+             (reduce (fn [{:keys [prev-reads] :as state} {:keys [value index] :as _op}]
+                       (let [r-kvm (r-kvm value)]
+                         (if (seq r-kvm)
+                           (let [state
+                                 (->> r-kvm
+                                      (reduce-kv (fn [state r-k r-vs]
+                                                   (let [prev-vs   (get prev-reads r-k)
+                                                         missed-vs (set/difference prev-vs r-vs)]
+                                                     (if (seq missed-vs)
+                                                       (update state :anomalies (partial merge-with conj) {:monotonic-reads
+                                                                                                           {:process process
+                                                                                                            :index   index
+                                                                                                            :kv      [r-k r-vs]
+                                                                                                            :missing missed-vs}})
+                                                       state)))
+                                                 state))]
+                             (update state :prev-reads merge r-kvm))
+                           state)))
+                     {}))]
+    {process (merge
+              {:vg (b/forked vg)}
+              (when (seq anomalies)
+                {:anomalies anomalies}))}))
+
+(defn causal-versions
+  "Given a history,
+   returns a sequence of anomalies or nil by checking for causal ordering in each process."
+  [history]
+  (let [history   (->> history
+                       h/oks)
+        processes (h/task history :processes []
+                          (->> history
+                               (h/map :process)
+                               distinct))
+
+        ; build version graphs, may find anomalies
+        vgs       (->> @processes
+                       (map (partial causal-version-order history))
+                       (apply merge))
+        anomalies (->> vgs
+                       (map (fn [[_process {:keys [anomalies]}]] anomalies))
+                       (filter seq)
+                       (apply (partial merge-with conj)))
+
+        ; check for cycles in each process graph, if none try to combine graphs
+        {:keys [_sources _vgs sccs]}
+        (->> vgs
+             (reduce (fn [{:keys [sources vgs sccs] :as state} [process {:keys [vg]}]]
+                       (let [scc (g/strongly-connected-components vg)]
+                         (if (seq scc)
+                           (update-in state [:sccs :scc] conj {:processes #{process}
+                                                               :scc       scc})
+                           (let [sources' (conj sources process)
+                                 vgs'     (g/digraph-union vgs vg)
+                                 scc'     (g/strongly-connected-components vgs')]
+                             (if (seq scc')
+                               (update-in state [:sccs :scc] conj {:processes sources'
+                                                                   :scc       scc'})
+                               (assoc state
+                                      :sources sources'
+                                      :vgs     vgs'))))))
+                     {:sources #{}
+                      :vgs     (b/linear (g/digraph))}))
+
+        anomalies (concat anomalies sccs)]
+    (when (seq anomalies)
+      anomalies)))
+
 (defn graph
   "Given options and a history, computes a {:graph g, :explainer e} map of
    dependencies. We combine several pieces:
@@ -411,9 +565,9 @@
                             (w-index history))
         ; Build our combined analyzers
         analyzers (into [elle/process-graph
-                         (partial wr-graph  {:read-index @read-index :write-index @write-index})
-                         (partial ryw-graph {:write-index @write-index})
-                         (partial wfr-graph {:processes @processes :read-index @read-index :write-index @write-index})]
+                         (partial wr-graph     {:read-index @read-index :write-index @write-index})
+                         (partial ryw-graph    {:processes @processes :write-index @write-index})
+                         (partial wfr-graph    {:processes @processes :read-index @read-index :write-index @write-index})]
                         (ct/additional-graphs opts))
         analyzer (apply elle/combine analyzers)]
     ; And go!
@@ -462,14 +616,17 @@
   ([history]
    (check {} history))
   ([opts history]
-   (let [history      (h/client-ops history)
-         type-sanity  (h/task history :type-sanity []
-                              (ct/assert-type-sanity history))
-         cycles       (:anomalies (ct/cycles! opts (partial graph opts)
-                                              history))
-         _            @type-sanity ; Will throw if problems
+   (let [history         (h/client-ops history)
+         type-sanity     (h/task history :type-sanity []
+                                 (ct/assert-type-sanity history))
+         causal-versions (h/task history :causal-versions []
+                                 (causal-versions history))
+         cycles          (h/task history :cycles []
+                                 (:anomalies (ct/cycles! opts (partial graph opts) history)))
+         _               @type-sanity ; Will throw if problems
          ; Build up anomaly map
-         anomalies (cond-> cycles
+         anomalies (cond-> @cycles
+                     @causal-versions (assoc :cyclic-versions @causal-versions)
                     ;;  @internal     (assoc :internal @internal)
                     ;;  @g1a          (assoc :G1a @g1a)
                     ;;  @g1b          (assoc :G1b @g1b)

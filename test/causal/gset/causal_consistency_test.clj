@@ -69,6 +69,20 @@
                             {:process 2, :type :ok, :f :txn, :value [[:r :y #{1}] [:r :x nil]], :index 7}]
                            h/history))
 
+(def invalid-monotonic-reads (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1}
+                                   {:process 1, :type :ok, :f :txn, :value [[:w :x 1]], :index 3}
+                                   {:process 2, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 5}
+                                   {:process 2, :type :ok, :f :txn, :value [[:r :x #{0 1}]], :index 7}
+                                   {:process 2, :type :ok, :f :txn, :value [[:r :x #{1}]], :index 9}]
+                                  h/history))
+
+(def invalid-scc (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1}
+                       {:process 0, :type :ok, :f :txn, :value [[:w :x 1]], :index 3}
+                       {:process 0, :type :ok, :f :txn, :value [[:r :x #{1}]], :index 5}
+                       {:process 0, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 7}
+                       {:process 0, :type :ok, :f :txn, :value [[:r :x #{0 1}]], :index 9}]
+                      h/history))
+
 (deftest causal-consistency
   (testing "causal-consistency"
     (is (= {:valid? true}
@@ -78,7 +92,7 @@
   (testing "w->r"
     (is (= {:valid? true}
            (cc/check workload/causal-opts valid-wr)))
-    (is (= {:valid? false :anomaly-types [:G0]}
+    (is (= {:valid? false :anomaly-types [:G0 :cyclic-versions]}
            (-> (cc/check workload/causal-opts invalid-wr)
                (select-keys [:valid? :anomaly-types]))))))
 
@@ -98,7 +112,7 @@
   (testing "wfr"
     (is (= {:valid? true}
            (cc/check workload/causal-opts valid-wfr)))
-    (is (= {:valid? false :anomaly-types [:G0-process]}
+    (is (= {:valid? false :anomaly-types [:G0-process :cyclic-versions]}
            (-> (cc/check workload/causal-opts invalid-wfr)
                (select-keys [:valid? :anomaly-types]))))
     ;; TODO: wfr version order should fix
@@ -109,5 +123,16 @@
     (is (= {:valid? false :anomaly-types [:G0-process]}
            (-> (cc/check workload/causal-opts invalid-wfr-mops)
                (select-keys [:valid? :anomaly-types]))))))
+
+(deftest monotonic-reads
+  (testing "monotonic-reads"
+    (is (= {:valid? false :anomaly-types [:cyclic-versions]}
+           (-> (cc/check workload/causal-opts invalid-monotonic-reads)
+               (select-keys [:valid? :anomaly-types]))))))
+
+(deftest cyclic-versions
+  (testing "cyclic-versions"
+    (is (= '([:monotonic-reads {:process 0, :index 7, :kv [:x #{0}], :missing #{1}}])
+           (cc/causal-versions invalid-scc)))))
 
 
