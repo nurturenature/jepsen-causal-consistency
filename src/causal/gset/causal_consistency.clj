@@ -113,6 +113,20 @@
                    :w kvm))
                {})))
 
+(defn r-kvm'
+  "Given a transaction, returns a
+   {k #{vs}} of all read values.
+     - if multiple reads of k, last read is returned
+     - will return {k nil} for nil reads of k
+     - returns nil if no reads"
+  [txn]
+  (->> txn
+       (reduce (fn [kvsm [f k v]]
+                 (case f
+                   :r (assoc kvsm k v)
+                   :w kvsm))
+               nil)))
+
 (defn w-kvm
   "Given a transaction, returns a
    {k #{vs}} of all write values."
@@ -123,6 +137,18 @@
                    :w (update kvm k set/union #{v})
                    :r kvm))
                {})))
+
+(defn reduce-kvm
+  "Reduces over a kvm with (fn acc k v) for all ks/vs.
+   Avoids having to nest reduces."
+  [r-fn init-state kvm]
+  (->> kvm
+       (reduce-kv (fn [acc k vs]
+                    (->> vs
+                         (reduce (fn [acc v]
+                                   (r-fn acc k v))
+                                 acc)))
+                  init-state)))
 
 (defn r-kvs
   "Given a transaction, returns #{[k v] ...} of all [k v] read by the transaction.
@@ -189,6 +215,27 @@
                               index)))
                {})))
 
+(defn r-index'
+  "Given a history, returns a read index:
+   ```
+   {k {#{vs} {process [op ...]}}} ;; ops are in history order
+   ```
+   for all :ok transactions."
+  [history]
+  (->> history
+       h/oks
+       (reduce (fn [index {:keys [value process] :as op}]
+                 ; add every [k v] that was read to the map
+                 (->> value
+                      r-kvm'
+                      (reduce-kv (fn [index k vs]
+                                   (update-in index [k vs process] (fn [old]
+                                                                     (if (nil? old)
+                                                                       [op]
+                                                                       (conj old op)))))
+                                 index)))
+               nil)))
+
 (defn w-index
   "Given a history, returns a write index:
    ```
@@ -206,6 +253,26 @@
                                 (assoc index kv op))
                               index)))
                {})))
+
+(defn w-index'
+  "Given a history, returns a write index:
+   ```
+   {k {v op} ;; writes are unique
+   ```
+   for all :ok transactions."
+  [history]
+  (->> history
+       h/oks
+       (reduce (fn [index {:keys [value] :as op}]
+                 ; add every [k v] that was written to the map
+                 (->> value
+                      w-kvm
+                      (reduce-kvm (fn [index k v]
+                                    (assert (nil? (get-in index [k v]))
+                                            (str "[" k " " v "] for " op " is already in the write index!"))
+                                    (assoc-in index [k v] op))
+                                  index)))
+               nil)))
 
 (defrecord WRExplainer []
   elle/DataExplainer
@@ -240,7 +307,7 @@
   
    Only create an edge to the first read of [k v] in a process as the process order graph
    will transitively order any successive reads of [k v] in that process."
-  [{:keys [read-index write-index] :as _opts} _history]
+  [{:keys [read-index write-index] :as _indexes} _history]
   (let [g (->> write-index
                (reduce (fn [g [kv write-op]]
                          (let [read-ops (->> (get kv read-index)
@@ -413,14 +480,15 @@
    
    Returns {process {:vg version-graph :anomalies anomalies}}."
   [history process]
-  (let [history    (->> history
-                        (h/filter (comp #{process} :process)))
-        init-state {:vg (b/linear (g/digraph))}
+  (let [write-index (w-index history)  ; TODO: move all indexes to check and pass opts
+        history     (->> history
+                         (h/filter (comp #{process} :process)))
+        state       {:vg (b/linear (g/digraph))}
 
         ; [k nil] -> [k v]
-        {:keys [vg]}
+        state
         (->> history
-             (reduce (fn [{:keys [vg observed-ks] :as state} {:keys [value] :as _op}]
+             (reduce (fn [{:keys [observed-ks] :as state} {:keys [value] :as _op}]
                        (let [w-kvm   (w-kvm value)
                              r-kvm   (r-kvm value)
                              txn-kvm (merge-with set/union w-kvm r-kvm)
@@ -432,64 +500,97 @@
                              nil-kvs (->> new-ks
                                           (map (fn [k] [k nil])))]
                          (if (seq new-ks)
-                           {:vg          (g/link-all-to-all vg nil-kvs new-kvs)
-                            :observed-ks (set/union observed-ks new-ks)}
+                           (-> state
+                               (update :vg g/link-all-to-all nil-kvs new-kvs)
+                               (update :observed-ks set/union new-ks))
                            state)))
-                     (assoc init-state :observed-ks #{})))
+                     (assoc state :observed-ks #{})))
 
         ; monotonic writes
-        {:keys [vg]}
+        state
         (->> history
-             (reduce (fn [{:keys [vg prev-writes] :as state} {:keys [value] :as _op}]
+             (reduce (fn [{:keys [prev-writes] :as state} {:keys [value] :as _op}]
                        (let [w-kvs (w-kvs value)]
                          (if (seq w-kvs)
-                           {:vg          (g/link-all-to-all vg prev-writes w-kvs)
-                            :prev-writes w-kvs}
+                           (-> state
+                               (update :vg g/link-all-to-all prev-writes w-kvs)
+                               (assoc :prev-writes w-kvs))
                            state)))
-                     {:vg          vg
-                      :prev-writes #{}}))
+                     (assoc state :prev-writes #{})))
 
         ; writes follow reads
-        {:keys [vg]}
+        state
         (->> history
-             (reduce (fn [{:keys [vg observed] :as _state} {:keys [value] :as _op}]
+             (reduce (fn [{:keys [observed] :as _state} {:keys [value] :as _op}]
                        (let [w-kvs (w-kvs value)
                              r-kvs (r-kvs value)]
                          (if (seq w-kvs)
-                           {:vg (g/link-all-to-all vg observed w-kvs)
-                            :observed r-kvs}
-                           {:vg vg
-                            :observed (set/union observed r-kvs)})))
-                     {:vg vg
-                      :observed #{}}))
+                           (-> state
+                               (update :vg g/link-all-to-all observed w-kvs)
+                               (assoc :observed r-kvs))
+                           (update state :observed set/union r-kvs))))
+                     (assoc state  :observed #{})))
 
-        ; monotonic reads
-        ; TODO: anomalies only, possible to interpret read values per process per process for new/missed, but expensive
-        {:keys [anomalies]}
+        ; monotonic reads anomalies
+        ; simple superset per key
+        state
         (->> history
              (reduce (fn [{:keys [prev-reads] :as state} {:keys [value index] :as _op}]
-                       (let [r-kvm (r-kvm value)]
-                         (if (seq r-kvm)
-                           (let [state
-                                 (->> r-kvm
-                                      (reduce-kv (fn [state r-k r-vs]
-                                                   (let [prev-vs   (get prev-reads r-k)
-                                                         missed-vs (set/difference prev-vs r-vs)]
-                                                     (if (seq missed-vs)
-                                                       (update state :anomalies (partial merge-with conj) {:monotonic-reads
-                                                                                                           {:process process
-                                                                                                            :index   index
-                                                                                                            :kv      [r-k r-vs]
-                                                                                                            :missing missed-vs}})
-                                                       state)))
-                                                 state))]
-                             (update state :prev-reads merge r-kvm))
-                           state)))
-                     {}))]
-    {process (merge
-              {:vg (b/forked vg)}
-              (when (seq anomalies)
-                {:anomalies anomalies}))}))
+                       (if-let [r-kvm (r-kvm value)]
+                         (let [state
+                               (->> r-kvm
+                                    (reduce-kv (fn [state r-k r-vs]
+                                                 (let [prev-vs   (get prev-reads r-k)
+                                                       missed-vs (set/difference prev-vs r-vs)]
+                                                   (if (seq missed-vs)
+                                                     (update state :anomalies (partial merge-with conj) {:monotonic-reads
+                                                                                                         {:process process
+                                                                                                          :index   index
+                                                                                                          :kv      [r-k r-vs]
+                                                                                                          :missing missed-vs}})
+                                                     state)))
+                                               state))]
+                           (update state :prev-reads merge r-kvm))
+                         state))
+                     state))
+
+        ; monotonic reads version order
+        ; interpret read values relative to process that wrote the value for new/missed, but it's expensive?
+        ; observed is {p {k #{vs}}}
+        state
+        (->> history
+             (reduce (fn [{:keys [observed] :as state} {:keys [value] :as _op}]
+                       (if-let [r-kvm (r-kvm value)]
+                         (let [r-kvm (->> r-kvm
+                                          (reduce-kv (fn [r-kvm k vs]
+                                                       (->> vs
+                                                            (reduce (fn [r-kvm v]
+                                                                      (let [process (:process (get write-index [k v]))]
+                                                                        (update-in r-kvm [process k] set/union #{v})))
+                                                                    r-kvm)))
+                                                     {}))]
+                           (->> r-kvm
+                                (reduce-kv (fn [state p kvm]
+                                             (->> kvm
+                                                  (reduce-kv (fn [state k vs]
+                                                               (let [prev-vs (get-in observed [p k])
+                                                                     new-vs  (set/difference vs prev-vs)
+                                                                     prev-vs (->> prev-vs
+                                                                                  (map (fn [v] [k v]))
+                                                                                  (into #{}))
+                                                                     new-vs  (->> new-vs
+                                                                                  (map (fn [v] [k v]))
+                                                                                  (into #{}))]
+                                                                 (-> state
+                                                                     (update :vg g/link-all-to-all prev-vs new-vs)
+                                                                     (assoc-in [:observed p k] vs))))
+                                                             state)))
+                                           state)))
+                         state))
+                     (assoc state  :observed {})))
+
+        state (update state :vg b/forked)]
+    {process (select-keys state [:vg :anomalies])}))
 
 (defn causal-versions
   "Given a history,
@@ -563,6 +664,13 @@
                             (r-index history))
         write-index (h/task history :write-index []
                             (w-index history))
+        read-index'  (h/task history :read-index' []
+                             (r-index' history))
+        write-index' (h/task history :write-index' []
+                             (w-index' history))
+        indexes      {:read-index  @read-index'
+                      :write-index @write-index'}
+
         ; Build our combined analyzers
         analyzers (into [elle/process-graph
                          (partial wr-graph     {:read-index @read-index :write-index @write-index})
