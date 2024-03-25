@@ -193,13 +193,7 @@ Look for `strong-session-PL-2+`:
 
 ```clj
 (def causal-opts
-  ; rw_register provides:
-  ;   - initial nil -> all versions for all keys
-  ;   - w->r
-  ;   - ww and rw dependencies, as derived from a version order
   {:consistency-models [:strong-session-consistent-view] ; Elle's strong-session with Adya's formalism for causal consistency
-   :anomalies-ignored [:lost-update]                     ; `lost-update`s are causally Ok, they are PL-2+, Adya 4.1.3
-   :sequential-keys? true                                ; infer version order from elle/process-graph
-   :wfr-keys? true                                       ; wfr-version-graph when <rw within txns
+   :anomalies-ignored  [:lost-update]                    ; `lost-update`s are causally Ok, but they are PL-2+, Adya 4.1.3 ?!?
    })
 ```

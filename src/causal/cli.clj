@@ -122,6 +122,10 @@
     :validate [(partial every? cm/all-models)
                (str "Must be one or more of " cm/all-models)]]
 
+   [nil "--cycle-search-timeout MS" "How long, in milliseconds, to look for a certain cycle in any given SCC."
+    :parse-fn parse-long
+    :validate [pos? "Must be a positive integer"]]
+
    [nil "--electricsql-nodes NODES" "A comma-separated list of nodes that should get ElectricSQL clients"
     :parse-fn parse-nodes-spec]
 

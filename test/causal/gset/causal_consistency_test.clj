@@ -31,7 +31,6 @@
                      {:process 0, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 5, :time -1}]
                     h/history))
 
-; TODO: doesn't order nill read before first write
 (def invalid-ryw (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]],   :index 1, :time -1}
                        {:process 0, :type :ok, :f :txn, :value [[:r :x nil]], :index 3, :time -1}]
                       h/history))
@@ -76,13 +75,6 @@
                                    {:process 2, :type :ok, :f :txn, :value [[:r :x #{1}]], :index 9}]
                                   h/history))
 
-(def invalid-scc (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1}
-                       {:process 0, :type :ok, :f :txn, :value [[:w :x 1]], :index 3}
-                       {:process 0, :type :ok, :f :txn, :value [[:r :x #{1}]], :index 5}
-                       {:process 0, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 7}
-                       {:process 0, :type :ok, :f :txn, :value [[:r :x #{0 1}]], :index 9}]
-                      h/history))
-
 (deftest causal-consistency
   (testing "causal-consistency"
     (is (= {:valid? true}
@@ -92,7 +84,7 @@
   (testing "w->r"
     (is (= {:valid? true}
            (cc/check workload/causal-opts valid-wr)))
-    (is (= {:valid? false :anomaly-types [:G0 :cyclic-versions]}
+    (is (= {:valid? false :anomaly-types [:G0]}
            (-> (cc/check workload/causal-opts invalid-wr)
                (select-keys [:valid? :anomaly-types]))))))
 
@@ -103,7 +95,6 @@
     (is (= {:valid? false :anomaly-types [:G-single-item-process]}
            (-> (cc/check workload/causal-opts invalid-ryw)
                (select-keys [:valid? :anomaly-types]))))
-    ; TODO: doesn't order nill read before first write
     (is (= {:valid? false :anomaly-types [:G-single-item-process]}
            (-> (cc/check workload/causal-opts invalid-ryw-not-nil)
                (select-keys [:valid? :anomaly-types]))))))
@@ -112,27 +103,18 @@
   (testing "wfr"
     (is (= {:valid? true}
            (cc/check workload/causal-opts valid-wfr)))
-    (is (= {:valid? false :anomaly-types [:G0-process :cyclic-versions]}
+    (is (= {:valid? false :anomaly-types [:G0-process]}
            (-> (cc/check workload/causal-opts invalid-wfr)
                (select-keys [:valid? :anomaly-types]))))
-    ;; TODO: wfr version order should fix
-    (is (= {:valid? false :anomaly-types [:G0-process]}
+    (is (= {:valid? false :anomaly-types [:G-single-item-process]}
            (-> (cc/check workload/causal-opts invalid-wfr-mop)
                (select-keys [:valid? :anomaly-types]))))
-    ;; TODO: wfr version order should fix
-    (is (= {:valid? false :anomaly-types [:G0-process]}
+    (is (= {:valid? false :anomaly-types [:G-single-item]}
            (-> (cc/check workload/causal-opts invalid-wfr-mops)
                (select-keys [:valid? :anomaly-types]))))))
 
 (deftest monotonic-reads
   (testing "monotonic-reads"
-    (is (= {:valid? false :anomaly-types [:cyclic-versions]}
+    (is (= {:valid? false :anomaly-types [:G-single-item-process]}
            (-> (cc/check workload/causal-opts invalid-monotonic-reads)
                (select-keys [:valid? :anomaly-types]))))))
-
-(deftest cyclic-versions
-  (testing "cyclic-versions"
-    (is (= '([:monotonic-reads {:process 0, :index 7, :kv [:x #{0}], :missing #{1}}])
-           (cc/causal-versions invalid-scc)))))
-
-

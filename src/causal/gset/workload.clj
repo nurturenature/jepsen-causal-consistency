@@ -13,8 +13,15 @@
   ;   - w->r
   ;   - ww and rw dependencies, as derived from a version order
   {:consistency-models [:strong-session-consistent-view] ; Elle's strong-session with Adya's formalism for causal consistency
-   :anomalies-ignored [:lost-update]                     ; `lost-update`s are causally Ok, they are PL-2+, Adya 4.1.3
-   })
+   :anomalies-ignored  [:lost-update]                    ; `lost-update`s are causally Ok, but they are PL-2+, Adya 4.1.3 ?!?
+
+   ; where to store anomaly explanations, graphs
+   :directory "causal"
+
+   ; causal graph analysis and plotting can be resource intensive
+   :cycle-search-timeout 10000
+   :max-plot-bytes       1000000
+   :plot-timeout         10000})
 
 (defn workload
   "Gset workload."
@@ -23,7 +30,7 @@
    :generator       (util/generator opts)
    :final-generator (util/final-generator opts)
    :checker         (checker/compose
-                     {:causal-consistency (cc/checker causal-opts)
+                     {:causal-consistency (cc/checker (merge causal-opts opts))
                       :strong-convergence (sc/final-reads)})})
 
 (defn workload-homogeneous-txns

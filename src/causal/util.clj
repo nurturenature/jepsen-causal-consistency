@@ -6,9 +6,7 @@
   "wr/gen with common options."
   [opts]
   (let [opts (merge
-              {:directory      "."
-               :max-plot-bytes 1048576
-               :plot-timeout   10000}
+              {}
               opts)
         gen (wr/gen opts)]
     gen))

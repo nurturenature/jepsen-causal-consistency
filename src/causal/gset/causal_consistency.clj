@@ -10,7 +10,8 @@
              [util :as util :refer [index-of]]]
             [jepsen
              [checker :as checker]
-             [history :as h]])
+             [history :as h]
+             [store :as store]])
   (:import (jepsen.history Op)))
 
 (defn op-internal-case
@@ -102,20 +103,6 @@
 (defn r-kvm
   "Given a transaction, returns a
    {k #{vs}} of all read values.
-   TODO: does not include nil reads."
-  [txn]
-  (->> txn
-       (reduce (fn [kvm [f k v]]
-                 (case f
-                   :r (if (seq v)
-                        (update kvm k set/union v)
-                        kvm)
-                   :w kvm))
-               {})))
-
-(defn r-kvm'
-  "Given a transaction, returns a
-   {k #{vs}} of all read values.
      - if multiple reads of k, last read is returned
      - will return {k nil} for nil reads of k
      - returns nil if no reads"
@@ -139,7 +126,7 @@
                {})))
 
 (defn reduce-kvm
-  "Reduces over a kvm with (fn acc k v) for all ks/vs.
+  "Reduces over a kvm, {k #{vs}}, with (fn acc k v) for all ks/vs.
    Avoids having to nest reduces."
   [r-fn init-state kvm]
   (->> kvm
@@ -150,111 +137,36 @@
                                  acc)))
                   init-state)))
 
-(defn r-kvs
-  "Given a transaction, returns #{[k v] ...} of all [k v] read by the transaction.
-   This is includes self-writes that were read.
-   TODO: does not include [k nil] reads. How to accommodate?"
-  [txn]
-  (->> txn
-       (reduce (fn [r-kvs [f k v :as _mop]]
-                 (case f
-                   :r (->> v
-                           (map (fn [v']
-                                  [k v']))
-                           (into r-kvs))
-                   :w r-kvs))
-               #{})))
-
-(defn w-kvs
-  "Given a transaction, returns #{[k v] ...} of all [k v] written by the transaction.
-   This includes multiple writes to the same k with a different v."
-  [txn]
-  (->> txn
-       (reduce (fn [w-kvs [f k v :as _mop]]
-                 (case f
-                   :w (conj w-kvs [k v])
-                   :r w-kvs))
-               #{})))
-
-(defn kvs-diff
-  "Given kvs and kvs', two #{[k v] ...}, returns
-   kvs with:
-     - any kv in kvs' removed
-     - any kv with k not in kvs' removed"
-  [kvs kvs']
-  (let [ks' (->> kvs'
-                 (reduce (fn [ks' [k' _v']]
-                           (conj ks' k'))
-                         #{}))
-        kvs (set/difference kvs kvs')
-        kvs (->> kvs
-                 (reduce (fn [kvs [k _v :as kv]]
-                           (if (contains? ks' k)
-                             kvs
-                             (disj kvs kv)))
-                         kvs))]
-    kvs))
+(defn reduce-nested
+  "Convenience for nested maps, {k {k' v}}.
+   Reduces with (fn acc k k' v) for all k and k'."
+  [reduce-fn init-state coll]
+  (->> coll
+       (reduce-kv (fn [acc k inner-map]
+                    (->> inner-map
+                         (reduce-kv (fn [acc k' v]
+                                      (reduce-fn acc k k' v))
+                                    acc)))
+                  init-state)))
 
 (defn r-index
   "Given a history, returns a read index:
    ```
-   {[k v] {process [op ...]} ;; ops are in process order
-   ```
-   for all :ok transactions."
-  [history]
-  (->> history
-       h/oks
-       (reduce (fn [index {:keys [value process] :as op}]
-                 ; add every [k v] that was read to the map
-                 (->> (r-kvs value)
-                      (reduce (fn [index kv]
-                                (update-in index [kv process] (fn [old]
-                                                                (if (nil? old)
-                                                                  [op]
-                                                                  (conj old op)))))
-                              index)))
-               {})))
-
-(defn r-index'
-  "Given a history, returns a read index:
-   ```
-   {k {#{vs} {process [op ...]}}} ;; ops are in history order
-   ```
-   for all :ok transactions."
-  [history]
-  (->> history
-       h/oks
-       (reduce (fn [index {:keys [value process] :as op}]
-                 ; add every [k v] that was read to the map
-                 (->> value
-                      r-kvm'
-                      (reduce-kv (fn [index k vs]
-                                   (update-in index [k vs process] (fn [old]
-                                                                     (if (nil? old)
-                                                                       [op]
-                                                                       (conj old op)))))
-                                 index)))
-               nil)))
-
-(defn w-index
-  "Given a history, returns a write index:
-   ```
-   {[k v] op} ;; writes are unique
+   {k {#{vs} seq-ops}}
    ```
    for all :ok transactions."
   [history]
   (->> history
        h/oks
        (reduce (fn [index {:keys [value] :as op}]
-                 ; add every [k v] that was written to the map
-                 (->> (w-kvs value)
-                      (reduce (fn [index kv]
-                                (assert (nil? (get index kv)) (str kv " for " op " is already in the index!"))
-                                (assoc index kv op))
-                              index)))
-               {})))
+                 (->> value
+                      r-kvm
+                      (reduce-kv (fn [index k vs]
+                                   (update-in index [k vs] conj op))
+                                 index)))
+               nil)))
 
-(defn w-index'
+(defn w-index
   "Given a history, returns a write index:
    ```
    {k {v op} ;; writes are unique
@@ -277,191 +189,157 @@
 (defrecord WRExplainer []
   elle/DataExplainer
   (explain-pair-data [_ a b]
-    (let [a-w-kvs (w-kvs (:value a))
-          b-r-kvs (r-kvs (:value b))
-          ; first shared kv is fine
-          [k v]   (->> (set/intersection a-w-kvs b-r-kvs)
-                       first)]
-      (when (and k v)
-        (let [; 1st read mop of kv is fine
-              r-mop (->> (:value b)
-                         (reduce (fn [_ [mf mk mv _as mop]]
-                                   (if (and (= mf :r)
-                                            (= mk k)
-                                            (contains? mv v))
-                                     (reduced mop)
-                                     nil))))]
-          {:type  :wr
-           :key   k
-           :value v
-           :a-mop-index (index-of (:value a) [:w k v])
-           :b-mop-index (index-of (:value b) r-mop)}))))
+    (let [a-w-kvm (w-kvm (:value a))
+          b-r-kvm (r-kvm (:value b))]
+      ; first shared kv is fine
+      (->> a-w-kvm
+           (reduce-kv (fn [_ w-k w-vs]
+                        (let [r-vs      (get b-r-kvm w-k)
+                              shared-vs (set/intersection w-vs r-vs)
+                              w-v       (first shared-vs)]
+                          (when (seq shared-vs)
+                            (reduced {:type :wr
+                                      :w-k  w-k
+                                      :w-v  w-v
+                                      :a-mop-index (index-of (:value a) [:w w-k w-v])
+                                      :b-mop-index (index-of (:value b) [:r w-k r-vs])}))))
+                      nil))))
 
-  (render-explanation [_ {:keys [k v]} a-name b-name]
-    (str a-name " wrote [" (pr-str k) " " (pr-str v) "]"
-         ", which was read by " b-name " (w->r)")))
+  (render-explanation [_ {:keys [w-k w-v]} a-name b-name]
+    (str a-name "'s write of [" (pr-str w-k) " " (pr-str w-v) "]"
+         " was read by " b-name " (w->r)")))
 
 (defn wr-graph
   "Given indexes for a history, and an unused history to match the calling APIs,
-   creates a w->r edge for every write of [k v] to the first read of [k v] in a process.
-  
-   Only create an edge to the first read of [k v] in a process as the process order graph
-   will transitively order any successive reads of [k v] in that process."
+   creates a w->r edge for every write of [k v] to all reads of [k v]."
   [{:keys [read-index write-index] :as _indexes} _history]
-  (let [g (->> write-index
-               (reduce (fn [g [kv write-op]]
-                         (let [read-ops (->> (get kv read-index)
-                                             (map (fn [[_process ops]]
-                                                    (first ops)))
-                                             (into #{}))
-                               ; don't self link
-                               read-ops (disj read-ops write-op)]
-                           (if (seq read-ops)
-                             (g/link-to-all write-op read-ops wr)
-                             g)))
-                       (b/linear (g/op-digraph))))]
-    {:graph     (b/forked g)
+  (let [g (->> write-index ; {k {v op}
+               (reduce-nested (fn [g k v write-op]
+                                (let [; read-index {k {#{vs} seq-ops}}
+                                      read-ops (->> (get read-index k) ; {#{vs} seq-ops}
+                                                    (filter (fn [[vs _seq-ops]] (contains? vs v)))
+                                                    (mapcat val) ; seq-ops
+                                                    (into #{}))
+                                      ; don't self link
+                                      read-ops (disj read-ops write-op)]
+                                  (g/link-to-all g write-op read-ops wr)))
+                              (b/linear (g/op-digraph)))
+               b/forked)]
+    {:graph     g
      :explainer (WRExplainer.)}))
 
-(defrecord RYWExplainer []
+(defrecord RWExplainer []
   elle/DataExplainer
   (explain-pair-data [_ a b]
-    (let [a-process  (:process a)
-          b-process  (:process b)
-          a-reads    (r-kvs (:value a))
-          b-writes   (w-kvs (:value b))
-          [k v]      (first (set/difference b-writes a-reads))]
-      (when (and (= a-process b-process)
-                 k v)
-        (let [; first mop that didn't read k v
-              read-mop (->> (:value a)
-                            (reduce (fn [_ [mf mk mv :as mop]]
-                                      (case mf
-                                        :r (if (and (= mk k)
-                                                    (not (contains? mv v)))
-                                             (reduced mop)
-                                             nil)
-                                        :w nil))))]
-          {:type        :rw
-           :a-mop-index (index-of (:value a) read-mop)
-           :b-mop-index (index-of (:value b) [:w k v])
-           :process     a-process
-           :k           k
-           :v           v}))))
+    (let [a-r-kvm (r-kvm (:value a))
+          b-w-kvm (w-kvm  (:value b))]
+      (when (and (seq a-r-kvm)
+                 (seq b-w-kvm))
+        (->> a-r-kvm
+             (reduce-kv (fn [_ k vs]
+                          (let [unread-vs (set/difference (get b-w-kvm k) vs)]
+                            (when (seq unread-vs)
+                              (reduced {:type    :rw
+                                        :r-key   k
+                                        :r-value vs
+                                        :w-value (first unread-vs)
+                                        :a-mop-index (index-of (:value a) [:r k vs])
+                                        :b-mop-index (index-of (:value b) [:w k (first unread-vs)])}))))
+                        nil)))))
 
-  (render-explanation [_ {:keys [process k v]} a-name b-name]
-    (str " process " process ", " a-name "'s read of key " k " did not observe " b-name "'s write of " v " (ryw)")))
+  (render-explanation [_ {:keys [r-key r-value w-value]} a-name b-name]
+    (str a-name "'s read of [" (pr-str r-key) " " (pr-str r-value) "]"
+         " did not observe " b-name "'s write of [" (pr-str r-key) " " (pr-str w-value) "] (r->w)")))
 
-(defn ryw-order
-  "Given a history and a process, create a r->w transaction graph with read your writes ordering."
-  [write-index history process]
-  (let [history     (->> history
-                         (h/filter (comp #{process} :process)))
-        write-index (->> write-index
-                         (filter (fn [[_kv op]]
-                                   (= process (:process op))))
-                         (into {}))
-        all-w-kvs   (->> write-index
-                         keys
-                         (into #{}))]
-    (->> history
-         (reduce (fn [g {:keys [value] :as op}]
-                   (let [r-kvs      (r-kvs value)
-                         unread-kvs (when (seq r-kvs)
-                                      (kvs-diff all-w-kvs r-kvs))
-                         ; first in process order op whose's writes were not read
-                         unread-op (->> unread-kvs
-                                        (map (partial get write-index))
-                                        ; don't link to self
-                                        (remove (partial = op))
-                                        (reduce (fn
-                                                  ([] nil)
-                                                  ([op op']
-                                                   (if (< (:index op) (:index op'))
-                                                     op
-                                                     op')))))]
-                     (if unread-op
-                       (g/link g op unread-op rw)
-                       g)))
-                 (b/linear (g/op-digraph)))
-         b/forked)))
-
-(defn ryw-graph
-  "Given a history, creates a r->w transaction graph with read your writes ordering in each process."
-  [{:keys [processes write-index] :as _opts} history]
-  (let [graph     (->> processes
-                       (map (partial ryw-order write-index history))
-                       (apply g/digraph-union))]
-    {:graph     graph
-     :explainer (RYWExplainer.)}))
+(defn rw-graph
+  "Given indexes for a history, and an unused history to match the calling APIs,
+   creates an inferred r->w edge for every read of [k #{vs}] to all writes of [k v] that were not read."
+  [{:keys [read-index write-index] :as _indexes} _history]
+  (let [all-write-kvs (->> write-index ; {k {v op}
+                           (map (fn [[k v->ops]]
+                                  [k (set (keys v->ops))]))
+                           (into {}))
+        g (->> read-index ; {k {#{vs} seq-ops}}
+               (reduce-nested (fn [g k vs read-ops]
+                                (let [read-ops  (into #{} read-ops)
+                                      unread-vs (set/difference (get all-write-kvs k) vs)
+                                      write-ops (->> unread-vs
+                                                     (map (fn [v]
+                                                            (get-in write-index [k v])))
+                                                     (into #{}))
+                                      ; don't self link
+                                      write-ops (set/difference write-ops read-ops)]
+                                  (g/link-all-to-all g read-ops write-ops rw)))
+                              (b/linear (g/op-digraph)))
+               b/forked)]
+    {:graph     g
+     :explainer (RWExplainer.)}))
 
 (defrecord WFRExplainer [read-index]
   elle/DataExplainer
   (explain-pair-data [_ a b]
-    (let [a-writes  (w-kvs (:value a))
-          b-writes  (w-kvs (:value b))
+    (let [a-writes  (w-kvm (:value a))
+          b-writes  (w-kvm (:value b))
           b-index   (:index b)
           b-process (:process b)]
       (when (and (seq a-writes)
                  (seq b-writes))
         ; did b already read any of a's writes?
         ; if so, first found is fine
-        (let [[k v] (->> a-writes
-                         (reduce (fn [_ kv]
-                                   (let [b-read (->> (get-in read-index [kv b-process])
-                                                     first)]
-                                     (when (and b-read
-                                                (< (:index b-read) b-index))
-                                       (reduced kv))))
-                                 nil))]
-          (when (and k v)
-            (let [; any write is fine
-                  [bk bv] (first b-writes)]
-              {:type        :ww
-               :a-mop-index (index-of (:value a) [:w k v])
-               :b-mop-index (index-of (:value b) [:w bk bv])
-               :process     b-process
-               :k           k
-               :v           v}))))))
+        (->> a-writes
+             (reduce-kv (fn [_ a-k a-vs]
+                          (->> (get read-index a-k) ; {k {#{vs} seq-ops}}
+                               (reduce-kv (fn [_ read-vs read-ops]
+                                            (let [shared-vs (set/intersection a-vs read-vs)]
+                                              (when (seq shared-vs)
+                                                (let [read-ops (->> read-ops
+                                                                    (filter (fn [{:keys [process index]}]
+                                                                              (and (= process b-process)
+                                                                                   (< index b-index)))))]
+                                                  (when (seq read-ops)
+                                                    (let [a-v        (first shared-vs)
+                                                          [b-k b-vs] (first b-writes)
+                                                          b-v        (first b-vs)]
+                                                      (reduced {:type        :ww
+                                                                :a-mop-index (index-of (:value a) [:w a-k a-v])
+                                                                :b-mop-index (index-of (:value b) [:w b-k b-v])
+                                                                :process     b-process
+                                                                :k           a-k
+                                                                :v           a-v})))))))
+                                          nil)))
+                        nil)))))
 
   (render-explanation [_ {:keys [process k v]} a-name b-name]
     (str a-name "'s write of " [k v] " was observed by process " process " before it executed " b-name " (wfr)")))
 
 (defn wfr-order
-  "Given a write-index, history and a process, create a w->w transaction graph with writes follow reads ordering.
-   
-   Only link to other process' happened before writes once.
-   Process order transitively includes succeeding writes for the process."
+  "Given a write-index, history and a process, create a w->w transaction graph with writes follow reads ordering."
   [{:keys [write-index] :as _opts} history process]
   (let [history (->> history
                      (h/filter (comp #{process} :process)))
-        [g _observing _linked]
+        [g _observing]
         (->> history
-             (reduce (fn [[g observing linked] {:keys [value] :as op}]
-                       (let [r-kvs        (r-kvs value)
-                             w-kvs        (w-kvs value)
-                             before-w-ops (when (seq w-kvs)
-                                            (->> observing
-                                                 (map (partial get write-index))
-                                                 ;; TODO: will be nil if wasn't in write-index
-                                                 ;;       confirm caught in strong convergence
-                                                 ;;       report as :anomalies
-                                                 (remove nil?)
-                                                 (into #{})))
+             (reduce (fn [[g observing] {:keys [value] :as op}]
+                       (let [r-kvm        (r-kvm value)
+                             w-kvm        (w-kvm  value)
+                             before-w-ops (->> observing
+                                               (mapcat (fn [[k vs]]
+                                                         (->> vs
+                                                              (map (fn [v]
+                                                                     (get-in write-index [k v]))))))
+                                               (into #{}))
                              ; don't link to self
                              before-w-ops (disj before-w-ops op)]
-                         (if (seq before-w-ops)
+                         (if (seq w-kvm)
                            [(g/link-all-to g before-w-ops op ww)
-                            r-kvs
-                            (set/union linked observing)]
+                            r-kvm]
                            [g
-                            (set/union observing r-kvs)
-                            linked])))
-                     [(b/linear (g/op-digraph)) #{} #{}]))]
+                            (merge-with set/union observing r-kvm)])))
+                     [(b/linear (g/op-digraph)) nil]))]
     (b/forked g)))
 
 (defn wfr-graph
-  "Given processes, read/write index, and a history,
+  "Given processes, read/write indexes, and a history,
    creates a w->w transaction graph with writes follows reads ordering for each process."
   [{:keys [processes read-index write-index] :as _opts} history]
   (let [graph (->> processes
@@ -469,172 +347,6 @@
                    (apply g/digraph-union))]
     {:graph     graph
      :explainer (WFRExplainer. read-index)}))
-
-(defn causal-version-order
-  "Given a history and a process, create a [k v]->[k v]' graph with:
-     - [k nil] precedes the first [k v], write or read, observed for each k 
-     - monotonic writes
-     - writes follow reads
-     - monotonic reads
-   ordering for the process.
-   
-   Returns {process {:vg version-graph :anomalies anomalies}}."
-  [history process]
-  (let [write-index (w-index history)  ; TODO: move all indexes to check and pass opts
-        history     (->> history
-                         (h/filter (comp #{process} :process)))
-        state       {:vg (b/linear (g/digraph))}
-
-        ; [k nil] -> [k v]
-        state
-        (->> history
-             (reduce (fn [{:keys [observed-ks] :as state} {:keys [value] :as _op}]
-                       (let [w-kvm   (w-kvm value)
-                             r-kvm   (r-kvm value)
-                             txn-kvm (merge-with set/union w-kvm r-kvm)
-                             new-ks  (set/difference (set (keys txn-kvm)) observed-ks)
-                             new-kvs (->> new-ks
-                                          (mapcat (fn [k]
-                                                    (->> (get txn-kvm k)
-                                                         (map (fn [v] [k v]))))))
-                             nil-kvs (->> new-ks
-                                          (map (fn [k] [k nil])))]
-                         (if (seq new-ks)
-                           (-> state
-                               (update :vg g/link-all-to-all nil-kvs new-kvs)
-                               (update :observed-ks set/union new-ks))
-                           state)))
-                     (assoc state :observed-ks #{})))
-
-        ; monotonic writes
-        state
-        (->> history
-             (reduce (fn [{:keys [prev-writes] :as state} {:keys [value] :as _op}]
-                       (let [w-kvs (w-kvs value)]
-                         (if (seq w-kvs)
-                           (-> state
-                               (update :vg g/link-all-to-all prev-writes w-kvs)
-                               (assoc :prev-writes w-kvs))
-                           state)))
-                     (assoc state :prev-writes #{})))
-
-        ; writes follow reads
-        state
-        (->> history
-             (reduce (fn [{:keys [observed] :as _state} {:keys [value] :as _op}]
-                       (let [w-kvs (w-kvs value)
-                             r-kvs (r-kvs value)]
-                         (if (seq w-kvs)
-                           (-> state
-                               (update :vg g/link-all-to-all observed w-kvs)
-                               (assoc :observed r-kvs))
-                           (update state :observed set/union r-kvs))))
-                     (assoc state  :observed #{})))
-
-        ; monotonic reads anomalies
-        ; simple superset per key
-        state
-        (->> history
-             (reduce (fn [{:keys [prev-reads] :as state} {:keys [value index] :as _op}]
-                       (if-let [r-kvm (r-kvm value)]
-                         (let [state
-                               (->> r-kvm
-                                    (reduce-kv (fn [state r-k r-vs]
-                                                 (let [prev-vs   (get prev-reads r-k)
-                                                       missed-vs (set/difference prev-vs r-vs)]
-                                                   (if (seq missed-vs)
-                                                     (update state :anomalies (partial merge-with conj) {:monotonic-reads
-                                                                                                         {:process process
-                                                                                                          :index   index
-                                                                                                          :kv      [r-k r-vs]
-                                                                                                          :missing missed-vs}})
-                                                     state)))
-                                               state))]
-                           (update state :prev-reads merge r-kvm))
-                         state))
-                     state))
-
-        ; monotonic reads version order
-        ; interpret read values relative to process that wrote the value for new/missed, but it's expensive?
-        ; observed is {p {k #{vs}}}
-        state
-        (->> history
-             (reduce (fn [{:keys [observed] :as state} {:keys [value] :as _op}]
-                       (if-let [r-kvm (r-kvm value)]
-                         (let [r-kvm (->> r-kvm
-                                          (reduce-kv (fn [r-kvm k vs]
-                                                       (->> vs
-                                                            (reduce (fn [r-kvm v]
-                                                                      (let [process (:process (get write-index [k v]))]
-                                                                        (update-in r-kvm [process k] set/union #{v})))
-                                                                    r-kvm)))
-                                                     {}))]
-                           (->> r-kvm
-                                (reduce-kv (fn [state p kvm]
-                                             (->> kvm
-                                                  (reduce-kv (fn [state k vs]
-                                                               (let [prev-vs (get-in observed [p k])
-                                                                     new-vs  (set/difference vs prev-vs)
-                                                                     prev-vs (->> prev-vs
-                                                                                  (map (fn [v] [k v]))
-                                                                                  (into #{}))
-                                                                     new-vs  (->> new-vs
-                                                                                  (map (fn [v] [k v]))
-                                                                                  (into #{}))]
-                                                                 (-> state
-                                                                     (update :vg g/link-all-to-all prev-vs new-vs)
-                                                                     (assoc-in [:observed p k] vs))))
-                                                             state)))
-                                           state)))
-                         state))
-                     (assoc state  :observed {})))
-
-        state (update state :vg b/forked)]
-    {process (select-keys state [:vg :anomalies])}))
-
-(defn causal-versions
-  "Given a history,
-   returns a sequence of anomalies or nil by checking for causal ordering in each process."
-  [history]
-  (let [history   (->> history
-                       h/oks)
-        processes (h/task history :processes []
-                          (->> history
-                               (h/map :process)
-                               distinct))
-
-        ; build version graphs, may find anomalies
-        vgs       (->> @processes
-                       (map (partial causal-version-order history))
-                       (apply merge))
-        anomalies (->> vgs
-                       (map (fn [[_process {:keys [anomalies]}]] anomalies))
-                       (filter seq)
-                       (apply (partial merge-with conj)))
-
-        ; check for cycles in each process graph, if none try to combine graphs
-        {:keys [_sources _vgs sccs]}
-        (->> vgs
-             (reduce (fn [{:keys [sources vgs sccs] :as state} [process {:keys [vg]}]]
-                       (let [scc (g/strongly-connected-components vg)]
-                         (if (seq scc)
-                           (update-in state [:sccs :scc] conj {:processes #{process}
-                                                               :scc       scc})
-                           (let [sources' (conj sources process)
-                                 vgs'     (g/digraph-union vgs vg)
-                                 scc'     (g/strongly-connected-components vgs')]
-                             (if (seq scc')
-                               (update-in state [:sccs :scc] conj {:processes sources'
-                                                                   :scc       scc'})
-                               (assoc state
-                                      :sources sources'
-                                      :vgs     vgs'))))))
-                     {:sources #{}
-                      :vgs     (b/linear (g/digraph))}))
-
-        anomalies (concat anomalies sccs)]
-    (when (seq anomalies)
-      anomalies)))
 
 (defn graph
   "Given options and a history, computes a {:graph g, :explainer e} map of
@@ -644,38 +356,35 @@
    
      - w->r graph, a write of v happens before all reads of v ordering
    
-     - r->w graph, read your writes within a process ordering
-   
      - w->w graph, writes follow reads ordering
 
+     - r->w graph, infer that all read that don't observe v happen before the write of v
+   
      - additional graphs, as given by (:additional-graphs opts).
 
    The graph we return combines all this information.
    
    TODO: account for :info ops."
   [opts history]
-  (let [history     (->> history
-                         h/oks)
-        processes   (h/task history :processes []
-                            (->> history
-                                 (h/map :process)
-                                 distinct))
-        read-index  (h/task history :read-index []
+  (let [history    (->> history
+                        h/oks)
+        processes  (h/task history :processes []
+                           (->> history
+                                (h/map :process)
+                                distinct))
+        read-index  (h/task history :read-index' []
                             (r-index history))
-        write-index (h/task history :write-index []
+        write-index (h/task history :write-index' []
                             (w-index history))
-        read-index'  (h/task history :read-index' []
-                             (r-index' history))
-        write-index' (h/task history :write-index' []
-                             (w-index' history))
-        indexes      {:read-index  @read-index'
-                      :write-index @write-index'}
+        indexes     {:processes   @processes
+                     :read-index  @read-index
+                     :write-index @write-index}
 
         ; Build our combined analyzers
         analyzers (into [elle/process-graph
-                         (partial wr-graph     {:read-index @read-index :write-index @write-index})
-                         (partial ryw-graph    {:processes @processes :write-index @write-index})
-                         (partial wfr-graph    {:processes @processes :read-index @read-index :write-index @write-index})]
+                         (partial wr-graph    indexes)
+                         (partial wfr-graph   indexes)
+                         (partial rw-graph    indexes)]
                         (ct/additional-graphs opts))
         analyzer (apply elle/combine analyzers)]
     ; And go!
@@ -698,18 +407,7 @@
                             graph.
 
     :cycle-search-timeout   How many milliseconds are we willing to search a
-                            single SCC for a cycle?
-
-    :sequential-keys?       Assume that each key is independently sequentially
-                            consistent, and use each processes' transaction
-                            order to derive a version order.
-
-    :linearizable-keys?     Assume that each key is independently linearizable,
-                            and use the realtime process order to derive a
-                            version order.
-
-    :wfr-keys?              Assume that within each transaction, writes follow
-                            reads, and use that to infer a version order.
+                            single SCC for a cycle? Default is 1000.
 
     :directory              Where to output files, if desired. (default nil)
 
@@ -727,14 +425,11 @@
    (let [history         (h/client-ops history)
          type-sanity     (h/task history :type-sanity []
                                  (ct/assert-type-sanity history))
-         causal-versions (h/task history :causal-versions []
-                                 (causal-versions history))
          cycles          (h/task history :cycles []
                                  (:anomalies (ct/cycles! opts (partial graph opts) history)))
          _               @type-sanity ; Will throw if problems
          ; Build up anomaly map
          anomalies (cond-> @cycles
-                     @causal-versions (assoc :cyclic-versions @causal-versions)
                     ;;  @internal     (assoc :internal @internal)
                     ;;  @g1a          (assoc :G1a @g1a)
                     ;;  @g1b          (assoc :G1b @g1b)
@@ -746,6 +441,10 @@
   "For Jepsen test map."
   [defaults]
   (reify checker/Checker
-    (check [_this _test history opts]
-      (let [opts (merge defaults opts)]
+    (check [_this test history opts]
+      (let [opts (merge defaults opts)
+            opts (update opts :directory (fn [old]
+                                           (if (nil? old)
+                                             nil
+                                             (store/path test [old]))))]
         (check opts history)))))
