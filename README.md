@@ -1,24 +1,16 @@
 ### Jepsen Tests for Causal Consistency
 
-Designed for testing local first systems that use CRDTs and distributed syncing.
+Designed for testing local first systems, CRDTs, and distributed syncing.
 
 [Jepsen](https://github.com/jepsen-io/jepsen) has an established [history](https://jepsen.io/analyses) of testing databases.
 
-These tests have often focused on stronger levels of [consistency](https://jepsen.io/consistency), e.g. snapshot-isolation, linearizability, and serializability.
+These tests have focused on stronger levels of [consistency](https://jepsen.io/consistency), e.g. snapshot-isolation, linearizability, and serializability.
 
 This project explores using Jepsen to test for [Causal Consistency](https://jepsen.io/consistency/models/causal) with Strong Convergence and atomic transactions ([Monotonic Atomic View](https://jepsen.io/consistency/models/monotonic-atomic-view)).
 
-The tests will use [ElectricSQL](https://electric-sql.com/):
-  - transactional causal+ consistency
-  - local first
-  - active/active SQLite3/PostgreSQL CRDT based sync
-  - strong research team
-
-([Current status](doc/electricsql.md) of *early* testing.)
-
 ----
 
-### Uses Elle, Jepsen's Checker
+### Uses Elle, Jepsen's Transactional Consistency Checker
 
 #### Adya's Consistent View(PL-2+) as the base consistency model
 > Level PL-2+ ensures that a transaction is placed after all transactions that causally affect it, i.e., it provides a notion of “causal consistency”.
@@ -35,32 +27,6 @@ Adds strong-session-consistent-view:
 
 ### Adya Anomalies Expressed
 
-#### write -> read
-- `[:G0, :G1c-process]`
-  ```clj
-  [{:process 0, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 1}
-   {:process 0, :type :ok, :f :txn, :value [[:w :y 0]], :index 3}
-   {:process 2, :type :ok, :f :txn, :value [[:r :y #{0}]], :index 5}
-   {:process 2, :type :ok, :f :txn, :value [[:w :x 0]], :index 7}]
-  ```
-  ```txt
-  G1c-process
-  Let:
-    T1 = {:index 5, :type :ok, :process 2, :f :txn, :value [[:r :y #{0}]]}
-    T2 = {:index 7, :type :ok, :process 2, :f :txn, :value [[:w :x 0]]}
-    T3 = {:index 1, :type :ok, :process 0, :f :txn, :value [[:r :x #{0}]]}
-    T4 = {:index 3, :type :ok, :process 0, :f :txn, :value [[:w :y 0]]}
-
-  Then:
-    - T1 < T2, because process 2 executed T1 before T2.
-    - T2 < T3, because T2 wrote :x = 0, which was read by T3.
-    - T3 < T4, because process 0 executed T3 before T4.
-    - However, T4 < T1, because T4 wrote :y = 0, which was read by T1: a contradiction!
-  ```
-  ![w -> r G1c-process](doc/wr-G1c-process.svg)
-
-----
-
 #### Read Your Writes
   - `[:G-single-item-process]`
     ```clj
@@ -72,64 +38,108 @@ Adds strong-session-consistent-view:
     Let:
       T1 = {:index 3, :time -1, :type :ok, :process 0, :f :txn, :value [[:r :x nil]]}
       T2 = {:index 1, :time -1, :type :ok, :process 0, :f :txn, :value [[:w :x 0]]}
-
+    
     Then:
-      - T1 < T2, because in process 0, T1's read of key :x did not observe T2's write of 0.
+      - T1 < T2, because T1's read of [:x nil] did not observe T2's write of [:x 0] (r->w).
       - However, T2 < T1, because process 0 executed T2 before T1: a contradiction!
     ```
     ![read your writes G-single-item-process](doc/ryw-G-single-item-process.svg)
 
 ----
 
-#### Writes Follow Reads
-  - `[:G0 :G-single-item :G-single-item-process]`
+#### Monotonic Writes
+  - `[:G-single-item-process]`
     ```clj
-    [{:process 0, :type :ok, :f :txn, :value [[:r :y #{1}]], :index 1}
-     {:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 3}
-     {:process 1, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 5}
-     {:process 1, :type :ok, :f :txn, :value [[:w :x 1]], :index 7}
-     {:process 1, :type :ok, :f :txn, :value [[:w :y 1]], :index 9}]
+    [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1}
+     {:process 0, :type :ok, :f :txn, :value [[:w :x 1]], :index 3}
+     {:process 1, :type :ok, :f :txn, :value [[:r :x #{1}]], :index 5}
+     {:process 1, :type :ok, :f :txn, :value [[:r :x #{0 1}]], :index 7}]
     ```
     ```txt
-    G0
+    G-single-item-process
     Let:
-      T1 = {:index 9, :time -1, :type :ok, :process 1, :f :txn, :value [[:w :y 1]]}
-      T2 = {:index 3, :time -1, :type :ok, :process 0, :f :txn, :value [[:w :x 0]]}
-
+      T1 = {:index 5, :time -1, :type :ok, :process 1, :f :txn, :value [[:r :x #{1}]]}
+      T2 = {:index 1, :time -1, :type :ok, :process 0, :f :txn, :value [[:w :x 0]]}
+      T3 = {:index 3, :time -1, :type :ok, :process 0, :f :txn, :value [[:w :x 1]]}
+    
     Then:
-      - T1 < T2, because in process 0, T1's write of [:y 1] was observed before T2.
-      - However, T2 < T1, because in process 1, T2's write of [:x 0] was observed before T1: a contradiction!
-      ```
-      ![writes follow reads G0](doc/wfr-G0.svg)
+      - T1 < T2, because T1's read of [:x #{1}] did not observe T2's write of [:x 0] (r->w).
+      - T2 < T3, because process 0 executed T2 before T3.
+      - However, T3 < T1, because T3's write of [:x 1] was read by T1 (w->r): a contradiction!
+    ```
+    ![monotonic writes G-single-item-process](doc/monotonic-writes-G-single-item-process.svg)
 
 ----
 
-#### Monotonic Writes
-  - `[:G-single-item-process :cyclic-versions]`
+#### Monotonic Reads
+  - `[:G-single-item-process]`
     ```clj
-    [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1, :time -1}
-     {:process 0, :type :ok, :f :txn, :value [[:w :x 1]], :index 3, :time -1}
-     {:process 1, :type :ok, :f :txn, :value [[:r :x 1]], :index 5, :time -1}
-     {:process 1, :type :ok, :f :txn, :value [[:r :x 0]], :index 7, :time -1}]
+    [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1}
+     {:process 1, :type :ok, :f :txn, :value [[:w :x 1]], :index 3}
+     {:process 2, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 5}
+     {:process 2, :type :ok, :f :txn, :value [[:r :x #{0 1}]], :index 7}
+     {:process 2, :type :ok, :f :txn, :value [[:r :x #{1}]], :index 9}]
     ```
+    ```txt
+    G-single-item-process
+    Let:
+      T1 = {:index 9, :time -1, :type :ok, :process 2, :f :txn, :value [[:r :x #{1}]]}
+      T2 = {:index 1, :time -1, :type :ok, :process 0, :f :txn, :value [[:w :x 0]]}
+      T3 = {:index 7, :time -1, :type :ok, :process 2, :f :txn, :value [[:r :x #{0 1}]]}
+    
+    Then:
+      - T1 < T2, because T1's read of [:x #{1}] did not observe T2's write of [:x 0] (r->w).
+      - T2 < T3, because T2's write of [:x 0] was read by T3 (w->r).
+      - However, T3 < T1, because process 2 executed T3 before T1: a contradiction!
+    ```
+    ![monotonic reads G-single-item-process](doc/monotonic-reads-G-single-item-process.svg)
 
+----
 
-#### Causal
-  - `[:G-single-item]`
+#### Writes Follow Reads
+  - `[:G-single-item-process :G-single-item ]`
     ```clj
-    [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1, :time -1}
-     {:process 1, :type :ok, :f :txn, :value [[:r :x 0] [:w :y 1]], :index 3, :time -1}
-     {:process 2, :type :ok, :f :txn, :value [[:r :y 1] [:r :x nil]], :index 5, :time -1}]
+    [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1}
+     {:process 1, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 3}
+     {:process 1, :type :ok, :f :txn, :value [[:w :y 0]], :index 5}
+     {:process 2, :type :ok, :f :txn, :value [[:r :y #{0}]], :index 7}
+     {:process 2, :type :ok, :f :txn, :value [[:r :x nil]], :index 9}]
     ```
+    ```txt
+    G-single-item-process
+    Let:
+      T1 = {:index 9, :time -1, :type :ok, :process 2, :f :txn, :value [[:r :x nil]]}
+      T2 = {:index 1, :time -1, :type :ok, :process 0, :f :txn, :value [[:w :x 0]]}
+      T3 = {:index 5, :time -1, :type :ok, :process 1, :f :txn, :value [[:w :y 0]]}
+      T4 = {:index 7, :time -1, :type :ok, :process 2, :f :txn, :value [[:r :y #{0}]]}
+    
+    Then:
+      - T1 < T2, because T1's read of [:x nil] did not observe T2's write of [:x 0] (r->w).
+      - T2 < T3, because T2's write of [:x 0] was observed by process 1 before it executed T3 (wfr).
+      - T3 < T4, because T3's write of [:y 0] was read by T4 (w->r).
+      - However, T4 < T1, because process 2 executed T4 before T1: a contradiction!
+      ```
+      ![writes follow reads G-single-item-process](doc/writes-follow-reads-G-single-item-process.svg)
 
-#### Last Write Wins
-  - `[:cyclic-versions]`
-    ```clj
-    [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 2, :time -1}
-     {:process 1, :type :ok, :f :txn, :value [[:w :x 1]], :index 3, :time -1}
-     {:process 0, :type :ok, :f :txn, :value [[:r :x 1]], :index 5, :time -1}
-     {:process 1, :type :ok, :f :txn, :value [[:r :x 0]], :index 7, :time -1}]
-    ```
+----
+
+#### write -> read
+- `[:G1c-process, :G0]`
+  ```clj
+  [{:process 0, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 1, :time -1}
+   {:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 3, :time -1}]
+  ```
+  ```txt
+  G1c-process
+  Let:
+    T1 = {:index 1, :time -1, :type :ok, :process 0, :f :txn, :value [[:r :x #{0}]]}
+    T2 = {:index 3, :time -1, :type :ok, :process 0, :f :txn, :value [[:w :x 0]]}
+  
+  Then:
+    - T1 < T2, because process 0 executed T1 before T2.
+    - However, T2 < T1, because T2's write of [:x 0] was read by T1 (w->r): a contradiction!
+  ```
+  ![w->r G1c-process](doc/wr-G1c-process.svg)
 
 ----
 
@@ -178,6 +188,14 @@ it's two transactions in different process observing the effects of other proces
  {:process 1, :type :ok, :f :txn, :value [[:r :x 0] [:w :y 1]]}
  {:process 2, :type :ok, :f :txn, :value [[:r :y 1] [:r :x nil]]}]
  ```
+
+----
+
+The tests will use [ElectricSQL](https://electric-sql.com/):
+  - transactional causal+ consistency
+  - local first
+  - active/active SQLite3/PostgreSQL CRDT based sync
+  - strong research team
 
 ----
 
