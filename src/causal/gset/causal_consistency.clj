@@ -212,7 +212,7 @@
 (defn wr-graph
   "Given indexes for a history, and an unused history to match the calling APIs,
    creates a w->r edge for every write of [k v] to all reads of [k v]."
-  [{:keys [read-index write-index] :as _indexes} _history]
+  [{:keys [read-index write-index] :as _opts} _history]
   (let [g (->> write-index ; {k {v op}
                (reduce-nested (fn [g k v write-op]
                                 (let [; read-index {k {#{vs} seq-ops}}
@@ -252,16 +252,21 @@
          " did not observe " b-name "'s write of [" (pr-str r-key) " " (pr-str w-value) "] (r->w)")))
 
 (defn rw-graph
-  "Given indexes for a history, and an unused history to match the calling APIs,
-   creates an inferred r->w edge for every read of [k #{vs}] to all writes of [k v] that were not read."
-  [{:keys [read-index write-index] :as _indexes} _history]
+  "Given read/write indexes for a history, a read-pov as a set of processes, and an unused history to match the calling APIs,
+   creates an inferred r->w edge for:
+     - every read of [k #{vs}] by a process in `read=pov`
+     - to all writes of [k v] that were not read by any process"
+  [{:keys [read-index write-index read-pov] :as _opts} _history]
   (let [all-write-kvs (->> write-index ; {k {v op}
                            (map (fn [[k v->ops]]
                                   [k (set (keys v->ops))]))
                            (into {}))
         g (->> read-index ; {k {#{vs} seq-ops}}
                (reduce-nested (fn [g k vs read-ops]
-                                (let [read-ops  (into #{} read-ops)
+                                (let [read-ops  (->> read-ops
+                                                     (filter (fn [{:keys [process] :as _op}]
+                                                               (contains? read-pov process)))
+                                                     (into #{}))
                                       unread-vs (set/difference (get all-write-kvs k) vs)
                                       write-ops (->> unread-vs
                                                      (map (fn [v]
@@ -349,8 +354,8 @@
      :explainer (WFRExplainer. read-index)}))
 
 (defn graph
-  "Given options and a history, computes a {:graph g, :explainer e} map of
-   dependencies. We combine several pieces:
+  "Given indexes/options and a history, creates an analyzer that computes a {:graph g, :explainer e}
+   using causal ordering. We combine several pieces:
 
      - process graph
    
@@ -359,39 +364,24 @@
      - w->w graph, writes follow reads ordering
 
      - r->w graph, infer that all read that don't observe v happen before the write of v
+       ordering edges are only created for processes in `read-pov`
    
      - additional graphs, as given by (:additional-graphs opts).
 
-   The graph we return combines all this information.
-   
-   TODO: account for :info ops."
+   The graph we return combines all this information."
   [opts history]
-  (let [history    (->> history
-                        h/oks)
-        processes  (h/task history :processes []
-                           (->> history
-                                (h/map :process)
-                                distinct))
-        read-index  (h/task history :read-index' []
-                            (r-index history))
-        write-index (h/task history :write-index' []
-                            (w-index history))
-        indexes     {:processes   @processes
-                     :read-index  @read-index
-                     :write-index @write-index}
-
-        ; Build our combined analyzers
+  (let [; Build our combined analyzers
         analyzers (into [elle/process-graph
-                         (partial wr-graph    indexes)
-                         (partial wfr-graph   indexes)
-                         (partial rw-graph    indexes)]
+                         (partial wr-graph    opts)
+                         (partial wfr-graph   opts)
+                         (partial rw-graph    opts)]
                         (ct/additional-graphs opts))
         analyzer (apply elle/combine analyzers)]
     ; And go!
     (analyzer history)))
 
 (defn check
-  "Full checker for write-read registers. Options are:
+  "Full checker for a grow only set. Options are:
 
     :consistency-models     A collection of consistency models we expect this
                             history to obey. Defaults to [:strict-serializable].
@@ -407,11 +397,14 @@
                             graph.
 
     :cycle-search-timeout   How many milliseconds are we willing to search a
-                            single SCC for a cycle? Default is 1000.
+                            single SCC for a cycle?
+                            (default 1000)
 
-    :directory              Where to output files, if desired. (default nil)
+    :directory              Where to output files, relative to the test store directory, if desired.
+                            (default nil)
 
-    :plot-format            Either :png or :svg (default :svg)
+    :plot-format            Either :png or :svg 
+                            (default :svg)
 
     :plot-timeout           How many milliseconds will we wait to render a SCC
                             plot?
@@ -422,18 +415,41 @@
   ([history]
    (check {} history))
   ([opts history]
-   (let [history         (h/client-ops history)
+   (let [history    (->> history
+                         h/client-ops
+                         h/oks)  ; TODO: account for :info ops
+
+         processes  (h/task history :processes []
+                            (->> history
+                                 (h/map :process)
+                                 distinct))
+         read-index  (h/task history :read-index' []
+                             (r-index history))
+         write-index (h/task history :write-index' []
+                             (w-index history))
+
+         indexes     {:processes   @processes
+                      :read-index  @read-index
+                      :write-index @write-index
+                      :read-pov    (into #{} @processes)}
+         opts        (merge opts indexes)
+
          type-sanity     (h/task history :type-sanity []
                                  (ct/assert-type-sanity history))
          cycles          (h/task history :cycles []
-                                 (:anomalies (ct/cycles! opts (partial graph opts) history)))
+                                 (->> @processes
+                                      (map (fn [process]
+                                             (let [opts (assoc opts :read-pov #{process})]
+                                               (:anomalies (ct/cycles! opts (partial graph opts) history)))))
+                                      (apply merge-with conj)))
+
          _               @type-sanity ; Will throw if problems
+
          ; Build up anomaly map
          anomalies (cond-> @cycles
-                    ;;  @internal     (assoc :internal @internal)
-                    ;;  @g1a          (assoc :G1a @g1a)
-                    ;;  @g1b          (assoc :G1b @g1b)
-                    ;;  @lost-update  (assoc :lost-update @lost-update)
+                     ;;  @internal     (assoc :internal @internal)
+                     ;;  @g1a          (assoc :G1a @g1a)
+                     ;;  @g1b          (assoc :G1b @g1b)
                      )]
      (ct/result-map opts anomalies))))
 

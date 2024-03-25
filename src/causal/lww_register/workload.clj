@@ -7,8 +7,7 @@
              [client :as client]
              [strong-convergence :as strong-convergence]]
             [jepsen
-             [checker :as checker]
-             [history :as h]]
+             [checker :as checker]]
             [jepsen.tests.cycle.wr :as wr]))
 
 (def causal-opts
