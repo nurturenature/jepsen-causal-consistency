@@ -73,15 +73,6 @@
            (c/exec :psql :-d "postgresql://postgres:postgres@electricsql:65432"
                    :-c "TABLE public.gset;"))
 
-          (info "Setting up ElectricSQL lww_register table:")
-          (c/exec :psql :-d "postgresql://postgres:postgres@electricsql:65432"
-                  :-c "CREATE TABLE public.lww_register (k integer PRIMARY KEY, v integer);")
-          (c/exec :psql :-d "postgresql://postgres:postgres@electricsql:65432"
-                  :-c "ALTER TABLE public.lww_register ENABLE ELECTRIC;")
-          (info
-           (c/exec :psql :-d "postgresql://postgres:postgres@electricsql:65432"
-                   :-c "TABLE public.lww_register;"))
-
           (swap! electricsql-setup? (fn [_] true))))
 
       ; `client` may use `sqlite3` CLI

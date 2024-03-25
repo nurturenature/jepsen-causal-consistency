@@ -27,9 +27,6 @@ const electric = await electrify(conn, schema, config)
 const { synced: gset } = await electric.db.gset.sync()
 await gset
 
-const { synced: lww_register } = await electric.db.lww_register.sync()
-await lww_register
-
 /* webserver */
 const port = process.env.PORT || 3000;
 const app: Express = express();
@@ -84,16 +81,6 @@ app.post("/gset/electric-createMany", async (req: Request, res: Response) => {
     res.send(result)
 });
 
-app.post("/lww_register/electric-findMany", async (req: Request, res: Response) => {
-    const result = await electric.db.lww_register.findMany(req.body)
-    res.send(result)
-});
-
-app.post("/lww_register/electric-upsert", async (req: Request, res: Response) => {
-    const result = await electric.db.lww_register.upsert(req.body)
-    res.send(result)
-});
-
 app.post("/gset/better-sqlite3", (req: Request, res: Response) => {
     const insert = conn.prepare(
         'INSERT INTO gset (id,k,v) VALUES (@id, @k, @v)');
@@ -112,42 +99,6 @@ app.post("/gset/better-sqlite3", (req: Request, res: Response) => {
                         result.push({ 'f': 'r', 'k': mop.k, 'v': null })
                     } else {
                         result.push({ 'f': 'r', 'k': mop.k, 'v': read })
-                    }
-                    break;
-                case 'w':
-                    const write = insert.run(mop);
-                    assert(write.changes == 1)
-                    result.push(mop)
-                    break;
-            }
-    });
-
-    try {
-        txn(req.body.value)
-        res.send({ 'type': 'ok', 'value': result })
-    } catch (e) {
-        res.send({ 'type': 'info', 'error': e })
-    }
-});
-
-app.post("/lww_register/better-sqlite3", (req: Request, res: Response) => {
-    const insert = conn.prepare(
-        'INSERT INTO lww_register (k,v) VALUES (@k, @v) ON CONFLICT(k) DO UPDATE SET v = @v');
-
-    const select = conn.prepare(
-        'SELECT k,v FROM lww_register WHERE k = @k');
-
-    const result = Array()
-
-    const txn = conn.transaction((mops) => {
-        for (const mop of mops)
-            switch (mop.f) {
-                case 'r':
-                    const read = <any>select.get(mop)
-                    if (read == undefined) {
-                        result.push({ 'f': 'r', 'k': mop.k, 'v': null })
-                    } else {
-                        result.push({ 'f': 'r', 'k': mop.k, 'v': read.v })
                     }
                     break;
                 case 'w':

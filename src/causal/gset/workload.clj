@@ -8,10 +8,6 @@
 
 (def causal-opts
   "Opts to configure Elle for causal consistency."
-  ; rw_register provides:
-  ;   - initial nil -> all versions for all keys
-  ;   - w->r
-  ;   - ww and rw dependencies, as derived from a version order
   {:consistency-models [:strong-session-consistent-view] ; Elle's strong-session with Adya's formalism for causal consistency
    :anomalies-ignored  [:lost-update]                    ; `lost-update`s are causally Ok, but they are PL-2+, Adya 4.1.3 ?!?
 
