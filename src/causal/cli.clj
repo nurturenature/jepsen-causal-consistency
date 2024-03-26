@@ -56,7 +56,19 @@
 
 (def short-consistency-name
   "A map of consistency model names to a short name."
-  {:strong-session-consistent-view "ss-consistent-view"})
+  {:strong-session-consistent-view "Consistent-View"})
+
+(defn short-client-names
+  "Given test opts, returns a short string describing the clients being used."
+  [opts]
+  (->> {:postgresql-nodes     "pg"
+        :better-sqlite3-nodes "better"
+        :sqlite3-cli-nodes    "cli"
+        :electricsql-nodes    "electric"}
+       (keep (fn [[node-type abbreviation]]
+               (when (seq (get opts node-type))
+                 abbreviation)))
+       (str/join ",")))
 
 (defn causal-test
   "Given options from the CLI, constructs a test map."
@@ -83,7 +95,8 @@
                        " " (name workload-name)
                        " " (str/join "," (->> (:consistency-models opts)
                                               (map #(short-consistency-name % (name %)))))
-                       " " (str/join "," (map name (:nemesis opts))))
+                       " " (str/join "," (map name (:nemesis opts)))
+                       " " (short-client-names opts))
             :os debian/os
             :db db
             :checker (checker/compose

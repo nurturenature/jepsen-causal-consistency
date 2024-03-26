@@ -442,7 +442,8 @@
                                    opts    (merge opts indexes)]
                                (->> @processes
                                     (map (fn [process]
-                                           (let [opts (assoc opts :read-pov #{process})]
+                                           (let [opts (assoc  opts :read-pov #{process})
+                                                 opts (update opts :directory str "/process-" process)]
                                              (:anomalies (ct/cycles! opts (partial graph opts) history)))))
                                     (apply merge-with conj))))
 
