@@ -324,14 +324,6 @@ Experiences of trying to write a checker for a last write wins register using on
 
 ----
 
-The tests will use [ElectricSQL](https://electric-sql.com/):
-  - transactional causal+ consistency
-  - local first
-  - active/active SQLite3/PostgreSQL CRDT based sync
-  - strong research team
-
-----
-
 ### Elle Consistency Model Graph Changes
 
 Look for `strong-session-PL-2+`:
@@ -349,3 +341,15 @@ Look for `strong-session-PL-2+`:
    :anomalies-ignored  [:lost-update]                    ; `lost-update`s are causally Ok, but they are PL-2+, Adya 4.1.3 ?!?
    })
 ```
+
+----
+
+### Testing ElectricSQL
+
+The test will be developed using [ElectricSQL](https://electric-sql.com/):
+  - transactional causal+ consistency
+  - local first
+  - active/active SQLite3/PostgreSQL CRDT based sync
+  - strong research team
+
+Some oh so *preliminary* [results](doc/electricsql.md).
