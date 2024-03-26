@@ -209,6 +209,56 @@ To accommodate this causal view, we only infer and evaluate r->w relations in th
 
 ----
 
+### Challenges of Checking Causal Consistency
+
+Clients can exhibit a variety of behaviors that hide replication failures. Their local view remains consistent until they are forced to merge with the system as a whole.
+
+#### Isolationist
+  - only reads/writes from/to local database
+  - does not replicate local changes
+  - does not listen to other client's updates
+
+#### Selfish
+  - does not replicate local changes
+  - does listen to other client's updates
+
+#### Cliquish 
+  - only replicates to a subset of clients
+  - only listens to a subset of other client's updates
+
+A final read followed by an additional check for Strong Convergence is necessary to expose these anomalies.
+
+----
+
+### Strong Convergence
+
+Workload:
+- generate a random mixture of reads and writes across all clients
+- let database quiesce
+- each client does a final read of all keys
+
+Check:
+  - all nodes have ok final reads
+  - final reads contain all ok writes
+  - no unexpected read values
+  - final reads are equal for all nodes
+
+----
+
+### Fault Injection
+
+Jepsen faults are real faults:
+
+  - kill (-9) the sync service on each node
+    - clients continue to read/write to the database
+    - sync service restarted
+
+Less of a fault, and more indicative of normal behavior.
+
+In a local first environment, clients will be coming and going in all manner at all times.
+
+----
+
 ### But What About *On Verifying Causal Consistency (POPL'17)* ?!?
 
 > Paraphrasing from the abstract:
@@ -223,7 +273,7 @@ To accommodate this causal view, we only infer and evaluate r->w relations in th
 
 The authors also introduce a new vocabulary for different levels of causal consistency and "bad patterns" that define them.
 
-Working through the examples in the paper, it appears that using a grow only set with a differentiated history also provides the efficiency gains using a much simpler graphing convention.
+Working through the examples in the paper, it appears that using a grow only set with a differentiated history also provides the efficiency gains exclusively using a much simpler graphing convention.
 
 It also reduces the newly introduced consistency levels and "bad patterns" into the more common colloquial definitions and anomalies of Causal Consistency:
 
@@ -231,12 +281,14 @@ Examples from the paper as a grow only set:
 - read your writes
   - (a) CM but not CCv
   - (c) CC but not CM nor CCv
-- writes follow reads?
-  - example (b) CCv but not CM (TODO: interpreting intent? follow up with verification)
+- writes follow reads
+  - (b) CCv but not CM
 - writes follow reads or monotonic reads
   - (e) not CC (nor CM, nor CCv)
 - making an argument that "sequentially consistent" is outside the common meaning of Causal Consistency
   - (d) CC, CM and CCv but not sequentially consistent
+
+Experiences of trying to write a checker for a last write wins register using only graphing confirms the paper's assertions that it is hard and expensive.
 
 ----
 
