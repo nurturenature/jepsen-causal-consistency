@@ -26,17 +26,18 @@
   (->> (:value op)
        (reduce (fn [[state error] [f k v :as mop]]
                  (case f
-                   :w [(assoc! state k v) error]
-                   :r (let [s (get state k)]
-                        (if (and s (not= s v))
-                          ; Not equal!
+                   :w [(update state k set/union #{v}) error]
+                   :r (let [expected (get state k)
+                            unread   (set/difference expected v)]
+                        (if (seq unread)
+                          ; not reading writes!
                           (reduced [state
                                     {:op       op
                                      :mop      mop
-                                     :expected s}])
+                                     :expected expected}])
                           ; OK! Either a match, or our first time seeing k.
-                          [(assoc! state k v) error]))))
-               [(transient {}) nil])
+                          [(assoc state k v) error]))))
+               [{} nil])
        second))
 
 (defn internal-cases
@@ -415,39 +416,41 @@
   ([history]
    (check {} history))
   ([opts history]
-   (let [history    (->> history
-                         h/client-ops
-                         h/oks)  ; TODO: account for :info ops
+   (let [history     (->> history
+                          h/client-ops
+                          h/oks)  ; TODO: account for :info ops
 
-         processes  (h/task history :processes []
-                            (->> history
-                                 (h/map :process)
-                                 distinct))
+         processes   (h/task history :processes []
+                             (->> history
+                                  (h/map :process)
+                                  distinct))
          read-index  (h/task history :read-index' []
                              (r-index history))
          write-index (h/task history :write-index' []
                              (w-index history))
 
-         indexes     {:processes   @processes
-                      :read-index  @read-index
-                      :write-index @write-index
-                      :read-pov    (into #{} @processes)}
-         opts        (merge opts indexes)
+         type-sanity (h/task history :type-sanity []
+                             (ct/assert-type-sanity history))
+         internal    (h/task history :internal []
+                             (internal-cases history))
 
-         type-sanity     (h/task history :type-sanity []
-                                 (ct/assert-type-sanity history))
-         cycles          (h/task history :cycles []
-                                 (->> @processes
-                                      (map (fn [process]
-                                             (let [opts (assoc opts :read-pov #{process})]
-                                               (:anomalies (ct/cycles! opts (partial graph opts) history)))))
-                                      (apply merge-with conj)))
+         cycles      (h/task history :cycles []
+                             (let [indexes {:processes   @processes
+                                            :read-index  @read-index
+                                            :write-index @write-index
+                                            :read-pov    (into #{} @processes)}
+                                   opts    (merge opts indexes)]
+                               (->> @processes
+                                    (map (fn [process]
+                                           (let [opts (assoc opts :read-pov #{process})]
+                                             (:anomalies (ct/cycles! opts (partial graph opts) history)))))
+                                    (apply merge-with conj))))
 
-         _               @type-sanity ; Will throw if problems
+         _           @type-sanity ; Will throw if problems
 
          ; Build up anomaly map
          anomalies (cond-> @cycles
-                     ;;  @internal     (assoc :internal @internal)
+                     @internal (assoc :internal @internal)
                      ;;  @g1a          (assoc :G1a @g1a)
                      ;;  @g1b          (assoc :G1b @g1b)
                      )]

@@ -8,7 +8,8 @@
 
 (def causal-opts
   "Opts to configure Elle for causal consistency."
-  {:consistency-models [:strong-session-consistent-view] ; Elle's strong-session with Adya's formalism for causal consistency
+  {:consistency-models [:strong-session-consistent-view] ; Elle's strong-session with Adya's Consistent View(PL-2+)
+   :anomalies          [:internal]                       ; basic hygiene to read your writes in a transaction
    :anomalies-ignored  [:lost-update]                    ; `lost-update`s are causally Ok, but they are PL-2+, Adya 4.1.3 ?!?
 
    ; where to store anomaly explanations, graphs

@@ -103,6 +103,16 @@
                                    {:process 2, :type :ok, :f :txn, :value [[:r :x #{1}]], :index 9}]
                                   h/history))
 
+(def valid-internal (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1}
+                          {:process 1, :type :ok, :f :txn, :value [[:r :x #{0}] [:w :x 1] [:r :x #{0 1}]], :index 3}
+                          {:process 2, :type :ok, :f :txn, :value [[:w :x 2] [:r :x #{0 2}]], :index 5}]
+                         h/history))
+
+(def invalid-internal (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1}
+                            {:process 1, :type :ok, :f :txn, :value [[:r :x #{0}] [:w :x 1] [:r :x #{0}]], :index 3}
+                            {:process 2, :type :ok, :f :txn, :value [[:w :x 2] [:r :x #{0 1}]], :index 5}]
+                           h/history))
+
 ;; On Verifying Causal Consistency (POPL'17), Bouajjani
 
 (def example-a-CM-but-not-CCv (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 1]], :index 1}
@@ -253,6 +263,19 @@
               :anomaly-types [:G-single-item-process]
               :not #{:repeatable-read :snapshot-isolation :strong-session-consistent-view}}
              (-> (cc/check opts invalid-monotonic-reads)
+                 (select-keys results-of-interest)))))))
+
+(deftest internal
+  (testing "internal"
+    (let [output-dir (str output-dir "/internal")
+          opts       (assoc workload/causal-opts :directory output-dir)]
+      (is (= {:valid? true}
+             (-> (cc/check opts valid-internal)
+                 (select-keys results-of-interest))))
+      (is (= {:valid? false
+              :anomaly-types [:internal]
+              :not #{:read-atomic}}
+             (-> (cc/check opts invalid-internal)
                  (select-keys results-of-interest)))))))
 
 (deftest Bouajjani

@@ -166,6 +166,38 @@ We combine:
 
 ----
 
+#### Internal
+- `[:internal]`
+  ```clj
+  [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1}
+   {:process 1, :type :ok, :f :txn, :value [[:r :x #{0}] [:w :x 1] [:r :x #{0}]], :index 3}
+   {:process 2, :type :ok, :f :txn, :value [[:w :x 2] [:r :x #{0 1}]], :index 5}]
+  ```
+  ```clj
+  {:internal
+   ({:op {:process 1, :type :ok, :f :txn, :value [[:r :x #{0}] [:w :x 1] [:r :x #{0}]], :index 3, :time -1},
+     :mop [:r :x #{0}],
+     :expected #{0 1}}
+    {:op {:process 2, :type :ok, :f :txn, :value [[:w :x 2] [:r :x #{0 1}]], :index 5, :time -1},
+     :mop [:r :x #{0 1}],
+     :expected #{2}})}
+  :not #{:read-atomic}
+  ```
+  
+----
+
+#### Type Sanity
+
+All read/write objects in the history are checked for type sanity.
+
+For a grow only set:
+  - keys are integers
+  - set elements are integers
+
+Throws an exception as a type sanity violation invalidates the test.
+
+----
+
 ### Issues, Impedance, and Friction with Adya
 
   - language has evolved over time
@@ -312,7 +344,8 @@ Look for `strong-session-PL-2+`:
 
 ```clj
 (def causal-opts
-  {:consistency-models [:strong-session-consistent-view] ; Elle's strong-session with Adya's formalism for causal consistency
+  {:consistency-models [:strong-session-consistent-view] ; Elle's strong-session with Adya's Consistent View(PL-2+)
+   :anomalies          [:internal]                       ; basic hygiene to read your writes in a transaction
    :anomalies-ignored  [:lost-update]                    ; `lost-update`s are causally Ok, but they are PL-2+, Adya 4.1.3 ?!?
    })
 ```
