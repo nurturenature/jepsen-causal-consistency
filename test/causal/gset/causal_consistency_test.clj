@@ -12,6 +12,12 @@
         {:process 2, :type :ok, :f :txn, :value [[:r :x #{0}] [:r :y #{0}]], :index 7, :time -1}]
        h/history))
 
+(def valid-not-G-single
+  (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1}
+        {:process 0, :type :ok, :f :txn, :value [[:r :y nil]], :index 3}
+        {:process 1, :type :ok, :f :txn, :value [[:r :x nil] [:w :y 1]], :index 5}]
+       h/history))
+
 (def valid-wr
   (->> [{:process 0, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 1, :time -1}
         {:process 0, :type :ok, :f :txn, :value [[:w :y 0]], :index 3, :time -1}
@@ -92,16 +98,70 @@
                                    {:process 2, :type :ok, :f :txn, :value [[:r :x #{1}]], :index 9}]
                                   h/history))
 
+;; On Verifying Causal Consistency (POPL'17), Bouajjani
+
+(def example-a-CM-but-not-CCv (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 1]], :index 1}
+                                    {:process 0, :type :ok, :f :txn, :value [[:r :x #{1 2}]], :index 3}
+                                    {:process 1, :type :ok, :f :txn, :value [[:w :x 2]], :index 5}
+                                    {:process 1, :type :ok, :f :txn, :value [[:r :x #{1}]], :index 7}]
+                                   h/history))
+
+(def example-b-CCv-but-not-CM (->> [{:process 0, :type :ok, :f :txn, :value [[:w :z 1]], :index 1}
+                                    {:process 0, :type :ok, :f :txn, :value [[:w :x 1]], :index 3}
+                                    {:process 0, :type :ok, :f :txn, :value [[:w :y 1]], :index 5}
+                                    {:process 1, :type :ok, :f :txn, :value [[:w :x 2]], :index 7}
+                                    {:process 1, :type :ok, :f :txn, :value [[:r :z nil]], :index 9}
+                                    {:process 1, :type :ok, :f :txn, :value [[:r :y #{1}]], :index 11}
+                                    {:process 1, :type :ok, :f :txn, :value [[:r :x #{2}]], :index 13}]
+                                   h/history))
+
+(def example-c-CC-but-not-CM-nor-CCv (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 1]], :index 1}
+                                           {:process 1, :type :ok, :f :txn, :value [[:w :x 2]], :index 3}
+                                           {:process 1, :type :ok, :f :txn, :value [[:r :x #{1}]], :index 5}
+                                           {:process 1, :type :ok, :f :txn, :value [[:r :x #{1 2}]], :index 7}]
+                                          h/history))
+
+(def example-d-CC-CM-and-CCv-but-not-sequentially-consistent
+  (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 1]], :index 1}
+        {:process 0, :type :ok, :f :txn, :value [[:r :y nil]], :index 3}
+        {:process 0, :type :ok, :f :txn, :value [[:w :y 1]], :index 5}
+        {:process 0, :type :ok, :f :txn, :value [[:r :x #{1}]], :index 7}
+        {:process 1, :type :ok, :f :txn, :value [[:w :x 2]], :index 9}
+        {:process 1, :type :ok, :f :txn, :value [[:r :y nil]], :index 11}
+        {:process 1, :type :ok, :f :txn, :value [[:w :y 2]], :index 13}
+        {:process 1, :type :ok, :f :txn, :value [[:r :x #{2}]], :index 15}]
+       h/history))
+
+(def example-e-not-CC-nor-CM-nor-CCv-interpretation-1
+  (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 1]], :index 1}
+        {:process 0, :type :ok, :f :txn, :value [[:w :y 1]], :index 3}
+        {:process 1, :type :ok, :f :txn, :value [[:r :y #{1}]], :index 5}
+        {:process 1, :type :ok, :f :txn, :value [[:w :x 2]], :index 7}
+        {:process 2, :type :ok, :f :txn, :value [[:r :x #{2}]], :index 9}
+        {:process 2, :type :ok, :f :txn, :value [[:r :x #{1}]], :index 11}]
+       h/history))
+
+(def example-e-not-CC-nor-CM-nor-CCv-interpretation-2
+  (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 1]], :index 1}
+        {:process 0, :type :ok, :f :txn, :value [[:w :y 1]], :index 3}
+        {:process 1, :type :ok, :f :txn, :value [[:r :y #{1}]], :index 5}
+        {:process 1, :type :ok, :f :txn, :value [[:w :x 2]], :index 7}
+        {:process 2, :type :ok, :f :txn, :value [[:r :x #{1 2}]], :index 9}
+        {:process 2, :type :ok, :f :txn, :value [[:r :x #{1}]], :index 11}]
+       h/history))
+
 (def output-dir
   "Base output directory for anomalies, graphs."
   "target/causal")
 
 (deftest causal-consistency
   (testing "causal-consistency"
-    (let [output-dir (str output-dir "/cc")
+    (let [output-dir (str output-dir "/causal")
           opts       (assoc workload/causal-opts :directory output-dir)]
       (is (= {:valid? true}
-             (cc/check opts valid-causal))))))
+             (cc/check opts valid-causal)))
+      (is (= {:valid? true}
+             (cc/check opts valid-not-G-single))))))
 
 (deftest wr
   (testing "w->r"
@@ -116,9 +176,9 @@
              (-> (cc/check opts invalid-wr)
                  (select-keys [:valid? :anomaly-types])))))))
 
-(deftest ryw
-  (testing "ryw"
-    (let [output-dir (str output-dir "/ryw")
+(deftest read-your-writes
+  (testing "read-your-writes"
+    (let [output-dir (str output-dir "/read-your-writes")
           opts       (assoc workload/causal-opts :directory output-dir)]
       (is (= {:valid? true}
              (cc/check opts valid-ryw)))
@@ -139,13 +199,13 @@
              (-> (cc/check opts invalid-monotonic-writes)
                  (select-keys [:valid? :anomaly-types])))))))
 
-(deftest wfr
+(deftest writes-follow-reads
   (testing "writes-follow-reads"
     (let [output-dir (str output-dir "/writes-follow-reads")
           opts       (assoc workload/causal-opts :directory output-dir)]
       (is (= {:valid? true}
              (cc/check opts valid-wfr)))
-      (is (= {:valid? false :anomaly-types [:G0-single-item-process]}
+      (is (= {:valid? false :anomaly-types [:G-single-item-process]}
              (-> (cc/check opts invalid-wfr)
                  (select-keys [:valid? :anomaly-types]))))
       (is (= {:valid? false :anomaly-types [:G-single-item-process]}
@@ -161,4 +221,31 @@
           opts       (assoc workload/causal-opts :directory output-dir)]
       (is (= {:valid? false :anomaly-types [:G-single-item-process]}
              (-> (cc/check opts invalid-monotonic-reads)
+                 (select-keys [:valid? :anomaly-types])))))))
+
+(deftest Bouajjani
+  (testing "Bouajjani"
+    (let [output-dir (str output-dir "/Bouajjani")
+          opts       (assoc workload/causal-opts :directory output-dir)]
+      (is (= {:valid? false :anomaly-types [:G-single-item-process]}
+             (-> (cc/check opts example-a-CM-but-not-CCv)
+                 (select-keys [:valid? :anomaly-types]))))
+      (is (= {:valid? false :anomaly-types [:G-single-item-process]}
+             (-> (cc/check opts example-b-CCv-but-not-CM)
+                 (select-keys [:valid? :anomaly-types]))))
+      (is (= {:valid? false :anomaly-types [:G-single-item-process]}
+             (-> (cc/check opts example-c-CC-but-not-CM-nor-CCv)
+                 (select-keys [:valid? :anomaly-types]))))
+
+      ;; note, we are making the argument that "sequentially consistent"
+      ;; isn't part of the common definition of Causal Consistency
+      (is (= {:valid? true}
+             (-> (cc/check opts example-d-CC-CM-and-CCv-but-not-sequentially-consistent)
+                 (select-keys [:valid? :anomaly-types]))))
+
+      (is (= {:valid? false :anomaly-types [:G-single-item-process]}
+             (-> (cc/check opts example-e-not-CC-nor-CM-nor-CCv-interpretation-1)
+                 (select-keys [:valid? :anomaly-types]))))
+      (is (= {:valid? false :anomaly-types [:G-single-item-process]}
+             (-> (cc/check opts example-e-not-CC-nor-CM-nor-CCv-interpretation-2)
                  (select-keys [:valid? :anomaly-types])))))))
