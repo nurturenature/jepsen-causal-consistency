@@ -6,22 +6,45 @@ Designed for testing local first systems, CRDTs, and distributed syncing.
 
 These tests have focused on stronger levels of [consistency](https://jepsen.io/consistency), e.g. snapshot-isolation, linearizability, and serializability.
 
-This project explores using Jepsen to test for [Causal Consistency](https://jepsen.io/consistency/models/causal) with Strong Convergence and atomic transactions ([Monotonic Atomic View](https://jepsen.io/consistency/models/monotonic-atomic-view)).
+This project explores using Jepsen to test for [Causal Consistency](https://jepsen.io/consistency/models/causal), with Strong Convergence, and atomic transactions ([Monotonic Atomic View](https://jepsen.io/consistency/models/monotonic-atomic-view)).
 
 ----
 
 ### Uses Elle, Jepsen's Transactional Consistency Checker
 
-#### Adya's Consistent View(PL-2+) as the base consistency model
+#### Adopts Adya's Consistent View(PL-2+) as the base consistency model
 > Level PL-2+ ensures that a transaction is placed after all transactions that causally affect it, i.e., it provides a notion of “causal consistency”.
 > 
->   -- Adya
+>   -- Adya, [Weak Consistency](https://dspace.mit.edu/handle/1721.1/149899)
 
 #### Modifies Elle's consistency model [graph](https://github.com/jepsen-io/elle/blob/main/images/models.png)
 
-Adds strong-session-consistent-view:
+Causal Consistency requires process order.
+
+But Adya doesn't include process order and anomalies with many models, importantly to us, Consistent View(PL-2+).
+
+Elle has already added a strong-session, process order and process anomalies, to most stronger models.
+
+So we complete Elle's existing consistency models by adding a strong-session-consistent-view:
   - adds process graph and process variants of anomalies
-  - fills in gap between stronger and weaker forms of strong-session consistency models 
+  - fills in the gap between existing stronger and weaker forms of strong-session consistency models 
+
+#### Building the Directed Acyclic Graph of Causal Dependencies
+
+We combine:
+
+- process order
+   
+- w->r order, the write of [k v] happens before all reads of [k v]
+   
+- w->w order, a write of [k v] is ordered after the writes of all previously observed [k v] in the process
+  - (writes follow reads)
+
+- r->w order, infer that all reads that don't observe [k v] happen before the write of [k v]
+  - ordering edges are only created for one process at a time
+  - each process requires checking itself against the full graph for cycles
+    - multiple cycle checks are expensive
+  - necessary for causal to reflect a per process view of other processes
 
 ----
 
@@ -146,7 +169,7 @@ Adds strong-session-consistent-view:
 ### Issues, Impedance, and Friction with Adya
 
   - language has evolved over time
-  - not a 1-to-1 mapping between the definition of Causal Consistency, its components and Adya's models
+  - not a 1-to-1 mapping between the definition of Causal Consistency, its components, and Adya's models
 
 #### Lost Update Anomaly
 
@@ -155,8 +178,8 @@ Lost update is a violation of Consistent View yet is a valid Causal history.
 The update isn't lost, it's eventually and consistently merged. 
 
 ```clj
-; Hlost: r1 (x0, 10) r2(x0 , 10) w2(x2 , 15) c2 w1(x1 , 14) c1
-;   [x0 << x2 << x1 ]
+; Adya's Hlost: r1 (x0, 10) r2(x0 , 10) w2(x2 , 15) c2 w1(x1 , 14) c1
+;               [x0 << x2 << x1 ]
 [{:process 1 :type :invoke :value [[:r :x nil] [:w :x 14]] :f :txn}
  {:process 2 :type :invoke :value [[:r :x nil] [:w :x 15]] :f :txn}
  {:process 2 :type :ok     :value [[:r :x 10]  [:w :x 15]] :f :txn}
@@ -167,27 +190,53 @@ The update isn't lost, it's eventually and consistently merged.
 
 G-single-item is a violation of Consistent View yet ***can*** be a valid Causal history.
 
-It is not a ww|wr inferred rw cycle,
-it's two transactions in different process observing the effects of other processes at different points in time that always move forward in time and are eventually and consistently merged.
+It is not a ww|wr inferred rw cycle, it's two transactions in different process:
+  - observing other process' at different versions
+  - always observing >= versions
+  - versions are eventually and consistently merged
+
+To accommodate this causal view, we only infer and evaluate r->w relations in the graph:
+  - one process at a time
+  - combined with the complete process, w->r, w->w(writes follow reads) graphs
+  - this is expensive  
 
 ```clj
-[{:process 0, :type :ok, :f :txn, :value [[:w :x 0]]}
- {:process 1, :type :ok, :f :txn, :value [[:r :x 0] [:w :x 1]]}
- {:process 2, :type :ok, :f :txn, :value [[:r :x 0] [:w :x 2]]}
- {:process 3, :type :ok, :f :txn, :value [[:r :x 0]]}
- {:process 3, :type :ok, :f :txn, :value [[:r :x 1]]}
- {:process 3, :type :ok, :f :txn, :value [[:r :x 2]]}]
+;; valid causal history, *not* an anomaly
+[{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1}
+ {:process 0, :type :ok, :f :txn, :value [[:r :y nil]], :index 3}
+ {:process 1, :type :ok, :f :txn, :value [[:r :x nil] [:w :y 1]], :index 5}]
  ```
 
- ##### Yet G-single-iem ***can*** also indicate a true Causal violation
- 
- Writes follow reads violation of Causal that is identified as a G-single-item:
- 
- ```clj
-[{:process 0, :type :ok, :f :txn, :value [[:w :x 0]]}
- {:process 1, :type :ok, :f :txn, :value [[:r :x 0] [:w :y 1]]}
- {:process 2, :type :ok, :f :txn, :value [[:r :y 1] [:r :x nil]]}]
- ```
+----
+
+### But What About *On Verifying Causal Consistency (POPL'17)* ?!?
+
+> Paraphrasing from the abstract:
+> 
+> checking whether one single execution is causally consistent is NP-complete
+> 
+> verifying whether all the executions of an implementation are causally consistent is undecidable
+>
+> for a read-write memory abstraction, these negative results can be circumvented if the implementations are data independent, use differentiated histories
+>
+> Bouajjani, A., Enea, C., Guerraoui, R., & Hamza, J. (2017). [On verifying causal consistency](https://sci-hub.se/https://doi.org/10.1145/3093333.3009888). ACM SIGPLAN Notices, 52(1), 626–638. doi:10.1145/3093333.3009888
+
+The authors also introduce a new vocabulary for different levels of causal consistency and "bad patterns" that define them.
+
+Working through the examples in the paper, it appears that using a grow only set with a differentiated history also provides the efficiency gains using a much simpler graphing convention.
+
+It also reduces the newly introduced consistency levels and "bad patterns" into the more common colloquial definitions and anomalies of Causal Consistency:
+
+Examples from the paper as a grow only set:
+- read your writes
+  - (a) CM but not CCv
+  - (c) CC but not CM nor CCv
+- writes follow reads?
+  - example (b) CCv but not CM (TODO: interpreting intent? follow up with verification)
+- writes follow reads or monotonic reads
+  - (e) not CC (nor CM, nor CCv)
+- making an argument that "sequentially consistent" is outside the common meaning of Causal Consistency
+  - (d) CC, CM and CCv but not sequentially consistent
 
 ----
 
