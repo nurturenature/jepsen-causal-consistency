@@ -159,6 +159,56 @@ lein run test --workload lww-register --nodes n1,n2,n3,n4 --postgresql-nodes n1,
 
 ----
 
+### Active/Active (PostgreSQL/SQLite3) Non-Atomic Replication
+
+#### Workload
+  - GSet
+  - 2 PostgreSQL jdbc clients
+  - 8 better-sqlite3 TypeScript clients
+  - 20 tps
+  - transactions a random mix of reads/writes
+
+#### SQLite3 Writes Observed by PostgreSQL Reads Non-Atomically
+
+SQLite3 Client Writes:
+```clj
+{:index 14859, :type :ok, :process 5, :f :txn,
+ :value [[:w 4 147] [:w 41 104] [:w 43 26] [:w 43 27]], :node "n6"}
+```
+
+PostgreSQL Client Reads:
+```clj
+;; reads skips over one write but do read the last two writes
+{:index 14872, :type :ok, :process 0, :f :txn,
+ :value [[:r 41 #{1...103 107}] [:r 43 #{1...27}]], :node "n1"}
+
+;; and later does read the previously omitted writes
+{:index 14915, :type :ok, :process 0, :f :txn,
+ :value [[:w 37 151] [:w 43 41] [:r 41 #{1...117}] [:w 41 118]], :node "n1"}
+```
+
+Formally:
+```
+G-single-item #0
+Let:
+  T1 = {:index 14872, :type :ok, :process 0, :f :txn,
+        :value [[:r 41 #{1...103 107}] [:r 43 #{1...27}]], :node "n1"}
+  T2 = {:index 14859, :type :ok, :process 5, :f :txn,
+        :value [[:w 4 147] [:w 41 104] [:w 43 26] [:w 43 27]], :node "n6"}
+
+Then:
+  - T1 < T2, because T1's read of [41 #{1...103 107}] did not observe T2's write of [41 104] (r->w).
+  - However, T2 < T1, because T2's write of [43 27] was read by T1 (w->r): a contradiction!
+```
+![active/active non-atomic replication](/doc/active-active-non-atomic-replication.png)
+
+Test command:
+```bash
+lein run test --workload gset --nodes n1,n2,n3,n4,n5,n6,n7,n8,n9,n10 --postgresql-nodes n1,n2 --better-sqlite3-nodes n3,n4,n5,n6,n7,n8,n9,n10 --rate 20 --time-limit 600
+```
+
+----
+
 ### Normal Operation and Strong Convergence
 
 #### Workload:
