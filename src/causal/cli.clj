@@ -66,8 +66,9 @@
         :sqlite3-cli-nodes    "cli"
         :electricsql-nodes    "electric"}
        (keep (fn [[node-type abbreviation]]
-               (when (seq (get opts node-type))
-                 abbreviation)))
+               (let [nodes-of-type (get opts node-type)]
+                 (when (seq nodes-of-type)
+                   (str (count nodes-of-type) abbreviation)))))
        (str/join ",")))
 
 (defn test-name
@@ -91,11 +92,14 @@
                   {:db         db
                    :nodes      (:nodes opts)
                    :faults     (:nemesis opts)
-                   :partition  {:targets [:one :minority-third :majority]}
+                   :partition  {:targets [:one :minority :majority :all]}
                    :pause      {:targets [:one :minority :majority :all]}
                    :kill       {:targets [:minority-third]}
                    :packet     {:targets   [:one :minority :majority :all]
-                                :behaviors [{:delay {}}]}
+                                :behaviors [{:delay {:time         :50ms
+                                                     :jitter       :10ms
+                                                     :correlation  :25%
+                                                     :distribution :normal}}]}
                    :clock      {:targets [:minority-third]}
                    :stop-start {:targets [:minority-third]}
                    :reset-db   {:targets [:minority-third]}
@@ -170,8 +174,8 @@
 
    [nil "--nemesis FAULTS" "A comma-separated list of nemesis faults to enable"
     :parse-fn parse-nemesis-spec
-    :validate [(partial every? #{:pause :partition :kill :clock :stop-start :reset-db})
-               "Faults must be partition, pause, kill, clock, stop-start, or reset-db, or the special faults all or none."]]
+    :validate [(partial every? #{:pause :partition :packet :kill :clock :stop-start :reset-db})
+               "Faults must be partition, pause, packet, kill, clock, stop-start, or reset-db, or the special faults all or none."]]
 
    [nil "--nemesis-interval SECS" "Roughly how long between nemesis operations."
     :default 5
