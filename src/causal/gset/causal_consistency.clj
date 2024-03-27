@@ -257,18 +257,14 @@
    creates an inferred r->w edge for:
      - every read of [k #{vs}] by a process in `read=pov`
      - to all writes of [k v] that were not read by any process"
-  [{:keys [read-index write-index read-pov] :as _opts} _history]
-  (let [all-write-kvs (->> write-index ; {k {v op}
-                           (map (fn [[k v->ops]]
-                                  [k (set (keys v->ops))]))
-                           (into {}))
-        g (->> read-index ; {k {#{vs} seq-ops}}
+  [{:keys [read-index write-index write-kvs read-pov] :as _opts} _history]
+  (let [g (->> read-index ; {k {#{vs} seq-ops}}
                (reduce-nested (fn [g k vs read-ops]
                                 (let [read-ops  (->> read-ops
                                                      (filter (fn [{:keys [process] :as _op}]
                                                                (contains? read-pov process)))
                                                      (into #{}))
-                                      unread-vs (set/difference (get all-write-kvs k) vs)
+                                      unread-vs (set/difference (get write-kvs k) vs)
                                       write-ops (->> unread-vs
                                                      (map (fn [v]
                                                             (get-in write-index [k v])))
@@ -435,16 +431,24 @@
                              (internal-cases history))
 
          cycles      (h/task history :cycles []
-                             (let [indexes {:processes   @processes
+                             (let [write-kvs (->> @write-index ; {k {v op}
+                                                  (map (fn [[k v->ops]]
+                                                         [k (set (keys v->ops))]))
+                                                  (into {}))   ; {k #{vs}}
+                                   indexes {:processes   @processes
                                             :read-index  @read-index
                                             :write-index @write-index
+                                            :write-kvs   write-kvs
                                             :read-pov    (into #{} @processes)}
                                    opts    (merge opts indexes)]
                                (->> @processes
                                     (map (fn [process]
-                                           (let [opts (assoc  opts :read-pov #{process})
-                                                 opts (update opts :directory str "/process-" process)]
-                                             (:anomalies (ct/cycles! opts (partial graph opts) history)))))
+                                           (let [task-name (keyword (str "process-" process))]
+                                             (h/task history task-name []
+                                                     (let [opts (assoc  opts :read-pov #{process})
+                                                           opts (update opts :directory str "/process-" process)]
+                                                       (:anomalies (ct/cycles! opts (partial graph opts) history)))))))
+                                    (map deref)
                                     (apply merge-with conj))))
 
          _           @type-sanity ; Will throw if problems
