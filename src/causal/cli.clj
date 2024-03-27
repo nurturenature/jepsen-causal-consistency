@@ -70,6 +70,17 @@
                  abbreviation)))
        (str/join ",")))
 
+(defn test-name
+  "Given opts, returns a meaningful test name."
+  [opts]
+  (str "Electric"
+       " " (name (:workload opts))
+       " " (str/join "," (->> (:consistency-models opts)
+                              (map #(short-consistency-name % (name %)))))
+       " " (str/join "," (map name (:nemesis opts)))
+       " " (short-client-names opts)
+       " " (:rate opts) "tps-" (:time-limit opts) "s"))
+
 (defn causal-test
   "Given options from the CLI, constructs a test map."
   [opts]
@@ -91,23 +102,18 @@
                    :interval   (:nemesis-interval opts)})]
     (merge tests/noop-test
            opts
-           {:name (str "Electric"
-                       " " (name workload-name)
-                       " " (str/join "," (->> (:consistency-models opts)
-                                              (map #(short-consistency-name % (name %)))))
-                       " " (str/join "," (map name (:nemesis opts)))
-                       " " (short-client-names opts))
-            :os debian/os
-            :db db
-            :checker (checker/compose
-                      {:perf               (checker/perf
-                                            {:nemeses (:perf nemesis)})
-                       :timeline           (timeline/html)
-                       :stats              (checker/stats)
-                       :exceptions         (checker/unhandled-exceptions)
-                       :clock              (checker/clock-plot)
-                       :logs-client        (checker/log-file-pattern #"SatelliteError" sqlite3/log-file-short)
-                       :workload           (:checker workload)})
+           {:name      (test-name opts)
+            :os        debian/os
+            :db        db
+            :checker   (checker/compose
+                        {:perf               (checker/perf
+                                              {:nemeses (:perf nemesis)})
+                         :timeline           (timeline/html)
+                         :stats              (checker/stats)
+                         :exceptions         (checker/unhandled-exceptions)
+                         :clock              (checker/clock-plot)
+                         :logs-client        (checker/log-file-pattern #"SatelliteError" sqlite3/log-file-short)
+                         :workload           (:checker workload)})
             :client    (:client workload)
             :nemesis   (:nemesis nemesis)
             :generator (gen/phases
