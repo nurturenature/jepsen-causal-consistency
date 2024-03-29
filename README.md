@@ -186,6 +186,23 @@ We combine:
   
 ----
 
+#### G1a (aborted read)
+- `[:G1a]`
+  ```clj
+  [{:process 0, :type :ok,   :f :txn, :value [[:w :x 0]], :index 1}
+   {:process 0, :type :fail, :f :txn, :value [[:w :x 1]], :index 3}
+   {:process 1, :type :ok,   :f :txn, :value [[:r :x #{0 1}]], :index 5}]
+  ```
+  ```clj
+  {:G1a
+   ({:writer {:process 0, :type :fail, :f :txn, :value [[:w :x 1]], :index 3, :time -1},
+     :readers #{{:process 1, :type :ok, :f :txn, :value [[:r :x #{0 1}]], :index 5, :time -1}},
+     :read-of-failed [:x #{1}]})}
+  :not #{:read-committed}
+  ```
+
+----
+
 #### G1b (intermediate read)
 - `[:G1b]`
   ```clj
