@@ -82,20 +82,37 @@
   This function takes a history (which should include :fail events!), and
   produces a sequence of error objects, each representing an operation which
   read state written by a failed transaction."
-  [history]
-  ; Build a map of keys to maps of failed elements to the ops that appended
-  ; them.
-  (let [failed (ct/failed-write-indices #{:w} history)]
-    ; Look for ok ops with a read mop of a failed append
-    (->> history
-         h/oks
-         ct/op-mops
-         (keep (fn [[^Op op [f k v :as mop]]]
-                 (when (= :r f)
-                   (when-let [writer-index (get-in failed [k v])]
-                     {:op        op
-                      :mop       mop
-                      :writer    (h/get-index history writer-index)}))))
+  [{:keys [read-index] :as _indexes} history]
+  (let [; map to [w-k w-vs op]
+        all-w-kvs (->> history
+                       h/fails
+                       (mapcat (fn [{:keys [value] :as op}]
+                                 (->>  value
+                                       w-kvm
+                                       (map (fn [[w-k w-vs]]
+                                              [w-k w-vs op]))))))]
+    (->> all-w-kvs
+         (mapcat (fn [[w-k w-vs op]]
+                   (let [; all read vs for write k
+                         all-r-vs (->> w-k
+                                       (get read-index) ; {k {#{vs} seq-ops}}
+                                       keys)
+                         ; read vs that read any failed write vs
+                         failed-r-vs (->> all-r-vs
+                                          (filter (fn [r-vs]
+                                                    (let [common-vs (set/intersection r-vs w-vs)]
+                                                      (seq common-vs)))))]
+                       ; errors for all failed read vs
+                     (->> failed-r-vs
+                          (keep (fn [r-vs]
+                                  (let [failed-r-ops (->> (get-in read-index [w-k r-vs])
+                                                          (into #{}))
+                                        ; don't self report, we're a failed read
+                                        failed-r-ops (disj failed-r-ops op)]
+                                    (when (seq failed-r-ops)
+                                      {:writer   op
+                                       :readers  failed-r-ops
+                                       :read-of-failed  [w-k (into (sorted-set) (set/intersection w-vs r-vs))]}))))))))
          seq)))
 
 (defn g1b-cases
@@ -426,24 +443,25 @@
    (check {} history))
   ([opts history]
    (let [history     (->> history
-                          h/client-ops
+                          h/client-ops)
+         history-oks (->> history
                           h/oks)  ; TODO: account for :info ops
 
-         processes   (h/task history :processes []
-                             (->> history
+         processes   (h/task history-oks :processes []
+                             (->> history-oks
                                   (h/map :process)
                                   distinct))
-         read-index  (h/task history :read-index' []
-                             (r-index history))
-         write-index (h/task history :write-index' []
-                             (w-index history))
+         read-index  (h/task history-oks :read-index' []
+                             (r-index history-oks))
+         write-index (h/task history-oks :write-index' []
+                             (w-index history-oks))
 
-         type-sanity (h/task history :type-sanity []
-                             (ct/assert-type-sanity history))
-         internal    (h/task history :internal []
-                             (internal-cases history))
+         type-sanity (h/task history-oks :type-sanity []
+                             (ct/assert-type-sanity history-oks))
+         internal    (h/task history-oks :internal []
+                             (internal-cases history-oks))
 
-         indexes     (h/task history :indexes []
+         indexes     (h/task history-oks :indexes []
                              {:processes   @processes
                               :read-index  @read-index
                               :write-index @write-index
@@ -453,18 +471,20 @@
                                                 (into {}))   ; {k #{vs}}
                               :read-pov    (into #{} @processes)})
 
-         G1b         (h/task history :G1b []
-                             (g1b-cases @indexes history))
+         G1a         (h/task history :G1a []
+                             (g1a-cases @indexes history))  ; history includes {:type :fail} ops
+         G1b         (h/task history-oks :G1b []
+                             (g1b-cases @indexes history-oks))
 
-         cycles      (h/task history :cycles []
+         cycles      (h/task history-oks :cycles []
                              (let [opts (merge opts @indexes)]
                                (->> @processes
                                     (map (fn [process]
                                            (let [task-name (keyword (str "process-" process))]
-                                             (h/task history task-name []
+                                             (h/task history-oks task-name []
                                                      (let [opts (assoc  opts :read-pov #{process})
                                                            opts (update opts :directory str "/process-" process)]
-                                                       (:anomalies (ct/cycles! opts (partial graph opts) history)))))))
+                                                       (:anomalies (ct/cycles! opts (partial graph opts) history-oks)))))))
                                     (map deref)
                                     (apply merge-with conj))))
 
@@ -473,7 +493,7 @@
          ; Build up anomaly map
          anomalies (cond-> @cycles
                      @internal (assoc :internal @internal)
-                     ;@g1a     (assoc :G1a @g1a)
+                     @G1a      (assoc :G1a @G1a)
                      @G1b      (assoc :G1b @G1b))]
      (ct/result-map opts anomalies))))
 

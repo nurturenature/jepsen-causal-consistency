@@ -113,6 +113,16 @@
                             {:process 2, :type :ok, :f :txn, :value [[:w :x 2] [:r :x #{0 1}]], :index 5}]
                            h/history))
 
+(def invalid-G1a (->> [{:process 0, :type :ok,   :f :txn, :value [[:w :x 0]], :index 1}
+                       {:process 0, :type :fail, :f :txn, :value [[:w :x 1]], :index 3}
+                       {:process 1, :type :ok,   :f :txn, :value [[:r :x #{0 1}]], :index 5}]
+                      h/history))
+
+(def invalid-G1a-mops (->> [{:process 0, :type :ok,   :f :txn, :value [[:w :x 0] [:w :x 1]], :index 1}
+                            {:process 0, :type :fail, :f :txn, :value [[:w :x 2] [:w :x 3]], :index 3}
+                            {:process 1, :type :ok,   :f :txn, :value [[:r :x #{0 1 2 3}]], :index 5}]
+                           h/history))
+
 (def invalid-G1b (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0] [:w :x 1]], :index 1}
                        {:process 1, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 3}]
                       h/history))
@@ -280,6 +290,21 @@
               :anomaly-types [:internal]
               :not #{:read-atomic}}
              (-> (cc/check opts invalid-internal)
+                 (select-keys results-of-interest)))))))
+
+(deftest G1a
+  (testing "G1a"
+    (let [output-dir (str output-dir "/G1a")
+          opts       (assoc workload/causal-opts :directory output-dir)]
+      (is (= {:valid? false
+              :anomaly-types [:G1a]
+              :not #{:read-committed}}
+             (-> (cc/check opts invalid-G1a)
+                 (select-keys results-of-interest))))
+      (is (= {:valid? false
+              :anomaly-types [:G1a]
+              :not #{:read-committed}}
+             (-> (cc/check opts invalid-G1a-mops)
                  (select-keys results-of-interest)))))))
 
 (deftest G1b
