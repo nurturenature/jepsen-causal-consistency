@@ -14,6 +14,31 @@
              [store :as store]])
   (:import (jepsen.history Op)))
 
+(defn r-kvm
+  "Given a transaction, returns a
+   {k #{vs}} of all read values.
+     - if multiple reads of k, last read is returned
+     - will return {k nil} for nil reads of k
+     - returns nil if no reads"
+  [txn]
+  (->> txn
+       (reduce (fn [kvsm [f k v]]
+                 (case f
+                   :r (assoc kvsm k v)
+                   :w kvsm))
+               nil)))
+
+(defn w-kvm
+  "Given a transaction, returns a
+   {k #{vs}} of all write values."
+  [txn]
+  (->> txn
+       (reduce (fn [kvm [f k v]]
+                 (case f
+                   :w (update kvm k set/union #{v})
+                   :r kvm))
+               {})))
+
 (defn op-internal-case
   "Given an op, returns a map describing internal consistency violations, or
   nil otherwise. Our maps are:
@@ -78,53 +103,41 @@
   state for key k that was written by another transaction, T1, that was not
   T1's final update to k.
 
-  This function takes a history (which should include :fail events!), and
-  produces a sequence of error objects, each representing a read of an
-  intermediate state."
-  [history]
-  ; Build a map of keys to maps of intermediate elements to the ops that wrote
-  ; them
-  (let [im (ct/intermediate-write-indices #{:w} history)]
-    ; Look for ok ops with a read mop of an intermediate append
-    (->> history
-         h/oks
-         ct/op-mops
-         (keep (fn [[^Op op [f k v :as mop]]]
-                 (when (= :r f)
-									 ; We've got an illegal read if value came from an
-				           ; intermediate append.
-                   (when-let [writer-index (get-in im [k v])]
-                     ; Internal reads are OK!
-                     (when (not= (.index op) writer-index)
-                       {:op       op
-                        :mop      mop
-                        :writer   (h/get-index history writer-index)})))))
+  This function takes a read index and a history, and produces a sequence of error objects,
+  each representing reads of an intermediate state."
+  [{:keys [read-index] :as _indexes} history]
+  (let [; map to [w-k w-vs op]
+        all-w-kvs (->> history
+                       (mapcat (fn [{:keys [value] :as op}]
+                                 (->>  value
+                                       w-kvm
+                                       (map (fn [[w-k w-vs]]
+                                              [w-k w-vs op]))))))]
+    (->> all-w-kvs
+         (mapcat (fn [[w-k w-vs op]]
+                   (let [; all read vs for write k
+                         all-r-vs (->> w-k
+                                       (get read-index) ; {k {#{vs} seq-ops}}
+                                       keys)
+                         ; read vs that read some but not all write vs
+                         inter-r-vs (->> all-r-vs
+                                         (filter (fn [r-vs]
+                                                   (let [common-vs (set/intersection r-vs w-vs)]
+                                                     (and (seq common-vs)
+                                                          (not= (count common-vs)
+                                                                (count w-vs)))))))]
+                     ; errors for all intermediate read vs
+                     (->> inter-r-vs
+                          (keep (fn [r-vs]
+                                  (let [inter-r-ops (->> (get-in read-index [w-k r-vs])
+                                                         (into #{}))
+                                        ; don't self report, internal reads are OK
+                                        inter-r-ops (disj inter-r-ops op)]
+                                    (when (seq inter-r-ops)
+                                      {:writer   op
+                                       :readers  inter-r-ops
+                                       :missing  [w-k (set/difference w-vs r-vs)]}))))))))
          seq)))
-
-(defn r-kvm
-  "Given a transaction, returns a
-   {k #{vs}} of all read values.
-     - if multiple reads of k, last read is returned
-     - will return {k nil} for nil reads of k
-     - returns nil if no reads"
-  [txn]
-  (->> txn
-       (reduce (fn [kvsm [f k v]]
-                 (case f
-                   :r (assoc kvsm k v)
-                   :w kvsm))
-               nil)))
-
-(defn w-kvm
-  "Given a transaction, returns a
-   {k #{vs}} of all write values."
-  [txn]
-  (->> txn
-       (reduce (fn [kvm [f k v]]
-                 (case f
-                   :w (update kvm k set/union #{v})
-                   :r kvm))
-               {})))
 
 (defn reduce-kvm
   "Reduces over a kvm, {k #{vs}}, with (fn acc k v) for all ks/vs.
@@ -430,17 +443,21 @@
          internal    (h/task history :internal []
                              (internal-cases history))
 
+         indexes     (h/task history :indexes []
+                             {:processes   @processes
+                              :read-index  @read-index
+                              :write-index @write-index
+                              :write-kvs   (->> @write-index ; {k {v op}
+                                                (map (fn [[k v->ops]]
+                                                       [k (set (keys v->ops))]))
+                                                (into {}))   ; {k #{vs}}
+                              :read-pov    (into #{} @processes)})
+
+         G1b         (h/task history :G1b []
+                             (g1b-cases @indexes history))
+
          cycles      (h/task history :cycles []
-                             (let [write-kvs (->> @write-index ; {k {v op}
-                                                  (map (fn [[k v->ops]]
-                                                         [k (set (keys v->ops))]))
-                                                  (into {}))   ; {k #{vs}}
-                                   indexes {:processes   @processes
-                                            :read-index  @read-index
-                                            :write-index @write-index
-                                            :write-kvs   write-kvs
-                                            :read-pov    (into #{} @processes)}
-                                   opts    (merge opts indexes)]
+                             (let [opts (merge opts @indexes)]
                                (->> @processes
                                     (map (fn [process]
                                            (let [task-name (keyword (str "process-" process))]
@@ -456,9 +473,8 @@
          ; Build up anomaly map
          anomalies (cond-> @cycles
                      @internal (assoc :internal @internal)
-                     ;;  @g1a          (assoc :G1a @g1a)
-                     ;;  @g1b          (assoc :G1b @g1b)
-                     )]
+                     ;@g1a     (assoc :G1a @g1a)
+                     @G1b      (assoc :G1b @G1b))]
      (ct/result-map opts anomalies))))
 
 (defn checker

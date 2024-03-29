@@ -113,6 +113,10 @@
                             {:process 2, :type :ok, :f :txn, :value [[:w :x 2] [:r :x #{0 1}]], :index 5}]
                            h/history))
 
+(def invalid-G1b (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0] [:w :x 1]], :index 1}
+                       {:process 1, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 3}]
+                      h/history))
+
 ;; On Verifying Causal Consistency (POPL'17), Bouajjani
 
 (def example-a-CM-but-not-CCv (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 1]], :index 1}
@@ -276,6 +280,16 @@
               :anomaly-types [:internal]
               :not #{:read-atomic}}
              (-> (cc/check opts invalid-internal)
+                 (select-keys results-of-interest)))))))
+
+(deftest G1b
+  (testing "G1b"
+    (let [output-dir (str output-dir "/G1b")
+          opts       (assoc workload/causal-opts :directory output-dir)]
+      (is (= {:valid? false
+              :anomaly-types [:G-single-item :G1b]
+              :not #{:read-committed}}
+             (-> (cc/check opts invalid-G1b)
                  (select-keys results-of-interest)))))))
 
 (deftest Bouajjani

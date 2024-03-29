@@ -186,6 +186,22 @@ We combine:
   
 ----
 
+#### G1b (intermediate read)
+- `[:G1b]`
+  ```clj
+  [{:process 0, :type :ok, :f :txn, :value [[:w :x 0] [:w :x 1]], :index 1}
+   {:process 1, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 3}]
+  ```
+  ```clj
+  {:G1b
+   ({:writer {:process 0, :type :ok, :f :txn, :value [[:w :x 0] [:w :x 1]], :index 1},
+     :readers #{{:process 1, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 3}},
+     :missing [:x #{1}]})}
+  :not #{:read-committed}
+  ```
+
+----
+
 #### Type Sanity
 
 All read/write objects in the history are checked for type sanity.

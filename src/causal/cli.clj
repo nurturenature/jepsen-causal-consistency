@@ -92,7 +92,7 @@
                   {:db         db
                    :nodes      (:nodes opts)
                    :faults     (:nemesis opts)
-                   :partition  {:targets [:one :minority :majority :all]}
+                   :partition  {:targets [:one :minority-third :majority :majorities-ring]}
                    :pause      {:targets [:one :minority :majority :all]}
                    :kill       {:targets [:minority-third]}
                    :packet     {:targets   [:one :minority :majority :all]
