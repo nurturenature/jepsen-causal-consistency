@@ -81,11 +81,11 @@ conn.pragma('journal_mode = WAL')
 >
 >   -- ElectricSQL [roadmap](https://electric-sql.com/docs/reference/roadmap), [failure modes](https://electric-sql.com/docs/reference/roadmap#failure-modes)
 
-The tests below show failure modes:
+The test results below reflect an alpha release and show failure modes:
   - at relatively low transaction rates
   - over relatively short periods of time
   - when going online/offline
-  - using active/active sync when updating
+  - using active/active sync
 
 ----
 
@@ -168,7 +168,7 @@ lein run test --workload lww-register --nodes n1,n2,n3,n4 --postgresql-nodes n1,
   - 20 tps
   - transactions a random mix of reads/writes
 
-#### SQLite3 Writes Observed by PostgreSQL Reads Non-Atomically
+#### SQLite3 Client Writes Observed by PostgreSQL Client Reads Non-Atomically
 
 SQLite3 Client Writes:
 ```clj
@@ -189,7 +189,7 @@ PostgreSQL Client Reads:
 
 Formally:
 ```
-G-single-item #0
+G-single-item
 Let:
   T1 = {:index 14872, :type :ok, :process 0, :f :txn,
         :value [[:r 41 #{1...103 107}] [:r 43 #{1...27}]], :node "n1"}
@@ -201,6 +201,8 @@ Then:
   - However, T2 < T1, because T2's write of [43 27] was read by T1 (w->r): a contradiction!
 ```
 ![active/active non-atomic replication](/doc/active-active-non-atomic-replication.png)
+
+GitHub [issue](https://github.com/electric-sql/electric/issues/1112).
 
 Test command:
 ```bash
