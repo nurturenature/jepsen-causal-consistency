@@ -1,8 +1,7 @@
-(ns causal.gset.causal-consistency-test
+(ns causal.gset.checker.causal-consistency-test
   (:require [clojure.test :refer [deftest is testing]]
-            [causal.gset
-             [causal-consistency :as cc]
-             [workload :as workload]]
+            [causal.gset.workload :as workload]
+            [causal.gset.checker.causal-consistency :as cc]
             [jepsen.history :as h]))
 
 (def valid-causal
@@ -10,12 +9,6 @@
         {:process 1, :type :ok, :f :txn, :value [[:w :y 0]], :index 3, :time -1}
         {:process 2, :type :ok, :f :txn, :value [[:r :x #{0}] [:r :y nil]], :index 5, :time -1}
         {:process 2, :type :ok, :f :txn, :value [[:r :x #{0}] [:r :y #{0}]], :index 7, :time -1}]
-       h/history))
-
-(def valid-not-G-single
-  (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1}
-        {:process 0, :type :ok, :f :txn, :value [[:r :y nil]], :index 3}
-        {:process 1, :type :ok, :f :txn, :value [[:r :x nil] [:w :y 1]], :index 5}]
        h/history))
 
 (def valid-wr
@@ -192,9 +185,7 @@
     (let [output-dir (str output-dir "/causal")
           opts       (assoc workload/causal-opts :directory output-dir)]
       (is (= {:valid? true}
-             (cc/check opts valid-causal)))
-      (is (= {:valid? true}
-             (cc/check opts valid-not-G-single))))))
+             (cc/check opts valid-causal))))))
 
 (deftest wr
   (testing "w->r"

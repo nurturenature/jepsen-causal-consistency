@@ -1,6 +1,6 @@
-(ns causal.gset.strong-convergence-test
+(ns causal.gset.checker.strong-convergence-test
   (:require [clojure.test :refer [deftest is testing]]
-            [causal.gset.strong-convergence :as sc]
+            [causal.gset.checker.strong-convergence :as sc]
             [jepsen
              [checker :as checker]
              [history :as h]]))

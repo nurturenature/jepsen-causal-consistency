@@ -1,6 +1,6 @@
 (ns causal.gset.workload
-  (:require [causal.gset
-             [client :as client]
+  (:require [causal.gset.client :as client]
+            [causal.gset.checker
              [causal-consistency :as cc]
              [strong-convergence :as sc]]
             [causal.util :as util]

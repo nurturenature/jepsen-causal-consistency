@@ -1,5 +1,5 @@
 (ns causal.gset.client
-  (:require [causal.gset.strong-convergence :as sc]
+  (:require [causal.gset.checker.strong-convergence :as sc]
             [causal.sqlite3 :as sqlite3]
             [cheshire.core :as json]
             [clj-http.client :as http]

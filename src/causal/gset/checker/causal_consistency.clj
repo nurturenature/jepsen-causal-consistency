@@ -1,4 +1,4 @@
-(ns causal.gset.causal-consistency
+(ns causal.gset.checker.causal-consistency
   (:require [bifurcan-clj
              [core :as b]]
             [clojure.set :as set]

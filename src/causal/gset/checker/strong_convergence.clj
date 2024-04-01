@@ -1,4 +1,4 @@
-(ns causal.gset.strong-convergence
+(ns causal.gset.checker.strong-convergence
   (:require [clojure.set :as set]
             [elle.rw-register :as rw]
             [jepsen
