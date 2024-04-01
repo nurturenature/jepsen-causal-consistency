@@ -184,11 +184,9 @@
   "Given a history, returns a read index:
    ```
    {k {#{vs} seq-ops}}
-   ```
-   for all :ok transactions."
+   ```"
   [history]
   (->> history
-       h/oks
        (reduce (fn [index {:keys [value] :as op}]
                  (->> value
                       r-kvm
@@ -201,11 +199,9 @@
   "Given a history, returns a write index:
    ```
    {k {v op} ;; writes are unique
-   ```
-   for all :ok transactions."
+   ```"
   [history]
   (->> history
-       h/oks
        (reduce (fn [index {:keys [value] :as op}]
                  ; add every [k v] that was written to the map
                  (->> value
