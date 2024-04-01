@@ -46,6 +46,11 @@ We combine:
     - multiple cycle checks are expensive
   - necessary for causal to reflect a per process view of other processes
 
+- r->r order, inferred through combining process + wr + ww + rw
+  - use of process + wr + ww + rw is
+    - better at catching anomalies across diverse keys in transactions
+    - provides more explicit explanation of cycle dependencies
+
 ----
 
 ### Adya Anomalies Expressed
@@ -250,27 +255,6 @@ The update isn't lost, it's eventually and consistently merged.
  {:process 2 :type :ok     :value [[:r :x 10]  [:w :x 15]] :f :txn}
  {:process 1 :type :ok     :value [[:r :x 10]  [:w :x 14]] :f :txn}]
 ```
-
-#### G-single-item Anomaly 
-
-G-single-item is a violation of Consistent View yet ***can*** be a valid Causal history.
-
-It is not a ww|wr inferred rw cycle, it's two transactions in different process:
-  - observing other process' at different versions
-  - always observing >= versions
-  - versions are eventually and consistently merged
-
-To accommodate this causal view, we only infer and evaluate r->w relations in the graph:
-  - one process at a time
-  - combined with the complete process, w->r, w->w(writes follow reads) graphs
-  - this is expensive  
-
-```clj
-;; valid causal history, *not* an anomaly
-[{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1}
- {:process 0, :type :ok, :f :txn, :value [[:r :y nil]], :index 3}
- {:process 1, :type :ok, :f :txn, :value [[:r :x nil] [:w :y 1]], :index 5}]
- ```
 
 ----
 
