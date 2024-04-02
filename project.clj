@@ -12,7 +12,7 @@
                  [org.postgresql/postgresql "42.7.1"]]
   :jvm-opts ["-Djava.awt.headless=true"]
   :main causal.cli
-  :repl-options {:init-ns causal.cli}
+  :repl-options {:init-ns causal.gset.checker.causal-consistency}
   :plugins [[lein-codox "0.10.8"]
             [lein-localrepo "0.5.4"]]
   :codox {:output-path "target/doc/"

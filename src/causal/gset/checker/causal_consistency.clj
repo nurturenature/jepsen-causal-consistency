@@ -11,8 +11,7 @@
             [jepsen
              [checker :as checker]
              [history :as h]
-             [store :as store]])
-  (:import (jepsen.history Op)))
+             [store :as store]]))
 
 (defn r-kvm
   "Given a transaction, returns a
@@ -40,30 +39,44 @@
                {})))
 
 (defn op-internal-case
-  "Given an op, returns a map describing internal consistency violations, or
-  nil otherwise. Our maps are:
+  "Given an op, returns nil or a map describing the first internal consistency violation:
+   ```
+   {:type   type of violation, :read-your-writes or :monotonic-reads
+    :op     operation which went wrong
+    :mop    micro-operation which went wrong
+    :unread [k #{v}] missing from read}
+   ```"
+  [{:keys [value] :as op}]
+  (let [[error _prev-r _new-w]
+        (->> value
+             (reduce (fn [[_error prev-r new-w] [f k v :as mop]]
+                       (case f
+                         :w [nil prev-r (update new-w k set/union #{v})]
+                         :r (let [prev-r'  (get prev-r k)
+                                  new-w'   (get new-w k)
+                                  unread-w (set/difference new-w' v)
+                                  missed-r (set/difference prev-r' v)]
+                              (cond
+                                (seq unread-w)
+                                (reduced [{:type   :read-your-writes
+                                           :op     op
+                                           :mop    mop
+                                           :unread [k unread-w]}
+                                          nil nil])
 
-      {:op        The operation which went wrong
-       :mop       The micro-operation which went wrong
-       :expected  The state we expected to observe.}"
-  [op]
-  ; We maintain a map of keys to expected states.
-  (->> (:value op)
-       (reduce (fn [[state error] [f k v :as mop]]
-                 (case f
-                   :w [(update state k set/union #{v}) error]
-                   :r (let [expected (get state k)
-                            unread   (set/difference expected v)]
-                        (if (seq unread)
-                          ; not reading writes!
-                          (reduced [state
-                                    {:op       op
-                                     :mop      mop
-                                     :expected expected}])
-                          ; OK! Either a match, or our first time seeing k.
-                          [(assoc state k v) error]))))
-               [{} nil])
-       second))
+                                (seq missed-r)
+                                (reduced [{:type   :monotonic-reads
+                                           :op     op
+                                           :mop    mop
+                                           :unread [k missed-r]}
+                                          nil nil])
+
+                                ; reasonable read
+                                :else [nil
+                                       (assoc prev-r k v)
+                                       (dissoc new-w k)]))))
+                     [nil nil nil]))]
+    error))
 
 (defn internal-cases
   "Given a history, finds operations which exhibit internal consistency

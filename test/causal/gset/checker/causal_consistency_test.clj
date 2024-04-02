@@ -101,10 +101,15 @@
                           {:process 2, :type :ok, :f :txn, :value [[:w :x 2] [:r :x #{0 2}]], :index 5}]
                          h/history))
 
-(def invalid-internal (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1}
-                            {:process 1, :type :ok, :f :txn, :value [[:r :x #{0}] [:w :x 1] [:r :x #{0}]], :index 3}
-                            {:process 2, :type :ok, :f :txn, :value [[:w :x 2] [:r :x #{0 1}]], :index 5}]
-                           h/history))
+(def invalid-internal-ryw (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1}
+                                {:process 1, :type :ok, :f :txn, :value [[:r :x #{0}] [:w :x 1] [:r :x #{0}]], :index 3}
+                                {:process 2, :type :ok, :f :txn, :value [[:w :x 2] [:r :x #{0 1}]], :index 5}]
+                               h/history))
+
+(def invalid-internal-mono-reads (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1}
+                                       {:process 1, :type :ok, :f :txn, :value [[:r :x #{0}] [:w :x 1] [:r :x #{1}]], :index 3}
+                                       {:process 2, :type :ok, :f :txn, :value [[:r :x #{0}] [:r :x #{0 1}] [:r :x #{0}]], :index 5}]
+                                      h/history))
 
 (def invalid-G1a (->> [{:process 0, :type :ok,   :f :txn, :value [[:w :x 0]], :index 1}
                        {:process 0, :type :fail, :f :txn, :value [[:w :x 1]], :index 3}
@@ -280,7 +285,12 @@
       (is (= {:valid? false
               :anomaly-types [:internal]
               :not #{:read-atomic}}
-             (-> (cc/check opts invalid-internal)
+             (-> (cc/check opts invalid-internal-ryw)
+                 (select-keys results-of-interest))))
+      (is (= {:valid? false
+              :anomaly-types [:internal]
+              :not #{:read-atomic}}
+             (-> (cc/check opts invalid-internal-mono-reads)
                  (select-keys results-of-interest)))))))
 
 (deftest G1a
