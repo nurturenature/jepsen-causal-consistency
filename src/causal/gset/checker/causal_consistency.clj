@@ -354,29 +354,41 @@
     (str a-name "'s write of " [k v] " was observed by process " process " before it executed " b-name " (wfr)")))
 
 (defn wfr-order
-  "Given a write-index, history and a process, create a w->w transaction graph with writes follow reads ordering."
-  [{:keys [write-index] :as _opts} history process]
+  "Given a write-index, history, and a process,
+   create a w->w transaction graph with writes follow reads ordering for that process.
+   
+   Go through process history mop-by-mop to get WFR ordering both within a transaction and between transactions.
+   Only create one w->w edge to the process for the first observation of a write of [k v].
+   Succeeding observations are transitively happens before due to process order."
+  [{:keys [write-index] :as _indexes} history process]
   (let [history (->> history
                      (h/filter (comp #{process} :process)))
-        [g _observing]
+        [g _observing _observed]
         (->> history
-             (reduce (fn [[g observing] {:keys [value] :as op}]
-                       (let [r-kvm        (r-kvm value)
-                             w-kvm        (w-kvm  value)
-                             before-w-ops (->> observing
-                                               (mapcat (fn [[k vs]]
-                                                         (->> vs
-                                                              (map (fn [v]
-                                                                     (get-in write-index [k v]))))))
-                                               (into #{}))
-                             ; don't link to self
-                             before-w-ops (disj before-w-ops op)]
-                         (if (seq w-kvm)
-                           [(g/link-all-to g before-w-ops op ww)
-                            r-kvm]
-                           [g
-                            (merge-with set/union observing r-kvm)])))
-                     [(b/linear (g/op-digraph)) nil]))]
+             ct/op-mops
+             (reduce (fn [[g observing observed] [op [mop-f mop-k mop-v :as _mop]]]
+                       (case mop-f
+                         :r [g
+                             (update observing mop-k set/union mop-v)   ; union all observations regardless of monotonic reads
+                             observed]
+                         :w (let [new-k-vs     (->> observing
+                                                    (keep (fn [[o-k o-vs]]
+                                                            (let [new-vs (set/difference o-vs (get observed o-k))]
+                                                              (when (seq new-vs)
+                                                                [o-k new-vs]))))
+                                                    (into {}))
+                                  before-w-ops (->> new-k-vs
+                                                    (mapcat (fn [[new-k new-vs]]
+                                                              (->> new-vs
+                                                                   (map (fn [new-v]
+                                                                          (get-in write-index [new-k new-v]))))))
+                                                    (into #{}))
+                                  ; don't link to self
+                                  before-w-ops (disj before-w-ops op)]
+                              [(g/link-all-to g before-w-ops op ww)
+                               nil
+                               (merge-with set/union observed new-k-vs)])))
+                     [(b/linear (g/op-digraph)) nil nil]))]
     (b/forked g)))
 
 (defn wfr-graph
