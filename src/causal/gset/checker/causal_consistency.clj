@@ -250,8 +250,9 @@
          " was read by " b-name " (w->r)")))
 
 (defn wr-graph
-  "Given indexes for a history, and an unused history to match the calling APIs,
-   creates a w->r edge for every write of [k v] to all reads of [k v]."
+  "Given read and write indexes for a history, and an unused history to match the calling APIs,
+   creates a w->r edge for every write of [k v] to the first read of [k v] in every process.
+   Succeeding reads of [k v] are also transitively happens after due to process order."
   [{:keys [read-index write-index] :as _opts} _history]
   (let [g (->> write-index ; {k {v op}
                (reduce-nested (fn [g k v write-op]
@@ -261,60 +262,27 @@
                                                     (mapcat val) ; seq-ops
                                                     (into #{}))
                                       ; don't self link
-                                      read-ops (disj read-ops write-op)]
+                                      read-ops (disj read-ops write-op)
+                                      ; first read op in each process
+                                      read-ops (->> read-ops
+                                                    (reduce (fn [first-reads {:keys [process] :as read-op}]
+                                                              (let [curr-first (get first-reads process)]
+                                                                (if (or
+                                                                     ; first read op for process
+                                                                     (nil? curr-first)
+                                                                     ; this read op happened before
+                                                                     (< (:index read-op) (:index curr-first)))
+                                                                  (assoc first-reads process read-op)
+                                                                  ; current first is still first
+                                                                  first-reads)))
+                                                            nil)
+                                                    vals)]
                                   (g/link-to-all g write-op read-ops wr)))
                               (b/linear (g/op-digraph)))
                b/forked)]
     {:graph     g
      :explainer (WRExplainer.)}))
 
-(defrecord RWExplainer []
-  elle/DataExplainer
-  (explain-pair-data [_ a b]
-    (let [a-r-kvm (r-kvm (:value a))
-          b-w-kvm (w-kvm  (:value b))]
-      (when (and (seq a-r-kvm)
-                 (seq b-w-kvm))
-        (->> a-r-kvm
-             (reduce-kv (fn [_ k vs]
-                          (let [unread-vs (set/difference (get b-w-kvm k) vs)]
-                            (when (seq unread-vs)
-                              (reduced {:type    :rw
-                                        :r-key   k
-                                        :r-value vs
-                                        :w-value (first unread-vs)
-                                        :a-mop-index (index-of (:value a) [:r k vs])
-                                        :b-mop-index (index-of (:value b) [:w k (first unread-vs)])}))))
-                        nil)))))
-
-  (render-explanation [_ {:keys [r-key r-value w-value]} a-name b-name]
-    (str a-name "'s read of [" (pr-str r-key) " " (pr-str r-value) "]"
-         " did not observe " b-name "'s write of [" (pr-str r-key) " " (pr-str w-value) "] (r->w)")))
-
-(defn rw-graph
-  "Given read/write indexes for a history, a read-pov as a set of processes, and an unused history to match the calling APIs,
-   creates an inferred r->w edge for:
-     - every read of [k #{vs}] by a process in `read=pov`
-     - to all writes of [k v] that were not read by any process"
-  [{:keys [read-index write-index write-kvs read-pov] :as _opts} _history]
-  (let [g (->> read-index ; {k {#{vs} seq-ops}}
-               (reduce-nested (fn [g k vs read-ops]
-                                (let [read-ops  (->> read-ops
-                                                     (filter (fn [{:keys [process] :as _op}]
-                                                               (contains? read-pov process)))
-                                                     (into #{}))
-                                      unread-vs (set/difference (get write-kvs k) vs)
-                                      write-ops (->> unread-vs
-                                                     (map (fn [v]
-                                                            (get-in write-index [k v])))
-                                                     (into #{}))
-                                      ; don't self link
-                                      write-ops (set/difference write-ops read-ops)]
-                                  (g/link-all-to-all g read-ops write-ops rw)))
-                              (b/linear (g/op-digraph)))
-               b/forked)]
-    {:graph     g
-     :explainer (RWExplainer.)}))
 
 (defrecord WFRExplainer [read-index]
   elle/DataExplainer
@@ -400,6 +368,54 @@
                    (apply g/digraph-union))]
     {:graph     graph
      :explainer (WFRExplainer. read-index)}))
+
+(defrecord RWExplainer []
+  elle/DataExplainer
+  (explain-pair-data [_ a b]
+    (let [a-r-kvm (r-kvm (:value a))
+          b-w-kvm (w-kvm  (:value b))]
+      (when (and (seq a-r-kvm)
+                 (seq b-w-kvm))
+        (->> a-r-kvm
+             (reduce-kv (fn [_ k vs]
+                          (let [unread-vs (set/difference (get b-w-kvm k) vs)]
+                            (when (seq unread-vs)
+                              (reduced {:type    :rw
+                                        :r-key   k
+                                        :r-value vs
+                                        :w-value (first unread-vs)
+                                        :a-mop-index (index-of (:value a) [:r k vs])
+                                        :b-mop-index (index-of (:value b) [:w k (first unread-vs)])}))))
+                        nil)))))
+
+  (render-explanation [_ {:keys [r-key r-value w-value]} a-name b-name]
+    (str a-name "'s read of [" (pr-str r-key) " " (pr-str r-value) "]"
+         " did not observe " b-name "'s write of [" (pr-str r-key) " " (pr-str w-value) "] (r->w)")))
+
+(defn rw-graph
+  "Given read/write indexes for a history, a read-pov as a set of processes, and an unused history to match the calling APIs,
+   creates an inferred r->w edge for:
+     - every read of [k #{vs}] by a process in `read=pov`
+     - to all writes of [k v] that were not read by any process"
+  [{:keys [read-index write-index write-kvs read-pov] :as _opts} _history]
+  (let [g (->> read-index ; {k {#{vs} seq-ops}}
+               (reduce-nested (fn [g k vs read-ops]
+                                (let [read-ops  (->> read-ops
+                                                     (filter (fn [{:keys [process] :as _op}]
+                                                               (contains? read-pov process)))
+                                                     (into #{}))
+                                      unread-vs (set/difference (get write-kvs k) vs)
+                                      write-ops (->> unread-vs
+                                                     (map (fn [v]
+                                                            (get-in write-index [k v])))
+                                                     (into #{}))
+                                      ; don't self link
+                                      write-ops (set/difference write-ops read-ops)]
+                                  (g/link-all-to-all g read-ops write-ops rw)))
+                              (b/linear (g/op-digraph)))
+               b/forked)]
+    {:graph     g
+     :explainer (RWExplainer.)}))
 
 (defn graph
   "Given indexes/options and a history, creates an analyzer that computes a {:graph g, :explainer e}
