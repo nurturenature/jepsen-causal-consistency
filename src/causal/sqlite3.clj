@@ -73,6 +73,13 @@
            (c/exec :psql :-d "postgresql://postgres:postgres@electricsql:65432"
                    :-c "TABLE public.gset;"))
 
+          (info "Setting up ElectricSQL gset_not_electric table:")
+          (c/exec :psql :-d "postgresql://postgres:postgres@electricsql:65432"
+                  :-c "CREATE TABLE public.gset_not_electric (id integer PRIMARY KEY, k integer, v integer);")
+          (info
+           (c/exec :psql :-d "postgresql://postgres:postgres@electricsql:65432"
+                   :-c "TABLE public.gset_not_electric;"))
+
           (swap! electricsql-setup? (fn [_] true))))
 
       ; `client` may use `sqlite3` CLI

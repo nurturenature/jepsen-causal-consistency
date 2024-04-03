@@ -357,31 +357,34 @@
 (defrecord PostgreSQLJDBCClient [db-spec]
   client/Client
   (open!
-    [this _test node]
-    (assoc this
-           :node node
-           :conn (get-jdbc-connection db-spec)))
+    [this test node]
+    (let [table (get test :postgresql-table "gset")]
+      (assoc this
+             :node      node
+             :conn      (get-jdbc-connection db-spec)
+             :table     table
+             :result-kw (keyword table "v"))))
 
   (setup!
     [_this _test])
 
   (invoke!
-    [{:keys [conn node] :as _this} _test {:keys [value] :as op}]
+    [{:keys [conn node table result-kw] :as _this} _test {:keys [value] :as op}]
     (let [op (assoc op
                     :node node)]
       (try+
        (let [mops' (jdbc/with-transaction
-                     [tx conn]
+                     [tx conn {:isolation :repeatable-read}]
                      (->> value
                           (map (fn [[f k v :as mop]]
                                  (case f
-                                   :r [:r k (->> (jdbc/execute! tx [(str "SELECT k,v FROM gset WHERE k = " k)])
-                                                 (map :gset/v)
+                                   :r [:r k (->> (jdbc/execute! tx [(str "SELECT k,v FROM " table " WHERE k = " k)])
+                                                 (map result-kw)
                                                  (into (sorted-set)))]
                                    :w (do
                                         (assert (= 1
                                                    (let [id (->> k (* 10000) (+ v))]
-                                                     (->> (jdbc/execute! tx [(str "INSERT INTO gset (id,k,v) VALUES (" id "," k "," v ")")])
+                                                     (->> (jdbc/execute! tx [(str "INSERT INTO " table " (id,k,v) VALUES (" id "," k "," v ")")])
                                                           first
                                                           :next.jdbc/update-count))))
                                         mop))))

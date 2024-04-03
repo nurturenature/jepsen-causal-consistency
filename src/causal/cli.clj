@@ -185,6 +185,9 @@
    [nil "--postgresql-nodes NODES" "A comma-separated list of nodes that should get PostgreSQL clients"
     :parse-fn parse-nodes-spec]
 
+   [nil "--postgresql-table TABLE" "Name of table used by PostgreSQL clients"
+    :parse-fn identity]
+
    ["-r" "--rate HZ" "Approximate request rate, in hz"
     :default 100
     :parse-fn read-string
