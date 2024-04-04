@@ -109,7 +109,7 @@
          (mapcat (fn [[w-k w-vs op]]
                    (let [; all read vs for write k
                          all-r-vs (->> w-k
-                                       (get read-index) ; {k {#{vs} seq-ops}}
+                                       (get read-index) ; {k {#{vs} #{ops}}}
                                        keys)
                          ; read vs that read any failed write vs
                          failed-r-vs (->> all-r-vs
@@ -119,8 +119,7 @@
                      ; errors for all failed read vs
                      (->> failed-r-vs
                           (keep (fn [r-vs]
-                                  (let [failed-r-ops (->> (get-in read-index [w-k r-vs])
-                                                          (into #{}))
+                                  (let [failed-r-ops (get-in read-index [w-k r-vs])
                                         ; don't self report, we're a failed read
                                         failed-r-ops (disj failed-r-ops op)]
                                     (when (seq failed-r-ops)
@@ -148,7 +147,7 @@
          (mapcat (fn [[w-k w-vs op]]
                    (let [; all read vs for write k
                          all-r-vs (->> w-k
-                                       (get read-index) ; {k {#{vs} seq-ops}}
+                                       (get read-index) ; {k {#{vs} #{ops}}}
                                        keys)
                          ; read vs that read some but not all write vs
                          inter-r-vs (->> all-r-vs
@@ -160,8 +159,7 @@
                      ; errors for all intermediate read vs
                      (->> inter-r-vs
                           (keep (fn [r-vs]
-                                  (let [inter-r-ops (->> (get-in read-index [w-k r-vs])
-                                                         (into #{}))
+                                  (let [inter-r-ops (get-in read-index [w-k r-vs])
                                         ; don't self report, internal reads are OK
                                         inter-r-ops (disj inter-r-ops op)]
                                     (when (seq inter-r-ops)
@@ -197,16 +195,16 @@
 (defn r-index
   "Given a history, returns a read index:
    ```
-   {k {#{vs} seq-ops}}
-   ```"
+   {k {#{vs} #{ops}}}
+   ```
+   for *all* [k #{vs}] read, including intermediate reads in a transaction."
   [history]
   (->> history
-       (reduce (fn [index {:keys [value] :as op}]
-                 (->> value
-                      r-kvm
-                      (reduce-kv (fn [index k vs]
-                                   (update-in index [k vs] conj op))
-                                 index)))
+       ct/op-mops
+       (reduce (fn [index [op [f k v :as _mop]]]
+                 (case f
+                   :w index
+                   :r (update-in index [k v] set/union #{op})))
                nil)))
 
 (defn w-index
@@ -258,9 +256,9 @@
   [{:keys [read-index write-index] :as _opts} _history]
   (let [g (->> write-index ; {k {v op}
                (reduce-nested (fn [g k v write-op]
-                                (let [; read-index {k {#{vs} seq-ops}}
-                                      read-ops (->> (get read-index k) ; {#{vs} seq-ops}
-                                                    (filter (fn [[vs _seq-ops]] (contains? vs v)))
+                                (let [; read-index {k {#{vs} #{ops}}}
+                                      read-ops (->> (get read-index k) ; {#{vs} #{ops}}
+                                                    (filter (fn [[vs _ops]] (contains? vs v)))
                                                     (mapcat val) ; seq-ops
                                                     (into #{}))
                                       ; don't self link
@@ -299,7 +297,7 @@
         ; if so, first found is fine
         (->> a-writes
              (reduce-kv (fn [_ a-k a-vs]
-                          (->> (get read-index a-k) ; {k {#{vs} seq-ops}}
+                          (->> (get read-index a-k) ; {k {#{vs} #{ops}}}
                                (reduce-kv (fn [_ read-vs read-ops]
                                             (let [shared-vs (set/intersection a-vs read-vs)]
                                               (when (seq shared-vs)
@@ -507,9 +505,9 @@
                              (->> history-oks
                                   (h/map :process)
                                   distinct))
-         read-index  (h/task history-oks :read-index' []
+         read-index  (h/task history-oks :read-index []
                              (r-index history-oks))
-         write-index (h/task history-oks :write-index' []
+         write-index (h/task history-oks :write-index []
                              (w-index history-oks))
 
          type-sanity (h/task history-oks :type-sanity []
