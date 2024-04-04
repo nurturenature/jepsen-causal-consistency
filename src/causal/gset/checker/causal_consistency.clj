@@ -5,7 +5,7 @@
             [elle
              [core :as elle]
              [graph :as g]
-             [rels :refer [ww wr rw]]
+             [rels :refer [rw wr ww]]
              [txn :as ct]
              [util :as util :refer [index-of]]]
             [jepsen
@@ -168,17 +168,32 @@
                                        :missing  [w-k (set/difference w-vs r-vs)]}))))))))
          seq)))
 
-(defn reduce-kvm
-  "Reduces over a kvm, {k #{vs}}, with (fn acc k v) for all ks/vs.
-   Avoids having to nest reduces."
-  [r-fn init-state kvm]
-  (->> kvm
-       (reduce-kv (fn [acc k vs]
-                    (->> vs
-                         (reduce (fn [acc v]
-                                   (r-fn acc k v))
-                                 acc)))
-                  init-state)))
+(defn monotonic-reads
+  "Given a history, returns nil or a sequence of errors
+   ```
+   {:op op :mop mop :missing [k #{vs}]}
+   ```
+   for non monotonic reads.
+   
+   This shouldn't be necessary as graphs should find anomalies,
+   but it's a good check against the implementation."
+  [history]
+  (let [[errors _prev-reads]
+        (->> history
+             ct/op-mops
+             (reduce (fn [[errors prev-reads] [{:keys [process] :as op} [f k v :as mop]]]
+                       (case f
+                         :w [errors prev-reads]
+                         :r (let [prev-read (get-in prev-reads [process k])
+                                  missing   (set/difference prev-read v)]
+                              [(if (seq missing)
+                                 (conj errors {:op      op
+                                               :mop     mop
+                                               :missing [k missing]})
+                                 errors)
+                               (assoc-in prev-reads [process k] v)])))
+                     [nil nil]))]
+    errors))
 
 (defn reduce-nested
   "Convenience for nested maps, {k {k' v}}.
@@ -546,13 +561,18 @@
                                     (map deref)
                                     (apply merge-with conj))))
 
+         ; shouldn't be necessary, but a good check of the graph implementation
+         monotonic-reads (h/task history-oks :monotonic-reads []
+                                 (monotonic-reads history-oks))
+
          _           @type-sanity ; Will throw if problems
 
          ; Build up anomaly map
          anomalies (cond-> @cycles
                      @internal (assoc :internal @internal)
                      @G1a      (assoc :G1a @G1a)
-                     @G1b      (assoc :G1b @G1b))]
+                     @G1b      (assoc :G1b @G1b)
+                     @monotonic-reads (assoc :monotonic-reads @monotonic-reads))]
      (ct/result-map opts anomalies))))
 
 (defn checker

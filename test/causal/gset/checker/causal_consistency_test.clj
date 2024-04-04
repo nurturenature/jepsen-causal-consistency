@@ -270,7 +270,7 @@
     (let [output-dir (str output-dir "/monotonic-reads")
           opts       (assoc workload/causal-opts :directory output-dir)]
       (is (= {:valid? false
-              :anomaly-types [:G-single-item-process]
+              :anomaly-types [:G-single-item-process :monotonic-reads]
               :not #{:strong-session-consistent-view}}
              (-> (cc/check opts invalid-monotonic-reads)
                  (select-keys results-of-interest)))))))
@@ -288,7 +288,7 @@
              (-> (cc/check opts invalid-internal-ryw)
                  (select-keys results-of-interest))))
       (is (= {:valid? false
-              :anomaly-types [:G-single-item :internal]
+              :anomaly-types [:G-single-item :internal :monotonic-reads]
               :not #{:consistent-view :read-atomic :repeatable-read}}
              (-> (cc/check opts invalid-internal-mono-reads)
                  (select-keys results-of-interest)))))))
@@ -338,9 +338,9 @@
              (-> (cc/check opts example-d-CC-CM-and-CCv-but-not-sequentially-consistent)
                  (select-keys [:valid? :anomaly-types]))))
 
-      (is (= {:valid? false :anomaly-types [:G-single-item-process]}
+      (is (= {:valid? false :anomaly-types [:G-single-item-process :monotonic-reads]}
              (-> (cc/check opts example-e-not-CC-nor-CM-nor-CCv-interpretation-1)
                  (select-keys [:valid? :anomaly-types]))))
-      (is (= {:valid? false :anomaly-types [:G-single-item-process]}
+      (is (= {:valid? false :anomaly-types [:G-single-item-process :monotonic-reads]}
              (-> (cc/check opts example-e-not-CC-nor-CM-nor-CCv-interpretation-2)
                  (select-keys [:valid? :anomaly-types])))))))
