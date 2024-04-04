@@ -11,7 +11,8 @@
             [jepsen
              [checker :as checker]
              [history :as h]
-             [store :as store]]))
+             [store :as store]]
+            [slingshot.slingshot :refer [throw+]]))
 
 (defn r-kvm
   "Given a transaction, returns a
@@ -115,7 +116,7 @@
                                           (filter (fn [r-vs]
                                                     (let [common-vs (set/intersection r-vs w-vs)]
                                                       (seq common-vs)))))]
-                       ; errors for all failed read vs
+                     ; errors for all failed read vs
                      (->> failed-r-vs
                           (keep (fn [r-vs]
                                   (let [failed-r-ops (->> (get-in read-index [w-k r-vs])
@@ -215,15 +216,16 @@
    ```"
   [history]
   (->> history
-       (reduce (fn [index {:keys [value] :as op}]
-                 ; add every [k v] that was written to the map
-                 (->> value
-                      w-kvm
-                      (reduce-kvm (fn [index k v]
-                                    (assert (nil? (get-in index [k v]))
-                                            (str "[" k " " v "] for " op " is already in the write index!"))
-                                    (assoc-in index [k v] op))
-                                  index)))
+       ct/op-mops
+       (reduce (fn [index [op [f k v :as mop]]]
+                 (case f
+                   :r index
+                   :w (if-let [existing (get-in index [k v])]
+                        (throw+ {:type     :non-unique-write
+                                 :op       op
+                                 :mop      mop
+                                 :existing existing})
+                        (assoc-in index [k v] op))))
                nil)))
 
 (defrecord WRExplainer []
@@ -393,25 +395,42 @@
          " did not observe " b-name "'s write of [" (pr-str r-key) " " (pr-str w-value) "] (r->w)")))
 
 (defn rw-graph
-  "Given read/write indexes for a history, a read-pov as a set of processes, and an unused history to match the calling APIs,
-   creates an inferred r->w edge for:
-     - every read of [k #{vs}] by a process in `read=pov`
-     - to all writes of [k v] that were not read by any process"
-  [{:keys [read-index write-index write-kvs read-pov] :as _opts} _history]
-  (let [g (->> read-index ; {k {#{vs} seq-ops}}
-               (reduce-nested (fn [g k vs read-ops]
-                                (let [read-ops  (->> read-ops
-                                                     (filter (fn [{:keys [process] :as _op}]
-                                                               (contains? read-pov process)))
-                                                     (into #{}))
-                                      unread-vs (set/difference (get write-kvs k) vs)
-                                      write-ops (->> unread-vs
-                                                     (map (fn [v]
-                                                            (get-in write-index [k v])))
-                                                     (into #{}))
-                                      ; don't self link
-                                      write-ops (set/difference write-ops read-ops)]
-                                  (g/link-all-to-all g read-ops write-ops rw)))
+  "Given write indexes, a process, and a history,
+   creates an inferred r->w edge:
+     - the last read in the process that did not observe the write of [k v]
+     - any preceding reads that didn't observe [k v] are transitively happened before due to process order"
+  [{:keys [write-index write-kvs read-process] :as _indexes} history]
+  (let [history (->> history
+                     (h/filter (comp #{read-process} :process)))
+
+        last-r-of-kv (->> history
+                          ct/op-mops
+                          (reduce (fn [last-r-of-kv [op [f k v :as _mop]]]
+                                    (case f
+                                      :w last-r-of-kv
+                                      :r (->> (set/difference (get write-kvs k) v)  ; unread v
+                                              (reduce (fn [last-r-of-kv v']
+                                                        (cond
+                                                          ; don't self link if this read is same transaction as write
+                                                          (= (:index op) (:index (get-in write-index [k v'])))
+                                                          last-r-of-kv
+
+                                                          ; first time [k v] unread
+                                                          (nil? (get-in last-r-of-kv [k v']))
+                                                          (assoc-in last-r-of-kv [k v'] op)
+
+                                                          ; this read happened after prev last read of kv
+                                                          (> (:index op) (:index (get-in last-r-of-kv [k v'])))
+                                                          (assoc-in last-r-of-kv [k v'] op)
+
+                                                          ; this read happened before prev last read of kv
+                                                          :else
+                                                          last-r-of-kv))
+                                                      last-r-of-kv))))
+                                  nil))
+        g (->> last-r-of-kv ; {k {v last-r-op}}
+               (reduce-nested (fn [g k v read-op]
+                                (g/link g read-op (get-in write-index [k v]) rw))
                               (b/linear (g/op-digraph)))
                b/forked)]
     {:graph     g
@@ -427,8 +446,8 @@
    
      - w->w graph, writes follow reads ordering
 
-     - r->w graph, infer that all read that don't observe v happen before the write of v
-       ordering edges are only created for processes in `read-pov`
+     - r->w graph, infer that all reads that don't observe [k v] happen before the write of [k v]
+       ordering edges are only created for one process given by `:process`
    
      - additional graphs, as given by (:additional-graphs opts).
 
@@ -506,7 +525,7 @@
                                                 (map (fn [[k v->ops]]
                                                        [k (set (keys v->ops))]))
                                                 (into {}))   ; {k #{vs}}
-                              :read-pov    (into #{} @processes)})
+                              })
 
          G1a         (h/task history :G1a []
                              (g1a-cases @indexes history))  ; history includes {:type :fail} ops
@@ -519,8 +538,9 @@
                                     (map (fn [process]
                                            (let [task-name (keyword (str "process-" process))]
                                              (h/task history-oks task-name []
-                                                     (let [opts (assoc  opts :read-pov #{process})
-                                                           opts (update opts :directory str "/process-" process)]
+                                                     (let [opts (-> opts
+                                                                    (assoc  :read-process process)
+                                                                    (update :directory str "/process-" process))]
                                                        (:anomalies (ct/cycles! opts (partial graph opts) history-oks)))))))
                                     (map deref)
                                     (apply merge-with conj))))
