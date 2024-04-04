@@ -271,7 +271,7 @@
           opts       (assoc workload/causal-opts :directory output-dir)]
       (is (= {:valid? false
               :anomaly-types [:G-single-item-process]
-              :not #{:repeatable-read :snapshot-isolation :strong-session-consistent-view}}
+              :not #{:strong-session-consistent-view}}
              (-> (cc/check opts invalid-monotonic-reads)
                  (select-keys results-of-interest)))))))
 
@@ -288,8 +288,8 @@
              (-> (cc/check opts invalid-internal-ryw)
                  (select-keys results-of-interest))))
       (is (= {:valid? false
-              :anomaly-types [:internal]
-              :not #{:read-atomic}}
+              :anomaly-types [:G-single-item :internal]
+              :not #{:consistent-view :read-atomic :repeatable-read}}
              (-> (cc/check opts invalid-internal-mono-reads)
                  (select-keys results-of-interest)))))))
 

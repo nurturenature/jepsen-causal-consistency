@@ -229,21 +229,21 @@
 (defrecord WRExplainer []
   elle/DataExplainer
   (explain-pair-data [_ a b]
-    (let [a-w-kvm (w-kvm (:value a))
-          b-r-kvm (r-kvm (:value b))]
-      ; first shared kv is fine
-      (->> a-w-kvm
-           (reduce-kv (fn [_ w-k w-vs]
-                        (let [r-vs      (get b-r-kvm w-k)
-                              shared-vs (set/intersection w-vs r-vs)
-                              w-v       (first shared-vs)]
-                          (when (seq shared-vs)
-                            (reduced {:type :wr
-                                      :w-k  w-k
-                                      :w-v  w-v
-                                      :a-mop-index (index-of (:value a) [:w w-k w-v])
-                                      :b-mop-index (index-of (:value b) [:r w-k r-vs])}))))
-                      nil))))
+    (let [a-w-kvm (w-kvm (:value a))]
+      ; first read in b that reads a write in a
+      (->> (:value b)
+           (reduce (fn [_ [f k v :as mop]]
+                     (case f
+                       :w nil
+                       :r (let [shared-vs (set/intersection v (get a-w-kvm k))]
+                            (when (seq shared-vs)
+                              (let [w-v (first shared-vs)] ; first shared write is fine
+                                (reduced {:type :wr
+                                          :w-k  k
+                                          :w-v  w-v
+                                          :a-mop-index (index-of (:value a) [:w k w-v])
+                                          :b-mop-index (index-of (:value b) mop)}))))))
+                   nil))))
 
   (render-explanation [_ {:keys [w-k w-v]} a-name b-name]
     (str a-name "'s write of [" (pr-str w-k) " " (pr-str w-v) "]"
@@ -373,20 +373,23 @@
   elle/DataExplainer
   (explain-pair-data [_ a b]
     (let [a-r-kvm (r-kvm (:value a))
-          b-w-kvm (w-kvm  (:value b))]
+          b-w-kvm (w-kvm (:value b))]
       (when (and (seq a-r-kvm)
                  (seq b-w-kvm))
-        (->> a-r-kvm
-             (reduce-kv (fn [_ k vs]
-                          (let [unread-vs (set/difference (get b-w-kvm k) vs)]
-                            (when (seq unread-vs)
-                              (reduced {:type    :rw
-                                        :r-key   k
-                                        :r-value vs
-                                        :w-value (first unread-vs)
-                                        :a-mop-index (index-of (:value a) [:r k vs])
-                                        :b-mop-index (index-of (:value b) [:w k (first unread-vs)])}))))
-                        nil)))))
+        ; look for read that doesn't contain b's writes
+        (->> (:value a)
+             (reduce (fn [_ [f k v :as mop]]
+                       (case f
+                         :w nil
+                         :r (let [unread-vs (set/difference (get b-w-kvm k) v)]
+                              (when (seq unread-vs)
+                                (reduced {:type    :rw
+                                          :r-key   k
+                                          :r-value v
+                                          :w-value (first unread-vs)
+                                          :a-mop-index (index-of (:value a) mop)
+                                          :b-mop-index (index-of (:value b) [:w k (first unread-vs)])})))))
+                     nil)))))
 
   (render-explanation [_ {:keys [r-key r-value w-value]} a-name b-name]
     (str a-name "'s read of [" (pr-str r-key) " " (pr-str r-value) "]"
