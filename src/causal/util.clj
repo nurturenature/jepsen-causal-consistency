@@ -2,6 +2,21 @@
   (:require [jepsen.generator :as gen]
             [jepsen.tests.cycle.wr :as wr]))
 
+(def causal-opts
+  "Opts to configure Elle for causal consistency."
+  {:consistency-models [:strong-session-consistent-view] ; Elle's strong-session with Adya's Consistent View(PL-2+)
+   :anomalies          [:internal                        ; basic hygiene to read your writes in a transaction
+                        :monotonic-reads]                ; extra check to confirm graph implementation
+   :anomalies-ignored  [:lost-update]                    ; `lost-update`s are causally Ok, but they are PL-2+, Adya 4.1.3 ?!?
+
+   ; where to store anomaly explanations, graphs
+   :directory "causal"
+
+   ; causal graph analysis and plotting can be resource intensive
+   :cycle-search-timeout 10000
+   :max-plot-bytes       1000000
+   :plot-timeout         10000})
+
 (defn generator
   "wr/gen with common options."
   [opts]

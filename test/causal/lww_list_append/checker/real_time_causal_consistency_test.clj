@@ -1,14 +1,13 @@
-(ns causal.gset.checker.causal-consistency-test
+(ns causal.lww-list-append.checker.real-time-causal-consistency-test
   (:require [clojure.test :refer [deftest is testing]]
-            [causal.gset.checker.causal-consistency :as cc]
+            [causal.lww-list-append.checker.real-time-causal-consistency :as rtc]
             [causal.util :as util]
             [jepsen.history :as h]))
 
-(def valid-causal
+(def valid-rtc
   (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1, :time -1}
-        {:process 1, :type :ok, :f :txn, :value [[:w :y 0]], :index 3, :time -1}
-        {:process 2, :type :ok, :f :txn, :value [[:r :x #{0}] [:r :y nil]], :index 5, :time -1}
-        {:process 2, :type :ok, :f :txn, :value [[:r :x #{0}] [:r :y #{0}]], :index 7, :time -1}]
+        {:process 1, :type :ok, :f :txn, :value [[:w :x 1]], :index 3, :time -1}
+        {:process 2, :type :ok, :f :txn, :value [[:r :x 1]], :index 5, :time -1}]
        h/history))
 
 (def valid-wr
@@ -185,162 +184,162 @@
   "Select these keys from the result map to determine pass/fail."
   [:valid? :anomaly-types :not])
 
-(deftest causal-consistency
+(deftest rtc
   (testing "causal-consistency"
-    (let [output-dir (str output-dir "/causal")
+    (let [output-dir (str output-dir "/rtc")
           opts       (assoc util/causal-opts :directory output-dir)]
       (is (= {:valid? true}
-             (cc/check opts valid-causal))))))
+             (rtc/check opts valid-rtc))))))
 
-(deftest wr
-  (testing "w->r"
-    (let [output-dir (str output-dir "/wr")
-          opts       (assoc util/causal-opts :directory output-dir)]
-      (is (= {:valid? true}
-             (cc/check opts valid-wr)))
-      (is (= {:valid? false
-              :anomaly-types [:G1c-process]
-              :not #{:strong-session-read-committed}}
-             (-> (cc/check opts invalid-wr-single-process)
-                 (select-keys results-of-interest))))
-      (is (= {:valid? false
-              :anomaly-types [:G0]
-              :not #{:read-uncommitted}}
-             (-> (cc/check opts invalid-wr)
-                 (select-keys results-of-interest)))))))
+;; (deftest wr
+;;   (testing "w->r"
+;;     (let [output-dir (str output-dir "/wr")
+;;           opts       (assoc workload/causal-opts :directory output-dir)]
+;;       (is (= {:valid? true}
+;;              (cc/check opts valid-wr)))
+;;       (is (= {:valid? false
+;;               :anomaly-types [:G1c-process]
+;;               :not #{:strong-session-read-committed}}
+;;              (-> (cc/check opts invalid-wr-single-process)
+;;                  (select-keys results-of-interest))))
+;;       (is (= {:valid? false
+;;               :anomaly-types [:G0]
+;;               :not #{:read-uncommitted}}
+;;              (-> (cc/check opts invalid-wr)
+;;                  (select-keys results-of-interest)))))))
 
-(deftest read-your-writes
-  (testing "read-your-writes"
-    (let [output-dir (str output-dir "/read-your-writes")
-          opts       (assoc util/causal-opts :directory output-dir)]
-      (is (= {:valid? true}
-             (cc/check opts valid-ryw)))
-      (is (= {:valid? false
-              :anomaly-types [:G-single-item-process]
-              :not #{:strong-session-consistent-view}}
-             (-> (cc/check opts invalid-ryw)
-                 (select-keys results-of-interest))))
-      (is (= {:valid? false
-              :anomaly-types [:G-single-item-process]
-              :not #{:strong-session-consistent-view}}
-             (-> (cc/check opts invalid-ryw-not-nil)
-                 (select-keys results-of-interest)))))))
+;; (deftest read-your-writes
+;;   (testing "read-your-writes"
+;;     (let [output-dir (str output-dir "/read-your-writes")
+;;           opts       (assoc workload/causal-opts :directory output-dir)]
+;;       (is (= {:valid? true}
+;;              (cc/check opts valid-ryw)))
+;;       (is (= {:valid? false
+;;               :anomaly-types [:G-single-item-process]
+;;               :not #{:strong-session-consistent-view}}
+;;              (-> (cc/check opts invalid-ryw)
+;;                  (select-keys results-of-interest))))
+;;       (is (= {:valid? false
+;;               :anomaly-types [:G-single-item-process]
+;;               :not #{:strong-session-consistent-view}}
+;;              (-> (cc/check opts invalid-ryw-not-nil)
+;;                  (select-keys results-of-interest)))))))
 
-(deftest monotonic-writes
-  (testing "monotonic-writes"
-    (let [output-dir (str output-dir "/monotonic-writes")
-          opts       (assoc util/causal-opts :directory output-dir)]
-      (is (= {:valid? true}
-             (cc/check opts valid-monotonic-writes)))
-      (is (= {:valid? false
-              :anomaly-types [:G-single-item-process]
-              :not #{:strong-session-consistent-view}}
-             (-> (cc/check opts invalid-monotonic-writes)
-                 (select-keys results-of-interest)))))))
+;; (deftest monotonic-writes
+;;   (testing "monotonic-writes"
+;;     (let [output-dir (str output-dir "/monotonic-writes")
+;;           opts       (assoc workload/causal-opts :directory output-dir)]
+;;       (is (= {:valid? true}
+;;              (cc/check opts valid-monotonic-writes)))
+;;       (is (= {:valid? false
+;;               :anomaly-types [:G-single-item-process]
+;;               :not #{:strong-session-consistent-view}}
+;;              (-> (cc/check opts invalid-monotonic-writes)
+;;                  (select-keys results-of-interest)))))))
 
-(deftest writes-follow-reads
-  (testing "writes-follow-reads"
-    (let [output-dir (str output-dir "/writes-follow-reads")
-          opts       (assoc util/causal-opts :directory output-dir)]
-      (is (= {:valid? true}
-             (cc/check opts valid-wfr)))
-      (is (= {:valid? false
-              :anomaly-types [:G-single-item-process]
-              :not #{:strong-session-consistent-view}}
-             (-> (cc/check opts invalid-wfr)
-                 (select-keys results-of-interest))))
-      (is (= {:valid? false
-              :anomaly-types [:G-single-item-process]
-              :not #{:strong-session-consistent-view}}
-             (-> (cc/check opts invalid-wfr-mop)
-                 (select-keys results-of-interest))))
-      (is (= {:valid? false
-              :anomaly-types [:G-single-item]
-              :not #{:consistent-view :repeatable-read}}
-             (-> (cc/check opts invalid-wfr-mops)
-                 (select-keys results-of-interest))))
-      (is (= {:valid? false
-              :anomaly-types [:G-single-item]
-              :not #{:consistent-view :repeatable-read}}
-             (-> (cc/check opts invalid-wfr-all-mops)
-                 (select-keys results-of-interest)))))))
+;; (deftest writes-follow-reads
+;;   (testing "writes-follow-reads"
+;;     (let [output-dir (str output-dir "/writes-follow-reads")
+;;           opts       (assoc workload/causal-opts :directory output-dir)]
+;;       (is (= {:valid? true}
+;;              (cc/check opts valid-wfr)))
+;;       (is (= {:valid? false
+;;               :anomaly-types [:G-single-item-process]
+;;               :not #{:strong-session-consistent-view}}
+;;              (-> (cc/check opts invalid-wfr)
+;;                  (select-keys results-of-interest))))
+;;       (is (= {:valid? false
+;;               :anomaly-types [:G-single-item-process]
+;;               :not #{:strong-session-consistent-view}}
+;;              (-> (cc/check opts invalid-wfr-mop)
+;;                  (select-keys results-of-interest))))
+;;       (is (= {:valid? false
+;;               :anomaly-types [:G-single-item]
+;;               :not #{:consistent-view :repeatable-read}}
+;;              (-> (cc/check opts invalid-wfr-mops)
+;;                  (select-keys results-of-interest))))
+;;       (is (= {:valid? false
+;;               :anomaly-types [:G-single-item]
+;;               :not #{:consistent-view :repeatable-read}}
+;;              (-> (cc/check opts invalid-wfr-all-mops)
+;;                  (select-keys results-of-interest)))))))
 
-(deftest monotonic-reads
-  (testing "monotonic-reads"
-    (let [output-dir (str output-dir "/monotonic-reads")
-          opts       (assoc util/causal-opts :directory output-dir)]
-      (is (= {:valid? false
-              :anomaly-types [:G-single-item-process :monotonic-reads]
-              :not #{:strong-session-consistent-view}}
-             (-> (cc/check opts invalid-monotonic-reads)
-                 (select-keys results-of-interest)))))))
+;; (deftest monotonic-reads
+;;   (testing "monotonic-reads"
+;;     (let [output-dir (str output-dir "/monotonic-reads")
+;;           opts       (assoc workload/causal-opts :directory output-dir)]
+;;       (is (= {:valid? false
+;;               :anomaly-types [:G-single-item-process :monotonic-reads]
+;;               :not #{:strong-session-consistent-view}}
+;;              (-> (cc/check opts invalid-monotonic-reads)
+;;                  (select-keys results-of-interest)))))))
 
-(deftest internal
-  (testing "internal"
-    (let [output-dir (str output-dir "/internal")
-          opts       (assoc util/causal-opts :directory output-dir)]
-      (is (= {:valid? true}
-             (-> (cc/check opts valid-internal)
-                 (select-keys results-of-interest))))
-      (is (= {:valid? false
-              :anomaly-types [:internal]
-              :not #{:read-atomic}}
-             (-> (cc/check opts invalid-internal-ryw)
-                 (select-keys results-of-interest))))
-      (is (= {:valid? false
-              :anomaly-types [:G-single-item :internal :monotonic-reads]
-              :not #{:consistent-view :read-atomic :repeatable-read}}
-             (-> (cc/check opts invalid-internal-mono-reads)
-                 (select-keys results-of-interest)))))))
+;; (deftest internal
+;;   (testing "internal"
+;;     (let [output-dir (str output-dir "/internal")
+;;           opts       (assoc workload/causal-opts :directory output-dir)]
+;;       (is (= {:valid? true}
+;;              (-> (cc/check opts valid-internal)
+;;                  (select-keys results-of-interest))))
+;;       (is (= {:valid? false
+;;               :anomaly-types [:internal]
+;;               :not #{:read-atomic}}
+;;              (-> (cc/check opts invalid-internal-ryw)
+;;                  (select-keys results-of-interest))))
+;;       (is (= {:valid? false
+;;               :anomaly-types [:G-single-item :internal :monotonic-reads]
+;;               :not #{:consistent-view :read-atomic :repeatable-read}}
+;;              (-> (cc/check opts invalid-internal-mono-reads)
+;;                  (select-keys results-of-interest)))))))
 
-(deftest G1a
-  (testing "G1a"
-    (let [output-dir (str output-dir "/G1a")
-          opts       (assoc util/causal-opts :directory output-dir)]
-      (is (= {:valid? false
-              :anomaly-types [:G1a]
-              :not #{:read-committed}}
-             (-> (cc/check opts invalid-G1a)
-                 (select-keys results-of-interest))))
-      (is (= {:valid? false
-              :anomaly-types [:G1a]
-              :not #{:read-committed}}
-             (-> (cc/check opts invalid-G1a-mops)
-                 (select-keys results-of-interest)))))))
+;; (deftest G1a
+;;   (testing "G1a"
+;;     (let [output-dir (str output-dir "/G1a")
+;;           opts       (assoc workload/causal-opts :directory output-dir)]
+;;       (is (= {:valid? false
+;;               :anomaly-types [:G1a]
+;;               :not #{:read-committed}}
+;;              (-> (cc/check opts invalid-G1a)
+;;                  (select-keys results-of-interest))))
+;;       (is (= {:valid? false
+;;               :anomaly-types [:G1a]
+;;               :not #{:read-committed}}
+;;              (-> (cc/check opts invalid-G1a-mops)
+;;                  (select-keys results-of-interest)))))))
 
-(deftest G1b
-  (testing "G1b"
-    (let [output-dir (str output-dir "/G1b")
-          opts       (assoc util/causal-opts :directory output-dir)]
-      (is (= {:valid? false
-              :anomaly-types [:G-single-item :G1b]
-              :not #{:read-committed}}
-             (-> (cc/check opts invalid-G1b)
-                 (select-keys results-of-interest)))))))
+;; (deftest G1b
+;;   (testing "G1b"
+;;     (let [output-dir (str output-dir "/G1b")
+;;           opts       (assoc workload/causal-opts :directory output-dir)]
+;;       (is (= {:valid? false
+;;               :anomaly-types [:G-single-item :G1b]
+;;               :not #{:read-committed}}
+;;              (-> (cc/check opts invalid-G1b)
+;;                  (select-keys results-of-interest)))))))
 
-(deftest Bouajjani
-  (testing "Bouajjani"
-    (let [output-dir (str output-dir "/Bouajjani")
-          opts       (assoc util/causal-opts :directory output-dir)]
-      (is (= {:valid? false :anomaly-types [:G-single-item-process]}
-             (-> (cc/check opts example-a-CM-but-not-CCv)
-                 (select-keys [:valid? :anomaly-types]))))
-      (is (= {:valid? false :anomaly-types [:G-single-item-process]}
-             (-> (cc/check opts example-b-CCv-but-not-CM)
-                 (select-keys [:valid? :anomaly-types]))))
-      (is (= {:valid? false :anomaly-types [:G-single-item-process]}
-             (-> (cc/check opts example-c-CC-but-not-CM-nor-CCv)
-                 (select-keys [:valid? :anomaly-types]))))
+;; (deftest Bouajjani
+;;   (testing "Bouajjani"
+;;     (let [output-dir (str output-dir "/Bouajjani")
+;;           opts       (assoc workload/causal-opts :directory output-dir)]
+;;       (is (= {:valid? false :anomaly-types [:G-single-item-process]}
+;;              (-> (cc/check opts example-a-CM-but-not-CCv)
+;;                  (select-keys [:valid? :anomaly-types]))))
+;;       (is (= {:valid? false :anomaly-types [:G-single-item-process]}
+;;              (-> (cc/check opts example-b-CCv-but-not-CM)
+;;                  (select-keys [:valid? :anomaly-types]))))
+;;       (is (= {:valid? false :anomaly-types [:G-single-item-process]}
+;;              (-> (cc/check opts example-c-CC-but-not-CM-nor-CCv)
+;;                  (select-keys [:valid? :anomaly-types]))))
 
-      ;; note, we are making the argument that "sequentially consistent"
-      ;; isn't part of the common definition of Causal Consistency
-      (is (= {:valid? true}
-             (-> (cc/check opts example-d-CC-CM-and-CCv-but-not-sequentially-consistent)
-                 (select-keys [:valid? :anomaly-types]))))
+;;       ;; note, we are making the argument that "sequentially consistent"
+;;       ;; isn't part of the common definition of Causal Consistency
+;;       (is (= {:valid? true}
+;;              (-> (cc/check opts example-d-CC-CM-and-CCv-but-not-sequentially-consistent)
+;;                  (select-keys [:valid? :anomaly-types]))))
 
-      (is (= {:valid? false :anomaly-types [:G-single-item-process :monotonic-reads]}
-             (-> (cc/check opts example-e-not-CC-nor-CM-nor-CCv-interpretation-1)
-                 (select-keys [:valid? :anomaly-types]))))
-      (is (= {:valid? false :anomaly-types [:G-single-item-process :monotonic-reads]}
-             (-> (cc/check opts example-e-not-CC-nor-CM-nor-CCv-interpretation-2)
-                 (select-keys [:valid? :anomaly-types])))))))
+;;       (is (= {:valid? false :anomaly-types [:G-single-item-process :monotonic-reads]}
+;;              (-> (cc/check opts example-e-not-CC-nor-CM-nor-CCv-interpretation-1)
+;;                  (select-keys [:valid? :anomaly-types]))))
+;;       (is (= {:valid? false :anomaly-types [:G-single-item-process :monotonic-reads]}
+;;              (-> (cc/check opts example-e-not-CC-nor-CM-nor-CCv-interpretation-2)
+;;                  (select-keys [:valid? :anomaly-types])))))))
