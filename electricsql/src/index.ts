@@ -14,14 +14,12 @@ import { insecureAuthToken } from 'electric-sql/auth'
 /* create a database and client */
 const config: ElectricConfig = {
     url: 'http://electricsql:5133',
-    auth: {
-        token: insecureAuthToken({ "sub": "insecure" })
-    },
     debug: true
 }
 const conn = new Database('electric.db')
 conn.pragma('journal_mode = WAL')
 const electric = await electrify(conn, schema, config)
+await electric.connect(insecureAuthToken({ "sub": "insecure" }))
 
 /* sync databases */
 const { synced: gset } = await electric.db.gset.sync()
@@ -117,8 +115,25 @@ app.post("/gset/better-sqlite3", (req: Request, res: Response) => {
     }
 });
 
+app.post("/control/disconnect", async (req: Request, res: Response) => {
+    console.log('[electricsql]: disconnect request received.')
+
+    await electric.disconnect()
+    console.log('[electricsql]: ElectricSQL disconnected.')
+});
+
+app.post("/control/connect", async (req: Request, res: Response) => {
+    console.log('[electricsql]: connect request received.')
+
+    await electric.connect()
+    console.log('[electricsql]: ElectricSQL connected.')
+});
+
 app.post("/control/stop", async (req: Request, res: Response) => {
     console.log('[electricsql]: stop request received.')
+
+    await electric.disconnect()
+    console.log('[electricsql]: ElectricSQL disconnected.')
 
     await electric.close()
     console.log('[electricsql]: ElectricSQL closed.')

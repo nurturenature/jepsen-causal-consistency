@@ -31,14 +31,14 @@ echo "install elixir..."
 apt install -qy git
 mkdir /root/elixir
 cd /root/elixir
-wget "https://github.com/elixir-lang/elixir/archive/refs/tags/v1.15.7.tar.gz"
-tar -xvzf ./v1.15.7.tar.gz
-cd elixir-1.15.7
+wget "https://github.com/elixir-lang/elixir/archive/refs/tags/v1.16.1.tar.gz"
+tar -xvzf ./v1.16.1.tar.gz
+cd elixir-1.16.1
 make
-ln -s "/root/elixir/elixir-1.15.7/bin/elixir"  "/usr/local/bin/elixir"
-ln -s "/root/elixir/elixir-1.15.7/bin/elixirc" "/usr/local/bin/elixirc"
-ln -s "/root/elixir/elixir-1.15.7/bin/iex"     "/usr/local/bin/iex"
-ln -s "/root/elixir/elixir-1.15.7/bin/mix"     "/usr/local/bin/mix"
+ln -s "/root/elixir/elixir-1.16.1/bin/elixir"  "/usr/local/bin/elixir"
+ln -s "/root/elixir/elixir-1.16.1/bin/elixirc" "/usr/local/bin/elixirc"
+ln -s "/root/elixir/elixir-1.16.1/bin/iex"     "/usr/local/bin/iex"
+ln -s "/root/elixir/elixir-1.16.1/bin/mix"     "/usr/local/bin/mix"
 echo "elixir version:"
 elixir -v
 
@@ -46,14 +46,14 @@ echo "install electricsql"
 apt install -qy git
 mkdir /root/electricsql
 cd /root/electricsql
-wget "https://github.com/electric-sql/electric/archive/refs/tags/electric-sql@0.9.0.tar.gz"
-tar -xvzf ./electric-sql@0.9.0.tar.gz
-cd electric-electric-sql-0.9.0
+wget "https://github.com/electric-sql/electric/archive/refs/tags/electric-sql@0.9.6.tar.gz"
+tar -xvzf ./electric-sql@0.9.6.tar.gz
+cd electric-electric-sql-0.9.6
 cd components/electric
 mix deps.get
 mix compile
 export MIX_ENV=prod
-export ELECTRIC_VERSION=0.9.0
+export ELECTRIC_VERSION=0.9.6
 mix release
 
 echo "electricsql systemd..."
@@ -76,10 +76,10 @@ Environment=PG_PROXY_PASSWORD=postgres
 Environment=AUTH_MODE=insecure
 Environment=ELECTRIC_USE_IPV6=false
 
-WorkingDirectory=/root/electricsql/electric-electric-sql-0.9.0/components/electric
+WorkingDirectory=/root/electricsql/electric-electric-sql-0.9.6/components/electric
 
-ExecStart=/root/electricsql/electric-electric-sql-0.9.0/components/electric/_build/prod/rel/electric/bin/electric start
-ExecStop=/root/electricsql/electric-electric-sql-0.9.0/components/electric/_build/prod/rel/electric/bin/electric stop
+ExecStart=/root/electricsql/electric-electric-sql-0.9.6/components/electric/_build/prod/rel/electric/bin/electric start
+ExecStop=/root/electricsql/electric-electric-sql-0.9.6/components/electric/_build/prod/rel/electric/bin/electric stop
 
 
 [Install]
