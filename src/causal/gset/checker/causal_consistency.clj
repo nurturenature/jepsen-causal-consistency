@@ -1,6 +1,7 @@
 (ns causal.gset.checker.causal-consistency
   (:require [bifurcan-clj
              [core :as b]]
+            [causal.util :as u]
             [clojure.set :as set]
             [elle
              [core :as elle]
@@ -195,18 +196,6 @@
                      [nil nil]))]
     errors))
 
-(defn reduce-nested
-  "Convenience for nested maps, {k {k' v}}.
-   Reduces with (fn acc k k' v) for all k and k'."
-  [reduce-fn init-state coll]
-  (->> coll
-       (reduce-kv (fn [acc k inner-map]
-                    (->> inner-map
-                         (reduce-kv (fn [acc k' v]
-                                      (reduce-fn acc k k' v))
-                                    acc)))
-                  init-state)))
-
 (defn r-index
   "Given a history, returns a read index:
    ```
@@ -270,30 +259,30 @@
    Succeeding reads of [k v] are also transitively happens after due to process order."
   [{:keys [read-index write-index] :as _opts} _history]
   (let [g (->> write-index ; {k {v op}
-               (reduce-nested (fn [g k v write-op]
-                                (let [; read-index {k {#{vs} #{ops}}}
-                                      read-ops (->> (get read-index k) ; {#{vs} #{ops}}
-                                                    (filter (fn [[vs _ops]] (contains? vs v)))
-                                                    (mapcat val) ; seq-ops
-                                                    (into #{}))
-                                      ; don't self link
-                                      read-ops (disj read-ops write-op)
-                                      ; first read op in each process
-                                      read-ops (->> read-ops
-                                                    (reduce (fn [first-reads {:keys [process] :as read-op}]
-                                                              (let [curr-first (get first-reads process)]
-                                                                (if (or
+               (u/reduce-nested (fn [g k v write-op]
+                                  (let [; read-index {k {#{vs} #{ops}}}
+                                        read-ops (->> (get read-index k) ; {#{vs} #{ops}}
+                                                      (filter (fn [[vs _ops]] (contains? vs v)))
+                                                      (mapcat val) ; seq-ops
+                                                      (into #{}))
+                                        ; don't self link
+                                        read-ops (disj read-ops write-op)
+                                        ; first read op in each process
+                                        read-ops (->> read-ops
+                                                      (reduce (fn [first-reads {:keys [process] :as read-op}]
+                                                                (let [curr-first (get first-reads process)]
+                                                                  (if (or
                                                                      ; first read op for process
-                                                                     (nil? curr-first)
+                                                                       (nil? curr-first)
                                                                      ; this read op happened before
-                                                                     (< (:index read-op) (:index curr-first)))
-                                                                  (assoc first-reads process read-op)
+                                                                       (< (:index read-op) (:index curr-first)))
+                                                                    (assoc first-reads process read-op)
                                                                   ; current first is still first
-                                                                  first-reads)))
-                                                            nil)
-                                                    vals)]
-                                  (g/link-to-all g write-op read-ops wr)))
-                              (b/linear (g/op-digraph)))
+                                                                    first-reads)))
+                                                              nil)
+                                                      vals)]
+                                    (g/link-to-all g write-op read-ops wr)))
+                                (b/linear (g/op-digraph)))
                b/forked)]
     {:graph     g
      :explainer (WRExplainer.)}))
@@ -445,9 +434,9 @@
                                                       last-r-of-kv))))
                                   nil))
         g (->> last-r-of-kv ; {k {v last-r-op}}
-               (reduce-nested (fn [g k v read-op]
-                                (g/link g read-op (get-in write-index [k v]) rw))
-                              (b/linear (g/op-digraph)))
+               (u/reduce-nested (fn [g k v read-op]
+                                  (g/link g read-op (get-in write-index [k v]) rw))
+                                (b/linear (g/op-digraph)))
                b/forked)]
     {:graph     g
      :explainer (RWExplainer.)}))

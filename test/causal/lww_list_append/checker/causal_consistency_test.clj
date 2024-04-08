@@ -1,37 +1,43 @@
-(ns causal.lww-list-append.checker.real-time-causal-consistency-test
+(ns causal.lww-list-append.checker.causal-consistency-test
   (:require [clojure.test :refer [deftest is testing]]
-            [causal.lww-list-append.checker.real-time-causal-consistency :as rtc]
+            [causal.lww-list-append.checker.causal-consistency :as cc]
             [causal.util :as util]
             [jepsen.history :as h]))
 
-(def valid-rtc
+(def valid-cc
   (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1, :time -1}
         {:process 1, :type :ok, :f :txn, :value [[:w :x 1]], :index 3, :time -1}
-        {:process 2, :type :ok, :f :txn, :value [[:r :x 1]], :index 5, :time -1}]
+        {:process 0, :type :ok, :f :txn, :value [[:r :x [nil,0,1]]], :index 5, :time -1}]
+       h/history))
+
+(def invalid-cc
+  (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1, :time -1}
+        {:process 1, :type :ok, :f :txn, :value [[:r :x [nil,0]] [:w :y 0]], :index 3, :time -1}
+        {:process 2, :type :ok, :f :txn, :value [[:r :y [nil,0]] [:r :x nil]], :index 5, :time -1}]
        h/history))
 
 (def valid-wr
-  (->> [{:process 0, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 1, :time -1}
+  (->> [{:process 0, :type :ok, :f :txn, :value [[:r :x [nil,0]]], :index 1, :time -1}
         {:process 0, :type :ok, :f :txn, :value [[:w :y 0]], :index 3, :time -1}
         {:process 2, :type :ok, :f :txn, :value [[:w :x 0]], :index 5, :time -1}
-        {:process 2, :type :ok, :f :txn, :value [[:r :y #{0}]], :index 7, :time -1}]
+        {:process 2, :type :ok, :f :txn, :value [[:r :y [nil,0]]], :index 7, :time -1}]
        h/history))
 
 (def invalid-wr-single-process
-  (->> [{:process 0, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 1, :time -1}
+  (->> [{:process 0, :type :ok, :f :txn, :value [[:r :x [nil,0]]], :index 1, :time -1}
         {:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 3, :time -1}]
        h/history))
 
 (def invalid-wr
-  (->> [{:process 0, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 1, :time -1}
+  (->> [{:process 0, :type :ok, :f :txn, :value [[:r :x [nil,0]]], :index 1, :time -1}
         {:process 0, :type :ok, :f :txn, :value [[:w :y 0]], :index 3, :time -1}
-        {:process 2, :type :ok, :f :txn, :value [[:r :y #{0}]], :index 5, :time -1}
+        {:process 2, :type :ok, :f :txn, :value [[:r :y [nil,0]]], :index 5, :time -1}
         {:process 2, :type :ok, :f :txn, :value [[:w :x 0]], :index 7, :time -1}]
        h/history))
 
 (def valid-ryw (->> [{:process 0, :type :ok, :f :txn, :value [[:r :x nil]], :index 1, :time -1}
                      {:process 0, :type :ok, :f :txn, :value [[:w :x 0]],   :index 3, :time -1}
-                     {:process 0, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 5, :time -1}]
+                     {:process 0, :type :ok, :f :txn, :value [[:r :x [nil 0]]], :index 5, :time -1}]
                     h/history))
 
 (def invalid-ryw (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]],   :index 1, :time -1}
@@ -40,59 +46,59 @@
 
 (def invalid-ryw-not-nil (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]],   :index 1, :time -1}
                                {:process 0, :type :ok, :f :txn, :value [[:w :x 1]],   :index 3, :time -1}
-                               {:process 0, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 5, :time -1}]
+                               {:process 0, :type :ok, :f :txn, :value [[:r :x [nil 0]]], :index 5, :time -1}]
                               h/history))
 
 (def valid-monotonic-writes (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1}
                                   {:process 0, :type :ok, :f :txn, :value [[:w :x 1]], :index 3}
-                                  {:process 1, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 5}
-                                  {:process 1, :type :ok, :f :txn, :value [[:r :x #{0 1}]], :index 7}]
+                                  {:process 1, :type :ok, :f :txn, :value [[:r :x [nil 0]]], :index 5}
+                                  {:process 1, :type :ok, :f :txn, :value [[:r :x [nil 0 1]]], :index 7}]
                                  h/history))
 
 (def invalid-monotonic-writes (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1}
                                     {:process 0, :type :ok, :f :txn, :value [[:w :x 1]], :index 3}
-                                    {:process 1, :type :ok, :f :txn, :value [[:r :x #{1}]], :index 5}
-                                    {:process 1, :type :ok, :f :txn, :value [[:r :x #{0 1}]], :index 7}]
+                                    {:process 1, :type :ok, :f :txn, :value [[:r :x [nil 0 1]]], :index 5}
+                                    {:process 1, :type :ok, :f :txn, :value [[:r :x [nil 0]]], :index 7}]
                                    h/history))
 
-(def valid-wfr (->> [{:process 0, :type :ok, :f :txn, :value [[:w :y 1]], :index 1}
-                     {:process 0, :type :ok, :f :txn, :value [[:r :y #{1}]], :index 3}
-                     {:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 5}
-                     {:process 1, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 7}
-                     {:process 1, :type :ok, :f :txn, :value [[:w :x 1]], :index 9}
-                     {:process 1, :type :ok, :f :txn, :value [[:r :y #{1}]], :index 11}]
+(def valid-wfr (->> [{:process 0, :type :ok, :f :txn, :value [[:w :y 0]], :index 1}
+                     {:process 1, :type :ok, :f :txn, :value [[:r :y [nil 0]]], :index 3}
+                     {:process 1, :type :ok, :f :txn, :value [[:w :x 0]], :index 5}
+                     {:process 2, :type :ok, :f :txn, :value [[:r :x nil]], :index 7}
+                     {:process 2, :type :ok, :f :txn, :value [[:r :x [nil 0]]], :index 9}
+                     {:process 2, :type :ok, :f :txn, :value [[:r :y [nil 0]]], :index 11}]
                     h/history))
 
 (def invalid-wfr (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1}
-                       {:process 1, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 3}
+                       {:process 1, :type :ok, :f :txn, :value [[:r :x [nil 0]]], :index 3}
                        {:process 1, :type :ok, :f :txn, :value [[:w :y 0]], :index 5}
-                       {:process 2, :type :ok, :f :txn, :value [[:r :y #{0}]], :index 7}
+                       {:process 2, :type :ok, :f :txn, :value [[:r :y [nil 0]]], :index 7}
                        {:process 2, :type :ok, :f :txn, :value [[:r :x nil]], :index 9}]
                       h/history))
 
 (def invalid-wfr-mop (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1}
-                           {:process 1, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 3}
-                           {:process 1, :type :ok, :f :txn, :value [[:w :y 1]], :index 5}
-                           {:process 2, :type :ok, :f :txn, :value [[:r :y #{1}]], :index 7}
+                           {:process 1, :type :ok, :f :txn, :value [[:r :x [nil 0]]], :index 3}
+                           {:process 1, :type :ok, :f :txn, :value [[:w :y 0]], :index 5}
+                           {:process 2, :type :ok, :f :txn, :value [[:r :y [nil 0]]], :index 7}
                            {:process 2, :type :ok, :f :txn, :value [[:r :x nil]], :index 9}]
                           h/history))
 
 (def invalid-wfr-mops (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1}
-                            {:process 1, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 3}
-                            {:process 1, :type :ok, :f :txn, :value [[:w :y 1]], :index 5}
-                            {:process 2, :type :ok, :f :txn, :value [[:r :y #{1}] [:r :x nil]], :index 7}]
+                            {:process 1, :type :ok, :f :txn, :value [[:r :x [nil 0]]], :index 3}
+                            {:process 1, :type :ok, :f :txn, :value [[:w :y 0]], :index 5}
+                            {:process 2, :type :ok, :f :txn, :value [[:r :y [nil 0]] [:r :x nil]], :index 7}]
                            h/history))
 
 (def invalid-wfr-all-mops (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0] [:w :y 0]], :index 1}
-                                {:process 1, :type :ok, :f :txn, :value [[:r :y #{0}] [:w :x 1]], :index 3}
-                                {:process 2, :type :ok, :f :txn, :value [[:r :x #{0 1}] [:r :y nil]], :index 5}]
+                                {:process 1, :type :ok, :f :txn, :value [[:r :y [nil 0]] [:w :x 1]], :index 3}
+                                {:process 2, :type :ok, :f :txn, :value [[:r :x [nil 0 1]] [:r :y nil]], :index 5}]
                                h/history))
 
 (def invalid-monotonic-reads (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1}
                                    {:process 1, :type :ok, :f :txn, :value [[:w :x 1]], :index 3}
-                                   {:process 2, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 5}
-                                   {:process 2, :type :ok, :f :txn, :value [[:r :x #{0 1}]], :index 7}
-                                   {:process 2, :type :ok, :f :txn, :value [[:r :x #{1}]], :index 9}]
+                                   {:process 2, :type :ok, :f :txn, :value [[:r :x [nil 0]]], :index 5}
+                                   {:process 2, :type :ok, :f :txn, :value [[:r :x [nil 0 1]]], :index 7}
+                                   {:process 2, :type :ok, :f :txn, :value [[:r :x [nil 0]]], :index 9}]
                                   h/history))
 
 (def valid-internal (->> [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1}
@@ -184,29 +190,34 @@
   "Select these keys from the result map to determine pass/fail."
   [:valid? :anomaly-types :not])
 
-(deftest rtc
+(deftest causal-consistency
   (testing "causal-consistency"
-    (let [output-dir (str output-dir "/rtc")
+    (let [output-dir (str output-dir "/cc")
           opts       (assoc util/causal-opts :directory output-dir)]
       (is (= {:valid? true}
-             (rtc/check opts valid-rtc))))))
+             (cc/check opts valid-cc)))
+      (is (= {:valid? false
+              :anomaly-types [:G-single-item]
+              :not #{:consistent-view :repeatable-read}}
+             (-> (cc/check opts invalid-cc)
+                 (select-keys results-of-interest)))))))
 
-;; (deftest wr
-;;   (testing "w->r"
-;;     (let [output-dir (str output-dir "/wr")
-;;           opts       (assoc workload/causal-opts :directory output-dir)]
-;;       (is (= {:valid? true}
-;;              (cc/check opts valid-wr)))
-;;       (is (= {:valid? false
-;;               :anomaly-types [:G1c-process]
-;;               :not #{:strong-session-read-committed}}
-;;              (-> (cc/check opts invalid-wr-single-process)
-;;                  (select-keys results-of-interest))))
-;;       (is (= {:valid? false
-;;               :anomaly-types [:G0]
-;;               :not #{:read-uncommitted}}
-;;              (-> (cc/check opts invalid-wr)
-;;                  (select-keys results-of-interest)))))))
+(deftest wr
+  (testing "w->r"
+    (let [output-dir (str output-dir "/wr")
+          opts       (assoc util/causal-opts :directory output-dir)]
+      (is (= {:valid? true}
+             (cc/check opts valid-wr)))
+      (is (= {:valid? false
+              :anomaly-types [:G1c-process]
+              :not #{:strong-session-read-committed}}
+             (-> (cc/check opts invalid-wr-single-process)
+                 (select-keys results-of-interest))))
+      (is (= {:valid? false
+              :anomaly-types [:G1c-process :cyclic-versions]
+              :not #{:read-uncommitted}}
+             (-> (cc/check opts invalid-wr)
+                 (select-keys results-of-interest)))))))
 
 ;; (deftest read-your-writes
 ;;   (testing "read-your-writes"
@@ -237,32 +248,32 @@
 ;;              (-> (cc/check opts invalid-monotonic-writes)
 ;;                  (select-keys results-of-interest)))))))
 
-;; (deftest writes-follow-reads
-;;   (testing "writes-follow-reads"
-;;     (let [output-dir (str output-dir "/writes-follow-reads")
-;;           opts       (assoc workload/causal-opts :directory output-dir)]
-;;       (is (= {:valid? true}
-;;              (cc/check opts valid-wfr)))
-;;       (is (= {:valid? false
-;;               :anomaly-types [:G-single-item-process]
-;;               :not #{:strong-session-consistent-view}}
-;;              (-> (cc/check opts invalid-wfr)
-;;                  (select-keys results-of-interest))))
-;;       (is (= {:valid? false
-;;               :anomaly-types [:G-single-item-process]
-;;               :not #{:strong-session-consistent-view}}
-;;              (-> (cc/check opts invalid-wfr-mop)
-;;                  (select-keys results-of-interest))))
-;;       (is (= {:valid? false
-;;               :anomaly-types [:G-single-item]
-;;               :not #{:consistent-view :repeatable-read}}
-;;              (-> (cc/check opts invalid-wfr-mops)
-;;                  (select-keys results-of-interest))))
-;;       (is (= {:valid? false
-;;               :anomaly-types [:G-single-item]
-;;               :not #{:consistent-view :repeatable-read}}
-;;              (-> (cc/check opts invalid-wfr-all-mops)
-;;                  (select-keys results-of-interest)))))))
+(deftest writes-follow-reads
+  (testing "writes-follow-reads"
+    (let [output-dir (str output-dir "/writes-follow-reads")
+          opts       (assoc util/causal-opts :directory output-dir)]
+      (is (= {:valid? true}
+             (cc/check opts valid-wfr)))
+      (is (= {:valid? false
+              :anomaly-types [:G-single-item-process]
+              :not #{:strong-session-consistent-view}}
+             (-> (cc/check opts invalid-wfr)
+                 (select-keys results-of-interest))))
+      (is (= {:valid? false
+              :anomaly-types [:G-single-item-process]
+              :not #{:strong-session-consistent-view}}
+             (-> (cc/check opts invalid-wfr-mop)
+                 (select-keys results-of-interest))))
+      (is (= {:valid? false
+              :anomaly-types [:G-single-item]
+              :not #{:consistent-view :repeatable-read}}
+             (-> (cc/check opts invalid-wfr-mops)
+                 (select-keys results-of-interest))))
+      (is (= {:valid? false
+              :anomaly-types [:G-single-item]
+              :not #{:consistent-view :repeatable-read}}
+             (-> (cc/check opts invalid-wfr-all-mops)
+                 (select-keys results-of-interest)))))))
 
 ;; (deftest monotonic-reads
 ;;   (testing "monotonic-reads"

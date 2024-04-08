@@ -2,6 +2,18 @@
   (:require [jepsen.generator :as gen]
             [jepsen.tests.cycle.wr :as wr]))
 
+(defn reduce-nested
+  "Convenience for nested maps, {k {k' v}}.
+   Reduces with (fn acc k k' v) for all k and k'."
+  [reduce-fn init-state coll]
+  (->> coll
+       (reduce-kv (fn [acc k inner-map]
+                    (->> inner-map
+                         (reduce-kv (fn [acc k' v]
+                                      (reduce-fn acc k k' v))
+                                    acc)))
+                  init-state)))
+
 (def causal-opts
   "Opts to configure Elle for causal consistency."
   {:consistency-models [:strong-session-consistent-view] ; Elle's strong-session with Adya's Consistent View(PL-2+)
