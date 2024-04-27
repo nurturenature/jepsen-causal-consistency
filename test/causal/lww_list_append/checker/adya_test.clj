@@ -320,6 +320,7 @@
 
 (deftest simulated
   (testing "simulated"
+    ; different seeds
     (doseq [seed [23 42 69]]
       (let [output-dir (str output-dir "/simulated/" seed)
             opts       (assoc util/causal-opts :directory output-dir)
@@ -331,7 +332,56 @@
                             :history)]
         (is (= {:valid? true}
                (-> (cc/check opts history)
-                   (select-keys results-of-interest))))))))
+                   (select-keys results-of-interest))))))
+    ; brat db
+    (let [output-dir (str output-dir "/simulated/brat")
+          opts       (assoc util/causal-opts :directory output-dir)
+          history    (->> {:db          :brat
+                           :limit       50
+                           :concurrency 5}
+                          h-sim/run
+                          :history)]
+      (is (= {:valid? false
+              :anomaly-types [:G-single-item :G0 :G1c]
+              :not #{:read-uncommitted}}
+             (-> (cc/check opts history)
+                 (select-keys results-of-interest)))))
+    ; prefix db
+    (let [output-dir (str output-dir "/simulated/prefix")
+          opts       (assoc util/causal-opts :directory output-dir)
+          history    (->> {:db          :prefix
+                           :limit       10000
+                           :concurrency 10}
+                          h-sim/run
+                          :history)]
+      (is (= {:valid? true}
+             (-> (cc/check opts history)
+                 (select-keys results-of-interest)))))
+    ; si db
+    (let [output-dir (str output-dir "/simulated/si")
+          opts       (assoc util/causal-opts :directory output-dir)
+          history    (->> {:db          :si
+                           :limit       10000
+                           :concurrency 10}
+                          h-sim/run
+                          :history)]
+      (is (= {:valid? true}
+             (-> (cc/check opts history)
+                 (select-keys results-of-interest)))))
+    ; causal-lww db with failures
+    (let [output-dir (str output-dir "/simulated/failure")
+          opts       (assoc util/causal-opts :directory output-dir)
+          history    (->> {:db           :causal-lww
+                           :limit        10000
+                           :concurrency  10
+                           :failure-rate 500}
+                          h-sim/run
+                          :history)]
+      (is (= {:valid? false
+              :anomaly-types [:G-single-item-process]
+              :not #{:repeatable-read :snapshot-isolation :strong-session-consistent-view}}
+             (-> (cc/check opts history)
+                 (select-keys results-of-interest)))))))
 
 ;; (deftest internal
 ;;   (testing "internal"
@@ -404,7 +454,11 @@
 ;;                  (select-keys [:valid? :anomaly-types])))))))
 
 (def anomaly-history
-  (->> {:db :causal-lww :limit 250} h-sim/run :history))
+  (->> {:db          :causal-lww
+        :limit       10000
+        :concurrency 10}
+       h-sim/run
+       :history))
 (def anomaly-history-oks
   (->> anomaly-history h/oks))
 (def anomaly-history-indexes
