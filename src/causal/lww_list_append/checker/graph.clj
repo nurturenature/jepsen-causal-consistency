@@ -169,48 +169,68 @@
                nil)))
 
 (defn init-nil-vg
-  "Given a history, returns a version graph that captures [k nil] <hb [k v]
-   for the first observation of k in each process."
+  "Given a history, returns `{:vg vg :k-vg k-vg :sccs sccs}`,
+   a version graph that captures [k nil] <hb [k v] for the first observation of k in each process."
   [history]
-  (let [[g _observed]
+  (let [[vg k-vg _observed] ; [vg {k vg} {process {k v}}]
         (->> history
-             (reduce (fn [[g observed] {:keys [process value] :as _op}]
+             (reduce (fn [[vg k-vg observed] {:keys [process value] :as _op}]
                        (->> value
                             ext-reads
-                            (reduce (fn [[g observed] [k vs]]
-                                      (let [observed-v (get-in observed [process k])
-                                            this-v     (first vs)]
-                                        (if (or observed-v
-                                                (nil? this-v))
-                                          [g observed]
-                                          [(g/link g [k nil] [k this-v])
+                            (reduce (fn [[vg k-vg observed] [k vs]]
+                                      (let [this-v     (first vs)
+                                            observed-v (get-in observed [process k])
+                                            this-k-vg  (get k-vg k (b/linear (g/digraph)))]
+                                        (if (or (nil? this-v)
+                                                observed-v)
+                                          [vg k-vg observed]
+                                          [(g/link vg [k nil] [k this-v])
+                                           (assoc k-vg k (g/link this-k-vg [k nil] [k this-v]))
                                            (assoc-in observed [process k] this-v)])))
-                                    [g observed])))
-                     [(b/linear (g/digraph)) nil]))]
-    (b/forked g)))
+                                    [vg k-vg observed])))
+                     [(b/linear (g/digraph)) nil nil]))
+        vg   (b/forked vg)
+        k-vg (->> k-vg
+                  (map (fn [[k vg]] (MapEntry. k (b/forked vg))))
+                  (into {}))
+        sccs (g/strongly-connected-components vg)]
+    {:vg   vg
+     :k-vg k-vg
+     :sccs sccs}))
 
 (defn read-prefix-vg
-  "Given a history, returns a version graph that captures read prefix ordering, [k v] <hb [k v.next].
+  "Given a history, returns `{:vg vg :k-vg k-vg :sccs sccs}`,
+   a version graph that captures read prefix ordering, [k v] <hb [k v.next].
    All read mops in a transaction are considered."
   [history]
-  (let [g (->> history
-               ct/op-mops
-               (reduce (fn [g [_op [f k vs :as _mop]]]
-                         (case f
-                           :append
-                           g
+  (let [[vg k-vg] (->> history
+                       ct/op-mops
+                       (reduce (fn [[vg k-vg] [_op [f k vs :as _mop]]]
+                                 (case f
+                                   :append
+                                   [vg k-vg]
 
-                           :r
-                           (->> vs
-                                (partition 2 1)
-                                (reduce (fn [g [from-v to-v]]
-                                          (g/link g [k from-v] [k to-v]))
-                                        g))))
-                       (b/linear (g/digraph))))]
-    (b/forked g)))
+                                   :r
+                                   (->> vs
+                                        (partition 2 1)
+                                        (reduce (fn [[vg k-vg] [from-v to-v]]
+                                                  (let [this-k-vg (get k-vg k (b/linear (g/digraph)))]
+                                                    [(g/link vg [k from-v] [k to-v])
+                                                     (assoc k-vg k (g/link this-k-vg [k from-v] [k to-v]))]))
+                                                [vg k-vg]))))
+                               [(b/linear (g/digraph)) nil]))
+        vg   (b/forked vg)
+        k-vg (->> k-vg
+                  (map (fn [[k vg]] (MapEntry. k (b/forked vg))))
+                  (into {}))
+        sccs (g/strongly-connected-components vg)]
+    {:vg   vg
+     :k-vg k-vg
+     :sccs sccs}))
 
 (defn monotonic-writes-vg
-  "Given a history, returns a version graph with monotonic writes ordering.
+  "Given a history, returns `{:vg vg :k-vg k-vg :sccs sccs}`,
+   a version graph with monotonic writes ordering.
    Monotonic writes are per process.
    We go through the history mop by mop to get the most explicit graph we can,
    i.e. this specific [k v] <hb [k' v'] vs this set #{[k v]} <hb #{[k' v']}. 
@@ -223,25 +243,38 @@
    [:x 1] <hb [:y 2]
    ```"
   [history]
-  (let [[g _observed] ; {process [k v]}
+  (let [[vg k-vg _prev _prev-by-k] ; [vg {k vg} {process [k v]} {process {k v}}]
         (->> history
              ct/op-mops
-             (reduce (fn [[g observed] [{:keys [process] :as _op} [f k v :as _mop]]]
+             (reduce (fn [[vg k-vg prev prev-by-k] [{:keys [process] :as _op} [f k v :as _mop]]]
                        (case f
                          :r
-                         [g observed]
+                         [vg k-vg prev prev-by-k]
 
                          :append
-                         (let [this-kv     [k v]
-                               observed-kv (get observed process [k nil])  ; no prev is writing after nil
-                               observed'   (assoc observed process this-kv)]
-                           [(g/link g observed-kv this-kv)
-                            observed'])))
-                     [(b/linear (g/digraph)) nil]))]
-    (b/forked g)))
+                         (let [this-kv      [k v]
+                               prev-kv      (get prev process [k nil])  ; no prev is writing after nil
+                               prev'        (assoc prev process this-kv)
+                               this-k-vg    (get k-vg k (b/linear (g/digraph)))
+                               prev-by-k-kv (get-in prev-by-k [process k] [k nil])  ; no prev is writing after nil
+                               prev-by-k'   (assoc-in prev-by-k [process k] this-kv)]
+                           [(g/link vg prev-kv this-kv)
+                            (assoc k-vg k (g/link this-k-vg prev-by-k-kv this-kv))
+                            prev'
+                            prev-by-k'])))
+                     [(b/linear (g/digraph)) nil nil nil]))
+        vg   (b/forked vg)
+        k-vg (->> k-vg
+                  (map (fn [[k vg]] (MapEntry. k (b/forked vg))))
+                  (into {}))
+        sccs (g/strongly-connected-components vg)]
+    {:vg   vg
+     :k-vg k-vg
+     :sccs sccs}))
 
 (defn writes-follow-reads-vg
-  "Given a history, returns a version graph with writes follows reads ordering.
+  "Given a history, returns `{:vg vg :k-vg k-vg :sccs sccs}`,
+   a version graph with writes follows reads ordering.
    Writes follows reads are per process.
    We go through the history mop by mop to get the most explicit graph we can,
    i.e. intra-transaction, transaction edges, more specific [k v] <hb [k' v'] vs this set #{[k v]} <hb #{[k' v']}. 
@@ -254,27 +287,45 @@
    [:x 1] <hb [:y 2]
    ```"
   [history]
-  (let [[g _observed]  ; {process #{[k v]}}
+  (let [[vg k-vg _prev _prev-by-k]  ; [vg {k vg} {process #{[k v]}} {process {k #{[k v]}}}]
         (->> history
              ct/op-mops
-             (reduce (fn [[g observed] [{:keys [process] :as _op} [f k v :as mop]]]
+             (reduce (fn [[vg k-vg prev prev-by-k] [{:keys [process] :as _op} [f k v :as mop]]]
                        (case f
                          :r
                          (let [read-kvs (read-mop-kvs mop)]
-                           [g (update observed process set/union read-kvs)])
+                           [vg k-vg
+                            (update prev process set/union read-kvs)
+                            (->> read-kvs
+                                 (group-by first)
+                                 (reduce (fn [prev-by-k [k kvs]]
+                                           (update-in prev-by-k [process k] set/union kvs))
+                                         prev-by-k))])
 
                          :append
-                         (let [read-kvs (get observed process)
-                               write-kv [k v]]
-                           [(g/link-all-to g read-kvs write-kv)
-                            (dissoc observed process)])))
-                     [(b/linear (g/digraph)) nil]))]
-    (b/forked g)))
+                         (let [write-kv      [k v]
+                               prev-kvs      (get prev process)
+                               this-k-vg     (get k-vg k (b/linear (g/digraph)))
+                               prev-by-k-kvs (get-in prev-by-k [process k])]
+                           [(g/link-all-to vg prev-kvs write-kv)
+                            (assoc k-vg k (g/link-all-to this-k-vg prev-by-k-kvs write-kv))
+                            (dissoc prev process)
+                            (update prev-by-k process dissoc k)])))
+                     [(b/linear (g/digraph)) nil nil nil]))
+        vg   (b/forked vg)
+        k-vg (->> k-vg
+                  (map (fn [[k vg]] (MapEntry. k (b/forked vg))))
+                  (into {}))
+        sccs (g/strongly-connected-components vg)]
+    {:vg   vg
+     :k-vg k-vg
+     :sccs sccs}))
 
 ;; TODO: could be smarter, e.g. use common prefix to determine new kvs,
 ;;       last/first v as already have prefix order
 (defn monotonic-reads-vg
-  "Given a history, returns a version graph with monotonic reads ordering.
+  "Given a history, returns `{:vg vg :k-vg k-vg :sccs sccs}`,
+   a version graph with monotonic reads ordering.
    Monotonic reads are per process, per key.
    We go through the history mop by mop to get the most explicit graph we can,
    e.g. will help create cycles for intra-transaction non-monotonic reads, read your writes, etc. 
@@ -288,54 +339,50 @@
    [:x 1] ?hb [:y 1] and [:y 1] ?hb [:x 2]
    ```"
   [history]
-  (let [[g _observed]  ; {process {k [k v]}}
+  (let [[vg k-vg _observed]  ; [vg {k vg} {process {k [k v]}}]
         (->> history
              ct/op-mops
-             (reduce (fn [[g observed] [{:keys [process] :as _op} [f k v :as _mop]]]
+             (reduce (fn [[vg k-vg observed] [{:keys [process] :as _op} [f k v :as _mop]]]
                        (case f
                          ; observe our writes for versioning
                          :append
-                         [g (assoc-in observed [process k] [k v])]
+                         [vg k-vg (assoc-in observed [process k] [k v])]
 
                          :r
                          (let [this-kv     [k (last v)]  ; no prefix
-                               observed-kv (get-in observed [process k] [k nil])]
-                           [(if (not= this-kv observed-kv)
-                              (g/link g observed-kv this-kv)
-                              g)
-                            (assoc-in observed [process k] this-kv)])))
-                     [(b/linear (g/digraph)) nil]))]
-    (b/forked g)))
+                               this-k-vg   (get k-vg k (b/linear (g/digraph)))
+                               observed-kv (get-in observed [process k] [k nil])
+
+                               [vg k-vg]   (if (not= this-kv observed-kv)
+                                             [(g/link vg observed-kv this-kv)
+                                              (assoc k-vg k (g/link this-k-vg observed-kv this-kv))]
+                                             [vg k-vg])]
+                           [vg k-vg (assoc-in observed [process k] this-kv)])))
+                     [(b/linear (g/digraph)) nil nil]))
+        vg   (b/forked vg)
+        k-vg (->> k-vg
+                  (map (fn [[k vg]] (MapEntry. k (b/forked vg))))
+                  (into {}))
+        sccs (g/strongly-connected-components vg)]
+    {:vg   vg
+     :k-vg k-vg
+     :sccs sccs}))
 
 (def observed-vg-sources
   "A map of sources to build an observed version graph."
-  {:init-nil            init-nil-vg
-   :read-prefix         read-prefix-vg
-   :monotonic-writes    monotonic-writes-vg
-   :writes-follow-reads writes-follow-reads-vg
-   :monotonic-reads     monotonic-reads-vg})
+  {:init-nil-vg            init-nil-vg
+   :read-prefix-vg         read-prefix-vg
+   :monotonic-writes-vg    monotonic-writes-vg
+   :writes-follow-reads-vg writes-follow-reads-vg
+   :monotonic-reads-vg     monotonic-reads-vg})
 
 (def causal-vg-sources
   "A set of sources to build a causal version graph.
    See README.md for discussion of why monotonic reads are not included."
-  (dissoc observed-vg-sources :monotonic-reads))
-
-(defn causal-kvg
-  "Given a multi-object causal version graph, returns a
-   `{k vg}` containing each k in the version graph."
-  [vg]
-  (let [all-keys (->> vg
-                      bg/vertices
-                      (map first)
-                      (into #{}))]
-    (->> all-keys
-         (map (fn [k]
-                (let [kvg (g/collapse-graph (fn [[vert-k _vert-v]] (= k vert-k)) vg)]
-                  (MapEntry. k kvg))))
-         (into {}))))
+  (dissoc observed-vg-sources :monotonic-reads-vg))
 
 (defn causal-vg
-  "Given a map of sources, {name fn}, and a history, returns
+  "Given an index, a map of sources, {name fn}, and a history, returns
    ```
    {:causal-vg       multi-object-version-graph
     :causal-kvg      single-object-by-k-version-graph-map 
@@ -345,31 +392,33 @@
    Version graph is multi-object, e.g. across keys 
    If any version source graph has cycles, or would create cycles if combined with other sources,
    it is not combined into the final graph and its cycles are reported."
-  [vg-sources history-oks]
-  (let [[vg sources cyclic-versions]
+  [indexes vg-sources history-oks]
+  (let [[vg k-vg sources cyclic-versions]
         (->> vg-sources
-             (reduce (fn [[vg sources cyclic-versions] [next-source next-grapher]]
+             (reduce (fn [[vg k-vg sources cyclic-versions] [next-source next-grapher]]
                        ; check this version graph individually before combining
-                       (let [next-vg   (next-grapher history-oks)
-                             next-sccs (g/strongly-connected-components next-vg)]
+                       (let [{next-vg   :vg
+                              next-k-vg :k-vg
+                              next-sccs :sccs} (get indexes next-source
+                                                    (next-grapher history-oks))]
                          (if (seq next-sccs)
-                           [vg sources (conj cyclic-versions {:sources #{next-source}
-                                                              :sccs    next-sccs})]
+                           [vg k-vg sources (conj cyclic-versions {:sources #{next-source}
+                                                                   :sccs    next-sccs})]
                            ; now try combining
                            (let [combined-sources (conj sources next-source)
                                  combined-vg      (g/digraph-union vg next-vg)
+                                 combined-k-vg    (merge-with g/digraph-union k-vg next-k-vg)
                                  combined-sccs    (g/strongly-connected-components combined-vg)]
                              (if (seq combined-sccs)
-                               [vg sources (conj cyclic-versions {:sources combined-sources
-                                                                  :sccs    combined-sccs})]
-                               [combined-vg combined-sources cyclic-versions])))))
-                     [(b/linear (g/digraph)) #{} nil]))
+                               [vg k-vg sources (conj cyclic-versions {:sources combined-sources
+                                                                       :sccs    combined-sccs})]
+                               [combined-vg combined-k-vg combined-sources cyclic-versions])))))
+                     [(b/linear (g/digraph)) nil #{} nil]))
 
-        vg  (b/forked vg)
-        kvg (causal-kvg vg)]
+        vg  (b/forked vg)]
 
     (cond-> {:causal-vg  vg
-             :causal-kvg kvg}
+             :causal-kvg k-vg}
       (seq sources)
       (assoc :sources sources)
 
@@ -549,8 +598,9 @@
                        (->> value
                             ext-reads
                             (reduce (fn [[tg anomalies] [k vs]]
-                                      (let [this-kv  [k (last vs)]
-                                            next-kvs (g/out (get causal-kvg k) this-kv)]
+                                      (let [this-kv   [k (last vs)]
+                                            this-k-vg (get causal-kvg k (g/digraph))
+                                            next-kvs  (g/out this-k-vg this-kv)]
                                         (->> next-kvs
                                              (reduce (fn [[tg anomalies] next-kv]
                                                        [(g/link tg op (get write-index next-kv) rw) anomalies])

@@ -12,8 +12,7 @@
              [graph :as g]]
             [jepsen
              [history :as h]]
-            [jepsen.history.sim :as h-sim]
-            [elle.core :as elle])
+            [jepsen.history.sim :as h-sim])
   (:import (jepsen.history Op)))
 
 (defn op-internal-case
@@ -166,17 +165,23 @@
      - additional graphs, as given by (:additional-graphs opts)"
   [opts indexes history-oks]
   (let [; Build our combined analyzers
-        analyzers (into [elle/process-graph
-                         (partial cc-g/ww-tg indexes)
-                         (partial cc-g/wr-tg indexes)
-                         (partial cc-g/rw-tg indexes)]
-                        (ct/additional-graphs opts))
+        analyzers (->> {:process-graph elle/process-graph
+                        :wr-tg         (partial cc-g/wr-tg indexes)
+                        :ww-tg         (partial cc-g/ww-tg indexes)}
+                       ; graph may be pre-built, if so, use it by wrapping in a fn
+                       (mapv (fn [[graph-name graph-fn]]
+                               (let [pre-built (get indexes graph-name)]
+                                 (if (nil? pre-built)
+                                   graph-fn
+                                   (fn [_history] pre-built))))))
+        analyzers (into analyzers [(partial cc-g/rw-tg indexes)])
+        analyzers (into analyzers (ct/additional-graphs opts))
         analyzer (apply elle/combine analyzers)]
     ; And go!
     (analyzer history-oks)))
 
 (defn indexes
-  "Convenience fn for repl."
+  "Pre-build indexes and graphs once for multiple reuse."
   [history-oks]
   (let [processes    (h/task history-oks :processes []
                              (processes history-oks))
@@ -184,12 +189,59 @@
                              (cc-g/write-index history-oks))
         read-index   (h/task history-oks :read-index []
                              (cc-g/read-index history-oks))
+
+        process-graph         (h/task history-oks :process-graph []
+                                      (elle/process-graph history-oks))
+        init-nil-vg           (h/task history-oks :init-nil-vg []
+                                      (cc-g/init-nil-vg history-oks))
+        read-prefix-vg         (h/task history-oks :read-prefix-vg []
+                                       (cc-g/read-prefix-vg history-oks))
+        monotonic-writes-vg    (h/task history-oks :monotonic-writes-vg []
+                                       (cc-g/monotonic-writes-vg history-oks))
+        writes-follow-reads-vg (h/task history-oks :writes-follow-reads-vg []
+                                       (cc-g/writes-follow-reads-vg history-oks))
+        monotonic-reads-vg     (h/task history-oks :monotonic-reads-vg []
+                                       (cc-g/monotonic-reads-vg history-oks))
+
+        ; derefs below start any blocking
+        vg-indexes   {:init-nil-vg            @init-nil-vg
+                      :read-prefix-vg         @read-prefix-vg
+                      :monotonic-writes-vg    @monotonic-writes-vg
+                      :writes-follow-reads-vg @writes-follow-reads-vg
+                      :monotonic-reads-vg     @monotonic-reads-vg}
+
+        observed-vg  (h/task history-oks :observed-vg []
+                             (cc-g/causal-vg vg-indexes cc-g/observed-vg-sources history-oks))
         causal-vg    (h/task history-oks :causal-vg []
-                             (cc-g/causal-vg cc-g/causal-vg-sources history-oks))]
-    (merge {:processes     @processes
-            :write-index   @write-index
-            :read-index    @read-index}
-           (select-keys @causal-vg [:causal-vg :causal-kvg :cyclic-versions]))))
+                             (cc-g/causal-vg vg-indexes cc-g/causal-vg-sources history-oks))
+
+        ; version graphs
+        {observed-vg              :causal-vg
+         observed-kvg             :causal-kvg
+         observed-cyclic-versions :cyclic-versions} @observed-vg
+
+        {:keys [causal-vg
+                causal-kvg
+                _cyclic-versions]} @causal-vg
+
+        ; transaction graphs
+        wr-tg         (h/task history-oks :wr-tg [write-index write-index read-index read-index]
+                              (cc-g/wr-tg {:write-index write-index :read-index read-index} nil))
+        ww-tg         (h/task history-oks :wr-tg [write-index write-index]
+                              (cc-g/ww-tg {:write-index write-index :causal-vg causal-vg} nil))]
+
+    (merge {:processes                @processes
+            :write-index              @write-index
+            :read-index               @read-index
+            :observed-vg              observed-vg
+            :observed-kvg             observed-kvg
+            :observed-cyclic-versions observed-cyclic-versions
+            :causal-vg                causal-vg
+            :causal-kvg               causal-kvg
+            :process-graph            @process-graph
+            :wr-tg                    @wr-tg
+            :ww-tg                    @ww-tg}
+           vg-indexes)))
 
 (defn check
   "Full checker for write-read registers. Options are:
@@ -234,37 +286,14 @@
         ;;  g1b          (h/task history-oks :g1b [] (g1b-cases history-oks))
         ;;  internal     (h/task history-oks :internal [] (internal-cases history-oks))
 
-         processes    (h/task history-oks :processes []
-                              (processes history-oks))
-         write-index  (h/task history-oks :write-index []
-                              (cc-g/write-index history-oks))
-         read-index   (h/task history-oks :read-index []
-                              (cc-g/read-index history-oks))
+         {:keys [processes
+                 observed-cyclic-versions]
+          :as indexes}                     (->> history-oks
+                                                indexes
+                                                (h/task history-oks :indexes [])
+                                                deref)
 
-         observed-vg  (h/task history-oks :observed-vg []
-                              (cc-g/causal-vg cc-g/observed-vg-sources history-oks))
-
-         causal-vg    (h/task history-oks :causal-vg []
-                              (cc-g/causal-vg cc-g/causal-vg-sources history-oks))
-
-
-         ; derefs below start any blocking
-
-         {observed-vg              :causal-vg
-          observed-kvg             :causal-kvg
-          observed-cyclic-versions :cyclic-versions} @observed-vg
-
-         {:keys [causal-vg causal-kvg _cyclic-versions]} @causal-vg
-
-         indexes      {:processes     @processes
-                       :write-index   @write-index
-                       :read-index    @read-index
-                       :observed-vg   observed-vg
-                       :observed-kvg  observed-kvg
-                       :causal-vg     causal-vg
-                       :causal-kvg    causal-kvg}
-
-         cycles       (->> @processes
+         cycles       (->> processes
                            (map (fn [process]
                                   (let [opts      (update opts :directory str "/process-" process)
                                         indexes   (assoc indexes :rw-process process)

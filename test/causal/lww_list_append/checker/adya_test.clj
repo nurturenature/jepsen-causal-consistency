@@ -323,9 +323,10 @@
     (doseq [seed [23 42 69]]
       (let [output-dir (str output-dir "/simulated/" seed)
             opts       (assoc util/causal-opts :directory output-dir)
-            history    (->> {:db    :causal-lww
-                             :limit 256
-                             :seed  seed}
+            history    (->> {:db          :causal-lww
+                             :limit       10000
+                             :concurrency 10
+                             :seed        seed}
                             h-sim/run
                             :history)]
         (is (= {:valid? true}
