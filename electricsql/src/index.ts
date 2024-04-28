@@ -13,7 +13,7 @@ import { insecureAuthToken } from 'electric-sql/auth'
 
 /* create a database and client */
 const config: ElectricConfig = {
-    url: 'http://electricsql:5133',
+    url: 'http://localhost:5133',
     debug: true
 }
 const conn = new Database('electric.db')
