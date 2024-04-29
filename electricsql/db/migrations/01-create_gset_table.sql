@@ -1,9 +1,12 @@
 -- grow only set
-CREATE TABLE gset (
-  id integer PRIMARY KEY,
-   k integer,
-   v integer
+CREATE TABLE IF NOT EXISTS gset (
+  id INTEGER PRIMARY KEY,
+   k INTEGER,
+   v INTEGER
 );
 
--- electrify the gset table
+-- insure empty
+DELETE FROM gset;
+
+-- electrify table
 ALTER TABLE gset ENABLE ELECTRIC;

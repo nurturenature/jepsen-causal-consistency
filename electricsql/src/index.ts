@@ -13,7 +13,7 @@ import { insecureAuthToken } from 'electric-sql/auth'
 
 /* create a database and client */
 const config: ElectricConfig = {
-    url: 'http://localhost:5133',
+    url: 'http://hosthost:5133',
     debug: true
 }
 const conn = new Database('electric.db')
@@ -24,6 +24,8 @@ await electric.connect(insecureAuthToken({ "sub": "insecure" }))
 /* sync databases */
 const { synced: gset } = await electric.db.gset.sync()
 await gset
+const { synced: lww } = await electric.db.lww.sync()
+await lww
 
 /* webserver */
 const port = process.env.PORT || 3000;
@@ -115,10 +117,45 @@ app.post("/gset/better-sqlite3", (req: Request, res: Response) => {
     }
 });
 
+app.post("/lww/better-sqlite3", (req: Request, res: Response) => {
+    const upsert = conn.prepare(
+        'INSERT INTO lww (k,v) VALUES (@k,@v) ON CONFLICT (k) DO UPDATE SET v = CONCAT(v " " @v)');
+    const select = conn.prepare(
+        'SELECT k,v FROM gset WHERE k = @k');
+
+    const result = Array()
+
+    const txn = conn.transaction((mops) => {
+        for (const mop of mops)
+            switch (mop.f) {
+                case 'r':
+                    const read = <any>select.all(mop)
+                    if (read.length == 0) {
+                        result.push({ 'f': 'r', 'k': mop.k, 'v': null })
+                    } else {
+                        result.push({ 'f': 'r', 'k': mop.k, 'v': read })
+                    }
+                    break;
+                case 'append':
+                    const write = upsert.run(mop);
+                    assert(write.changes == 1)
+                    result.push(mop)
+                    break;
+            }
+    });
+
+    try {
+        txn(req.body.value)
+        res.send({ 'type': 'ok', 'value': result })
+    } catch (e) {
+        res.send({ 'type': 'info', 'error': e })
+    }
+});
+
 app.post("/control/disconnect", async (req: Request, res: Response) => {
     console.log('[electricsql]: disconnect request received.')
 
-    await electric.disconnect()
+    electric.disconnect()
     console.log('[electricsql]: ElectricSQL disconnected.')
 });
 
