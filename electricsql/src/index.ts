@@ -117,9 +117,14 @@ app.post("/gset/better-sqlite3", (req: Request, res: Response) => {
     }
 });
 
+app.get("/lww/list", async (req: Request, res: Response) => {
+    const result = await electric.db.lww.findMany()
+    res.send(result);
+});
+
 app.post("/lww/better-sqlite3", (req: Request, res: Response) => {
     const upsert = conn.prepare(
-        'INSERT INTO lww (k,v) VALUES (@k,@v) ON CONFLICT (k) DO UPDATE SET v = CONCAT(v " " @v)');
+        'INSERT INTO lww (k,v) VALUES (@k,@v) ON CONFLICT (k) DO UPDATE SET v = v || " " || @v)');
     const select = conn.prepare(
         'SELECT k,v FROM lww WHERE k = @k');
 
