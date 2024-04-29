@@ -134,11 +134,11 @@ app.post("/lww/better-sqlite3", (req: Request, res: Response) => {
         for (const mop of mops)
             switch (mop.f) {
                 case 'r':
-                    const read = <any>select.all(mop)
-                    if (read.length == 0) {
+                    const read = <any>select.get(mop)
+                    if (read == undefined) {
                         result.push({ 'f': 'r', 'k': mop.k, 'v': null })
                     } else {
-                        result.push({ 'f': 'r', 'k': mop.k, 'v': read })
+                        result.push({ 'f': 'r', 'k': read.k, 'v': read.v })
                     }
                     break;
                 case 'append':
