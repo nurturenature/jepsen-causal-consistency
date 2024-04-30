@@ -193,6 +193,26 @@ app.post("/control/stop", async (req: Request, res: Response) => {
     process.exit(0)
 });
 
+app.get("/control/pragma", async (req: Request, res: Response) => {
+    res.send([
+        {
+            "description": "ElectricSQL connection",
+            "name": e_conn.name,
+            "compile_options": e_conn.pragma('compile_options'),
+            "journal_mode": e_conn.pragma('journal_mode', { simple: true }),
+            "locking_mode": e_conn.pragma('locking_mode', { simple: true }),
+            "read_uncommitted": e_conn.pragma('read_uncommitted', { simple: true })
+        },
+        {
+            "description": "transaction connection",
+            "name": txn_conn.name,
+            "compile_options": txn_conn.pragma('compile_options'),
+            "journal_mode": txn_conn.pragma('journal_mode', { simple: true }),
+            "locking_mode": txn_conn.pragma('locking_mode', { simple: true }),
+            "read_uncommitted": txn_conn.pragma('read_uncommitted', { simple: true })
+        }]);
+});
+
 const webserver = app.listen(port, () => {
     console.log(`[electricsql]: Server is listening at http://localhost:${port}`);
 });

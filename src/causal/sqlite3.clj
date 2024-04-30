@@ -88,6 +88,7 @@
       ; one client sets up ElectricSQL
       (locking electricsql-setup?
         (when-not @electricsql-setup?
+          (info "Running ElectricSQL db:migrations")
           (c/cd app-dir
                 c/exec :npm :run "db:migrations")
 
