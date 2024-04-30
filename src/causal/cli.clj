@@ -19,6 +19,7 @@
   "A map of workload names to functions that take CLI options and return
   workload maps."
   {:lww                lww/workload
+   :lww-convergence    lww/strong-convergence
    :gset               gset/workload
    :gset-homogeneous   gset/workload-homogeneous-txns
    :gset-single-writes gset/workload-single-writes
