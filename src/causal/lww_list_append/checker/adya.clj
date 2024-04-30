@@ -11,7 +11,9 @@
              [txn :as ct]
              [graph :as g]]
             [jepsen
-             [history :as h]]
+             [checker :as checker]
+             [history :as h]
+             [store   :as store]]
             [jepsen.history.sim :as h-sim])
   (:import (jepsen.history Op)))
 
@@ -314,3 +316,15 @@
                      ;;  @g1b          (assoc :G1b @g1b)
                      observed-cyclic-versions (assoc :cyclic-versions observed-cyclic-versions))]
      (ct/result-map opts anomalies))))
+
+(defn checker
+  "For Jepsen test map."
+  [defaults]
+  (reify checker/Checker
+    (check [_this test history opts]
+      (let [opts (merge defaults opts)
+            opts (update opts :directory (fn [old]
+                                           (if (nil? old)
+                                             nil
+                                             (store/path test [old]))))]
+        (check opts history)))))

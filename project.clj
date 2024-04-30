@@ -11,7 +11,9 @@
                  [clj-http "3.12.3"]
                  [com.github.seancorfield/next.jdbc "1.3.909"]
                  [org.postgresql/postgresql "42.7.1"]]
-  :jvm-opts ["-Djava.awt.headless=true"]
+  :jvm-opts ["-Xmx8g"
+             "-Djava.awt.headless=true"
+             "-server"]
   :main causal.cli
   :repl-options {:init-ns causal.lww-list-append.checker.adya}
   :plugins [[lein-codox "0.10.8"]

@@ -51,37 +51,6 @@
       [this test node]
       (info "Setting up SQLite3 client")
 
-      ; `client` may use `psql` CLI
-      (when-not (cu/file? "/etc/apt/sources.list.d/pgdg.list")
-        ; add key, repository, update, and add package
-        (c/su
-         (deb/install [:wget :gpg])
-         (c/exec :wget :--quiet :-O :- "https://www.postgresql.org/media/keys/ACCC4CF8.asc" :| :sudo :apt-key :add :-)
-         (deb/add-repo! :pgdg "deb https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main")
-         (deb/update!)
-         (deb/install [:postgresql-client])))
-
-      ; one client sets up ElectricSQL
-      (locking electricsql-setup?
-        (when-not @electricsql-setup?
-          (info "Setting up ElectricSQL gset table:")
-          (c/exec :psql :-d "postgresql://postgres:postgres@electricsql:65432"
-                  :-c "CREATE TABLE public.gset (id integer PRIMARY KEY, k integer, v integer);")
-          (c/exec :psql :-d "postgresql://postgres:postgres@electricsql:65432"
-                  :-c "ALTER TABLE public.gset ENABLE ELECTRIC;")
-          (info
-           (c/exec :psql :-d "postgresql://postgres:postgres@electricsql:65432"
-                   :-c "TABLE public.gset;"))
-
-          (info "Setting up ElectricSQL gset_not_electric table:")
-          (c/exec :psql :-d "postgresql://postgres:postgres@electricsql:65432"
-                  :-c "CREATE TABLE public.gset_not_electric (id integer PRIMARY KEY, k integer, v integer);")
-          (info
-           (c/exec :psql :-d "postgresql://postgres:postgres@electricsql:65432"
-                   :-c "TABLE public.gset_not_electric;"))
-
-          (swap! electricsql-setup? (fn [_] true))))
-
       ; `client` may use `sqlite3` CLI
       (c/su
        (deb/install [:sqlite3]))
@@ -112,17 +81,22 @@
          (c/exec :mkdir :-p install-dir)
          (c/exec :git :clone "https://github.com/nurturenature/jepsen-causal-consistency.git" install-dir)))
 
-      ; building client migrations via ElectricSQL can be fussy, retry
-      (assert (u/timeout
-               60000 false
-               (u/retry
-                2 (do (c/su
-                       (c/cd app-dir
-                             (info "Building SQLite3 client")
-                             (c/exec :npm :install)
-                             (c/exec :npm :run :build)))
-                      true)))
-              (str "Unable to build SQLite3 client on " node))
+      ; install deps
+      (c/cd app-dir
+            c/exec :npm :install)
+
+      ; one client sets up ElectricSQL
+      (locking electricsql-setup?
+        (when-not @electricsql-setup?
+          (c/cd app-dir
+                c/exec :npm :run "db:migrations")
+
+          (swap! electricsql-setup? (fn [_] true))))
+
+      ; build client
+      (c/cd app-dir
+            (c/exec :npm :run "client:generate")
+            (c/exec :npm :run "client:build"))
 
       (db/start! this test node))
 
@@ -153,7 +127,7 @@
             {:chdir   app-dir
              :logfile log-file
              :pidfile pid-file}
-            "/usr/bin/npm" :run :start))
+            "/usr/bin/npm" :run "app:start"))
           :started)))
 
     (kill!

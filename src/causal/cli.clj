@@ -1,6 +1,7 @@
 (ns causal.cli
   "Command-line entry point for ElectricSQL tests."
   (:require [causal.gset.workload :as gset]
+            [causal.lww-list-append.workload :as lww]
             [causal
              [sqlite3 :as sqlite3]
              [nemesis :as nemesis]]
@@ -17,7 +18,8 @@
 (def workloads
   "A map of workload names to functions that take CLI options and return
   workload maps."
-  {:gset               gset/workload
+  {:lww                lww/workload
+   :gset               gset/workload
    :gset-homogeneous   gset/workload-homogeneous-txns
    :gset-single-writes gset/workload-single-writes
    :none               (fn [_] tests/noop-test)})
@@ -197,7 +199,7 @@
     :parse-fn parse-nodes-spec]
 
    ["-w" "--workload NAME" "What workload should we run?"
-    :default  :gset
+    :default  :lww
     :parse-fn keyword
     :missing  (str "Must specify a workload: " (cli/one-of workloads))
     :validate [workloads (cli/one-of workloads)]]])
