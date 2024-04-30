@@ -11,14 +11,14 @@ import { schema } from './generated/client/index.js'
 import { ElectricConfig } from "electric-sql/config";
 import { insecureAuthToken } from 'electric-sql/auth'
 
-/* create a database and client */
+/* create an electric conn, database, and client */
 const config: ElectricConfig = {
     url: 'http://hosthost:5133',
     debug: true
 }
-const conn = new Database('electric.db')
-conn.pragma('journal_mode = WAL')
-const electric = await electrify(conn, schema, config)
+const e_conn = new Database('electric.db')
+e_conn.pragma('journal_mode = WAL')
+const electric = await electrify(e_conn, schema, config)
 await electric.connect(insecureAuthToken({ "sub": "insecure" }))
 
 /* sync databases */
@@ -26,6 +26,11 @@ const { synced: gset } = await electric.db.gset.sync()
 await gset
 const { synced: lww } = await electric.db.lww.sync()
 await lww
+
+/* create a conn for db transactions, see https://www.sqlite.org/isolation.html */
+/* a shared conn has no isolation */
+const txn_conn = new Database('electric.db')
+txn_conn.pragma('journal_mode = WAL')
 
 /* webserver */
 const port = process.env.PORT || 3000;
@@ -82,15 +87,15 @@ app.post("/gset/electric-createMany", async (req: Request, res: Response) => {
 });
 
 app.post("/gset/better-sqlite3", (req: Request, res: Response) => {
-    const insert = conn.prepare(
+    const insert = txn_conn.prepare(
         'INSERT INTO gset (id,k,v) VALUES (@id, @k, @v)');
 
-    const select = conn.prepare(
+    const select = txn_conn.prepare(
         'SELECT k,v FROM gset WHERE k = @k');
 
     const result = Array()
 
-    const txn = conn.transaction((mops) => {
+    const txn = txn_conn.transaction((mops) => {
         for (const mop of mops)
             switch (mop.f) {
                 case 'r':
@@ -123,14 +128,14 @@ app.get("/lww/list", async (req: Request, res: Response) => {
 });
 
 app.post("/lww/better-sqlite3", (req: Request, res: Response) => {
-    const upsert = conn.prepare(
+    const upsert = txn_conn.prepare(
         'INSERT INTO lww (k,v) VALUES (@k,@v) ON CONFLICT (k) DO UPDATE SET v = v || \' \' || @v');
-    const select = conn.prepare(
+    const select = txn_conn.prepare(
         'SELECT k,v FROM lww WHERE k = @k');
 
     const result = Array()
 
-    const txn = conn.transaction((mops) => {
+    const txn = txn_conn.transaction((mops) => {
         for (const mop of mops)
             switch (mop.f) {
                 case 'r':
@@ -174,14 +179,16 @@ app.post("/control/connect", async (req: Request, res: Response) => {
 app.post("/control/stop", async (req: Request, res: Response) => {
     console.log('[electricsql]: stop request received.')
 
-    await electric.disconnect()
+    electric.disconnect()
     console.log('[electricsql]: ElectricSQL disconnected.')
 
     await electric.close()
     console.log('[electricsql]: ElectricSQL closed.')
 
-    conn.close()
-    console.log('[electricsql]: DB conn closed.')
+    e_conn.close()
+    console.log('[electricsql]: ElectricSQL conn closed.')
+    txn_conn.close()
+    console.log('[electricsql]: txn conn closed.')
 
     process.exit(0)
 });
