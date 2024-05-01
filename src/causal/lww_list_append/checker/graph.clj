@@ -446,8 +446,8 @@
            :b-mop-index (index-of (:value b) [:append k' v'])}))))
 
   (render-explanation [_ {:keys [kv kv']} a-name b-name]
-    (str a-name " wrote " (pr-str kv) " which <hb in causal version order " (pr-str kv')
-         ", which was written by " b-name)))
+    (str a-name " wrote " (pr-str kv) " which <hb in causal version order "
+         b-name "'s write of " (pr-str kv'))))
 
 (defn ww-tg
   "Given a causal version graph, a write index, and an unused history to match calling API, returns
