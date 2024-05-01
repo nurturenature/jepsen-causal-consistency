@@ -594,7 +594,7 @@
 
         [tg anomalies]
         (->> history
-             (reduce (fn [[tg anomalies] {:keys [value] :as op}]
+             (reduce (fn [[tg anomalies] {:keys [value] :as read-op}]
                        (->> value
                             ext-reads
                             (reduce (fn [[tg anomalies] [k vs]]
@@ -603,7 +603,14 @@
                                             next-kvs  (g/out this-k-vg this-kv)]
                                         (->> next-kvs
                                              (reduce (fn [[tg anomalies] next-kv]
-                                                       [(g/link tg op (get write-index next-kv) rw) anomalies])
+                                                       (let [write-op (get write-index next-kv)]
+                                                         (if write-op
+                                                           [(g/link tg read-op write-op rw) anomalies]
+                                                           [tg (conj anomalies (MapEntry. :garbage-versions
+                                                                                          {:type :rw
+                                                                                           :op   read-op
+                                                                                           :kv   this-kv
+                                                                                           :kv'  next-kv}))])))
                                                      [tg anomalies]))))
                                     [tg anomalies])))
                      [(b/linear (g/op-digraph)) nil]))

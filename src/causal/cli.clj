@@ -18,8 +18,9 @@
 (def workloads
   "A map of workload names to functions that take CLI options and return
   workload maps."
-  {:lww                lww/workload
-   :lww-convergence    lww/strong-convergence
+  {:lww-causal         lww/causal
+   :lww-strong         lww/strong
+   :lww-causal+strong  lww/causal+strong
    :gset               gset/workload
    :gset-homogeneous   gset/workload-homogeneous-txns
    :gset-single-writes gset/workload-single-writes
@@ -200,7 +201,7 @@
     :parse-fn parse-nodes-spec]
 
    ["-w" "--workload NAME" "What workload should we run?"
-    :default  :lww
+    :default  :lww-causal
     :parse-fn keyword
     :missing  (str "Must specify a workload: " (cli/one-of workloads))
     :validate [workloads (cli/one-of workloads)]]])

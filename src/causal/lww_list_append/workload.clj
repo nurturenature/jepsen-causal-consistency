@@ -7,8 +7,8 @@
             [causal.util :as util]
             [jepsen.checker :as checker]))
 
-(defn workload
-  "Basic LWW list-append workload."
+(defn causal
+  "Basic LWW list-append workload *only* a causal consistency checker."
   [opts]
   {:client          (client/->LWWListAppendClient nil)
    :generator       (l-a/gen opts)
@@ -16,9 +16,17 @@
    :checker         (checker/compose
                      {:causal-consistency (adya/checker (merge util/causal-opts opts))})})
 
-(defn strong-convergence
-  "Basic LWW list-append workload with only a strong convergence checker."
+(defn strong
+  "Basic LWW list-append workload with *only* a strong convergence checker."
   [opts]
-  (merge (workload opts)
+  (merge (causal opts)
          {:checker (checker/compose
                     {:strong-convergence (sc/final-reads)})}))
+
+(defn causal+strong
+  "Basic LWW list-append workload with *only* a strong convergence checker."
+  [opts]
+  (merge (causal opts)
+         {:checker (checker/compose
+                    {:causal-consistency (adya/checker (merge util/causal-opts opts))
+                     :strong-convergence (sc/final-reads)})}))
