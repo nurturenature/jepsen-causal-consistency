@@ -3,13 +3,17 @@
             [clojure.set :as set]
             [clojure.test :refer [deftest is testing]]
             [causal.lww-list-append.checker
-             [adya :as cc]
-             [graph :as cc-g]]
+             [adya :as adya]
+             [graph :as adya-g]]
             [causal.util :as util]
             [elle.graph :as g]
-            [jepsen.history :as h]
+            [jepsen
+             [history :as h]
+             [store :as store]]
             [jepsen.history.sim :as h-sim]
-            [jepsen.history :as history]))
+            [jepsen.store :as store]
+            [jepsen.history :as h]
+            [causal.lww-list-append.checker.adya :as adya]))
 
 (def valid-cc
   (->> [{:process 0, :type :ok, :f :txn, :value [[:append :x 0]], :index 1, :time -1}
@@ -216,13 +220,13 @@
     (let [output-dir (str output-dir "/cc")
           opts       (assoc util/causal-opts :directory output-dir)]
       (is (= {:valid? true}
-             (cc/check opts valid-cc)))
+             (adya/check opts valid-cc)))
       (is (= {:valid? true}
-             (cc/check opts valid-cc-rw)))
+             (adya/check opts valid-cc-rw)))
       (is (= {:valid? false
               :anomaly-types [:G-single-item]
               :not #{:consistent-view :repeatable-read}}
-             (-> (cc/check opts invalid-cc)
+             (-> (adya/check opts invalid-cc)
                  (select-keys results-of-interest)))))))
 
 (deftest wr
@@ -232,12 +236,12 @@
       (is (= {:valid? false
               :anomaly-types [:G1c-process :cyclic-versions]
               :not #{:read-uncommitted}}
-             (-> (cc/check opts invalid-wr)
+             (-> (adya/check opts invalid-wr)
                  (select-keys results-of-interest))))
       (is (= {:valid? false
               :anomaly-types [:G1c-process :cyclic-versions]
               :not #{:read-uncommitted}}
-             (-> (cc/check opts invalid-wr-single-process)
+             (-> (adya/check opts invalid-wr-single-process)
                  (select-keys results-of-interest))))
       ;; TODO: real real-time
       ;; (is (= {:valid? false
@@ -252,21 +256,21 @@
     (let [output-dir (str output-dir "/read-your-writes")
           opts       (assoc util/causal-opts :directory output-dir)]
       (is (= {:valid? true}
-             (cc/check opts valid-ryw)))
+             (adya/check opts valid-ryw)))
       (is (= {:valid? false
               :anomaly-types [:G-single-item-process :cyclic-versions]
               :not #{:read-uncommitted}}
-             (-> (cc/check opts invalid-ryw)
+             (-> (adya/check opts invalid-ryw)
                  (select-keys results-of-interest))))
       (is (= {:valid? false
               :anomaly-types [:G-single-item-process :cyclic-versions]
               :not #{:read-uncommitted}}
-             (-> (cc/check opts invalid-ryw-not-nil)
+             (-> (adya/check opts invalid-ryw-not-nil)
                  (select-keys results-of-interest))))
       (is (= {:valid? false
               :anomaly-types [:G-single-item-process :cyclic-versions]
               :not #{:read-uncommitted}}
-             (-> (cc/check opts invalid-ryw-+2)
+             (-> (adya/check opts invalid-ryw-+2)
                  (select-keys results-of-interest)))))))
 
 (deftest monotonic-writes
@@ -274,11 +278,11 @@
     (let [output-dir (str output-dir "/monotonic-writes")
           opts       (assoc util/causal-opts :directory output-dir)]
       (is (= {:valid? true}
-             (cc/check opts valid-monotonic-writes)))
+             (adya/check opts valid-monotonic-writes)))
       (is (= {:valid? false
               :anomaly-types [:G-single-item-process :cyclic-versions]
               :not #{:read-uncommitted}}
-             (-> (cc/check opts invalid-monotonic-writes)
+             (-> (adya/check opts invalid-monotonic-writes)
                  (select-keys results-of-interest)))))))
 
 (deftest writes-follow-reads
@@ -286,26 +290,26 @@
     (let [output-dir (str output-dir "/writes-follow-reads")
           opts       (assoc util/causal-opts :directory output-dir)]
       (is (= {:valid? true}
-             (cc/check opts valid-wfr)))
+             (adya/check opts valid-wfr)))
       (is (= {:valid? false
               :anomaly-types [:G-single-item-process]
               :not #{:strong-session-consistent-view}}
-             (-> (cc/check opts invalid-wfr)
+             (-> (adya/check opts invalid-wfr)
                  (select-keys results-of-interest))))
       (is (= {:valid? false
               :anomaly-types [:G-single-item-process]
               :not #{:strong-session-consistent-view}}
-             (-> (cc/check opts invalid-wfr-mop)
+             (-> (adya/check opts invalid-wfr-mop)
                  (select-keys results-of-interest))))
       (is (= {:valid? false
               :anomaly-types [:G-single-item]
               :not #{:consistent-view :repeatable-read}}
-             (-> (cc/check opts invalid-wfr-mops)
+             (-> (adya/check opts invalid-wfr-mops)
                  (select-keys results-of-interest))))
       (is (= {:valid? false
               :anomaly-types [:G-single-item]
               :not #{:consistent-view :repeatable-read}}
-             (-> (cc/check opts invalid-wfr-all-mops)
+             (-> (adya/check opts invalid-wfr-all-mops)
                  (select-keys results-of-interest)))))))
 
 (deftest monotonic-reads
@@ -315,7 +319,7 @@
       (is (= {:valid? false
               :anomaly-types [:G-single-item-process :cyclic-versions]
               :not #{:read-uncommitted}}
-             (-> (cc/check opts invalid-monotonic-reads)
+             (-> (adya/check opts invalid-monotonic-reads)
                  (select-keys results-of-interest)))))))
 
 (deftest simulated
@@ -331,7 +335,7 @@
                             h-sim/run
                             :history)]
         (is (= {:valid? true}
-               (-> (cc/check opts history)
+               (-> (adya/check opts history)
                    (select-keys results-of-interest))))))
     ; brat db
     (let [output-dir (str output-dir "/simulated/brat")
@@ -344,7 +348,7 @@
       (is (= {:valid? false
               :anomaly-types [:G-single-item :G0 :G1c]
               :not #{:read-uncommitted}}
-             (-> (cc/check opts history)
+             (-> (adya/check opts history)
                  (select-keys results-of-interest)))))
     ; prefix db
     (let [output-dir (str output-dir "/simulated/prefix")
@@ -355,7 +359,7 @@
                           h-sim/run
                           :history)]
       (is (= {:valid? true}
-             (-> (cc/check opts history)
+             (-> (adya/check opts history)
                  (select-keys results-of-interest)))))
     ; si db
     (let [output-dir (str output-dir "/simulated/si")
@@ -366,7 +370,7 @@
                           h-sim/run
                           :history)]
       (is (= {:valid? true}
-             (-> (cc/check opts history)
+             (-> (adya/check opts history)
                  (select-keys results-of-interest)))))
     ; causal-lww db with failures
     (let [output-dir (str output-dir "/simulated/failure")
@@ -380,7 +384,7 @@
       (is (= {:valid? false
               :anomaly-types [:G-single-item-process]
               :not #{:repeatable-read :snapshot-isolation :strong-session-consistent-view}}
-             (-> (cc/check opts history)
+             (-> (adya/check opts history)
                  (select-keys results-of-interest)))))))
 
 ;; (deftest internal
@@ -462,6 +466,38 @@
 (def anomaly-history-oks
   (->> anomaly-history h/oks))
 (def anomaly-history-indexes
-  (cc/indexes anomaly-history-oks))
+  (adya/indexes anomaly-history-oks))
 
 
+(def last-history
+  (->> (store/test -1)
+       :history))
+
+(def last-history-oks
+  (->> last-history
+       h/oks))
+
+(def last-history-indexes
+  (->> last-history-oks
+       adya/indexes))
+
+(defn version-filter
+  "Given a set of versions, #{[k v]}, and a history,
+   returns all ok ops that interacted with any of the [k v]."
+  [vers history]
+  (let [history-oks (->> history
+                         h/oks)
+        {:keys [write-index read-index]
+         :as   _indexes} (adya/indexes history-oks)
+
+        ; writes and reads of vers
+        ops (->> vers
+                 (reduce (fn [ops kv]
+                           (-> ops
+                               (conj      (get write-index kv))
+                               (set/union (get read-index  kv))))
+                         #{}))]
+    ; output will be sorted by :index    
+    (->> ops
+         (into (sorted-set-by (fn [op op']
+                                (compare (:index op) (:index op'))))))))
