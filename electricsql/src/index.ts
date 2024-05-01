@@ -162,35 +162,22 @@ app.post("/lww/better-sqlite3", (req: Request, res: Response) => {
     }
 });
 
-app.post("/control/disconnect", async (req: Request, res: Response) => {
+app.get("/control/disconnect", async (req: Request, res: Response) => {
     console.log('[electricsql]: disconnect request received.')
 
     electric.disconnect()
     console.log('[electricsql]: ElectricSQL disconnected.')
+
+    res.send("disconnected")
 });
 
-app.post("/control/connect", async (req: Request, res: Response) => {
+app.get("/control/connect", async (req: Request, res: Response) => {
     console.log('[electricsql]: connect request received.')
 
     await electric.connect()
     console.log('[electricsql]: ElectricSQL connected.')
-});
 
-app.post("/control/stop", async (req: Request, res: Response) => {
-    console.log('[electricsql]: stop request received.')
-
-    electric.disconnect()
-    console.log('[electricsql]: ElectricSQL disconnected.')
-
-    await electric.close()
-    console.log('[electricsql]: ElectricSQL closed.')
-
-    e_conn.close()
-    console.log('[electricsql]: ElectricSQL conn closed.')
-    txn_conn.close()
-    console.log('[electricsql]: txn conn closed.')
-
-    process.exit(0)
+    res.send("connected")
 });
 
 app.get("/control/pragma", async (req: Request, res: Response) => {
