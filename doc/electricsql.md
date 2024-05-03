@@ -75,9 +75,16 @@ conn.pragma('journal_mode = WAL')
 Initial testing of ElectricSQL reflects the alpha phase:
   - active/active deadlock with data loss
   - clients can fail to read their own writes with data loss
-  - non-atomic transactions
+  - non-atomic transactions with intermediate reads
   - divergent final state between clients without strong converge
   - going offline, online, can make clients unresponsive
+
+And... the tests could be using the API in non-optimal ways, etc.
+
+So... a docker version of the tests with custom workloads that exhibit each anomaly will be created
+and issues opened.
+
+The hope is to better understand both ElectricSQL, and the tests, to help with fixing what appear to be meaningful bugs.
 
 ----
 
@@ -158,7 +165,7 @@ lein run test --workload lww-causal+strong --rate 10 --time-limit 30
 
 ----
 
-### Non-Atomic Transactions
+### Non-Atomic Transactions with Intermediate Reads
 
 #### Workload:
   - lww
