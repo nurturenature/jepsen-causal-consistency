@@ -200,7 +200,7 @@
     :parse-fn parse-nodes-spec]
 
    ["-w" "--workload NAME" "What workload should we run?"
-    :default  :lww-causal
+    :default  :lww-causal+strong
     :parse-fn keyword
     :missing  (str "Must specify a workload: " (cli/one-of workloads))
     :validate [workloads (cli/one-of workloads)]]])

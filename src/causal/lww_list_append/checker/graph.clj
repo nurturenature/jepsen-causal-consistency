@@ -620,5 +620,3 @@
              :explainer (RWExplainer. causal-kvg)}
       (seq anomalies)
       (assoc :anomalies anomalies))))
-
-

@@ -80,27 +80,30 @@
   state for key k that was written by another transaction, T1, that was not
   T1's final update to k.
 
-  This function takes a history (which should include :fail events!), and
+  This function takes a history, and
   produces a sequence of error objects, each representing a read of an
   intermediate state."
-  [history]
+  [history-oks]
   ; Build a map of keys to maps of intermediate elements to the ops that wrote
   ; them
-  (let [im (ct/intermediate-write-indices #{:append} history)]
+  (let [intermediate-writes (ct/intermediate-write-indices #{:append} history-oks)
+        display-op          (fn [^Op op]
+                              (select-keys op [:index :node :value]))]
     ; Look for ok ops with a read mop of an intermediate append
-    (->> history
-         h/oks
+    (->> history-oks
          ct/op-mops
          (keep (fn [[^Op op [f k v :as mop]]]
                  (when (= :r f)
 									 ; We've got an illegal read if value came from an
 				           ; intermediate append.
-                   (when-let [writer-index (get-in im [k v])]
-                     ; Internal reads are OK!
-                     (when (not= (.index op) writer-index)
-                       {:op       op
-                        :mop      mop
-                        :writer   (h/get-index history writer-index)})))))
+                   (let [v          (last v)]
+                     (when-let [writer-index (get-in intermediate-writes [k v])]
+                       ; Internal reads are OK!
+                       (when (not= (.index op) writer-index)
+                         {:read-op            (display-op op)
+                          :intermediate-read  mop
+                          :write-op           (display-op (h/get-index history-oks writer-index))
+                          :intermediate-write [:append k v]}))))))
          seq)))
 
 (defn processes
@@ -273,20 +276,21 @@
 
     :max-plot-bytes         Maximum size of a cycle graph (in bytes of DOT)
                             which we're willing to try and render."
-  ([history]
-   (check {} history))
-  ([opts history]
-   (let [history      (->> history
-                           h/client-ops)
-         history-oks  (->> history
+  ([history-complete]
+   (check {} history-complete))
+  ([opts history-complete]
+   (let [history-clients (->> history-complete
+                              h/client-ops)
+         history-oks     (->> history-clients
                            ; TODO: shouldn't be any :info in total sticky availability, handle explicitly
-                           h/oks)
+                              h/oks)
 
          type-sanity  (h/task history-oks :type-sanity []
                               (ct/assert-type-sanity history-oks))
-        ;;  g1a          (h/task history     :g1a [] (g1a-cases history)) ; needs complete history including :fail
-        ;;  g1b          (h/task history-oks :g1b [] (g1b-cases history-oks))
-        ;;  internal     (h/task history-oks :internal [] (internal-cases history-oks))
+         ;;  g1a      (h/task history     :g1a [] (g1a-cases history)) ; needs complete history including :fail
+         g1b          (h/task history-oks :g1b []
+                              (g1b-cases history-oks))
+         ;;  internal (h/task history-oks :internal [] (internal-cases history-oks))
 
          {:keys [processes
                  observed-cyclic-versions]
@@ -313,7 +317,7 @@
          anomalies (cond-> cycles
                      ;;  @internal     (assoc :internal @internal)
                      ;;  @g1a          (assoc :G1a @g1a)
-                     ;;  @g1b          (assoc :G1b @g1b)
+                     @g1b                     (assoc :G1b @g1b)
                      observed-cyclic-versions (assoc :cyclic-versions observed-cyclic-versions))]
      (ct/result-map opts anomalies))))
 
