@@ -92,7 +92,7 @@
   [opts]
   (let [workload-name (:workload opts)
         workload ((workloads workload-name) opts)
-        db       (sqlite3/db)
+        db       (sqlite3/db opts)
         nemesis  (nemesis/nemesis-package
                   {:db         db
                    :nodes      (:nodes opts)
@@ -151,6 +151,9 @@
     :parse-fn parse-long
     :validate [pos? "Must be a positive integer"]]
 
+   [nil "--electric-host HOST" "Host name of the ElectricSQL service"
+    :parse-fn read-string]
+
    [nil "--electricsql-nodes NODES" "A comma-separated list of nodes that should get ElectricSQL clients"
     :parse-fn parse-nodes-spec]
 
@@ -185,6 +188,9 @@
     :default 5
     :parse-fn read-string
     :validate [pos? "Must be a positive number."]]
+
+   [nil "--postgres-host HOST" "Host name of the PostgreSQL service"
+    :parse-fn read-string]
 
    [nil "--postgresql-nodes NODES" "A comma-separated list of nodes that should get PostgreSQL clients"
     :parse-fn parse-nodes-spec]

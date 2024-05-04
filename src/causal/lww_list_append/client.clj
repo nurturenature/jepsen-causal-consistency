@@ -193,15 +193,16 @@
     [{:keys [conn] :as _client} _test]
     (.close conn)))
 
-(def db-specs
-  "Map of node names to db-specs."
+(defn db-specs
+  "Map node names to db-specs."
+  [{:keys [electric-host postgres-host] :as _opts}]
   {"postgresql"  {:dbtype   "postgresql"
-                  :host     "postgres"
+                  :host     (or postgres-host "postgres")
                   :user     "postgres"
                   :password "db_password"
                   :dbname   "electric-sqlite3-client"}
    "electricsql" {:dbtype   "postgresql"
-                  :host     "postgres"
+                  :host     (or electric-host "postgres")
                   :port     65432
                   :user     "postgres"
                   :password "proxy_password"

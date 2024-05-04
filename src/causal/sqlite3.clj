@@ -33,6 +33,16 @@
 
 (def app-ps-name "node")
 
+(defn app-env-vars
+  [{:keys [electric-host] :as _opts}]
+  (->> (merge (when electric-host
+                {:ELECTRIC_SERVICE (str "http://" electric-host ":5133")}))))
+
+(defn app-env
+  [opts]
+  (->> (app-env-vars opts)
+       (c/env)))
+
 (def electricsql-setup?
   "Is ElectricSQL setup?"
   (atom false))
@@ -45,7 +55,7 @@
 
 (defn db
   "ElectricSQL SQLite database."
-  []
+  [opts]
   (reify db/DB
     (setup!
       [this test node]
@@ -83,21 +93,24 @@
 
       ; install deps
       (c/cd app-dir
-            c/exec :npm :install)
+            ; there's a dependency problem in electricsql@0.10.1, so need to be explicit
+            (c/exec :npm :install "react-dom@18.3.1")
+            (c/exec :npm :install "react@18.3.1")
+            (c/exec :npm :install))
 
       ; one client sets up ElectricSQL
       (locking electricsql-setup?
         (when-not @electricsql-setup?
           (info "Running ElectricSQL db:migrations")
           (c/cd app-dir
-                c/exec :npm :run "db:migrations")
+                c/exec (app-env opts) :npm :run "db:migrations")
 
           (swap! electricsql-setup? (fn [_] true))))
 
       ; build client
       (c/cd app-dir
-            (c/exec :npm :run "client:generate")
-            (c/exec :npm :run "client:build"))
+            (c/exec (app-env opts) :npm :run "client:generate")
+            (c/exec (app-env opts) :npm :run "client:build"))
 
       (db/start! this test node))
 
@@ -125,7 +138,8 @@
         (do
           (c/su
            (cu/start-daemon!
-            {:chdir   app-dir
+            {:env     (app-env-vars opts)
+             :chdir   app-dir
              :logfile log-file
              :pidfile pid-file}
             "/usr/bin/npm" :run "app:start"))
