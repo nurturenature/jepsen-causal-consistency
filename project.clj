@@ -5,8 +5,11 @@
             :url "http://www.apache.org/licenses/"}
   :dependencies [[org.clojure/clojure "1.11.1"]
                  [jepsen "0.3.6-SNAPSHOT"]
-                 [elle "0.2.2-SNAPSHOT"]
-                 [io.jepsen/history.sim "0.1.1-SNAPSHOT"]
+                 ;; TODO: PR elle or revert
+                 ;; [elle "0.2.2-SNAPSHOT"]
+                 ;; TODO: PR history.sim or revert
+                 ;; [io.jepsen/history.sim "0.1.1-SNAPSHOT"]
+                 [io.jepsen/history.sim "0.1.0"]
                  [cheshire "5.12.0"]
                  [clj-http "3.12.3"]
                  [com.github.seancorfield/next.jdbc "1.3.909"]

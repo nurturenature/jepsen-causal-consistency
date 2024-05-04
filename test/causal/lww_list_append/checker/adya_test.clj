@@ -10,10 +10,7 @@
             [jepsen
              [history :as h]
              [store :as store]]
-            [jepsen.history.sim :as h-sim]
-            [jepsen.store :as store]
-            [jepsen.history :as h]
-            [causal.lww-list-append.checker.adya :as adya]))
+            [jepsen.history.sim :as h-sim]))
 
 (def valid-cc
   (->> [{:process 0, :type :ok, :f :txn, :value [[:append :x 0]], :index 1, :time -1}
@@ -318,12 +315,12 @@
              (adya/check opts valid-wfr)))
       (is (= {:valid? false
               :anomaly-types [:G-single-item-process]
-              :not #{:strong-session-consistent-view}}
+              :not #{:strong-session-snapshot-isolation}}
              (-> (adya/check opts invalid-wfr)
                  (select-keys results-of-interest))))
       (is (= {:valid? false
               :anomaly-types [:G-single-item-process]
-              :not #{:strong-session-consistent-view}}
+              :not #{:strong-session-snapshot-isolation}}
              (-> (adya/check opts invalid-wfr-mop)
                  (select-keys results-of-interest))))
       (is (= {:valid? false
@@ -350,18 +347,19 @@
 (deftest simulated
   (testing "simulated"
     ; different seeds
-    (doseq [seed [23 42 69]]
-      (let [output-dir (str output-dir "/simulated/" seed)
-            opts       (assoc util/causal-opts :directory output-dir)
-            history    (->> {:db          :causal-lww
-                             :limit       10000
-                             :concurrency 10
-                             :seed        seed}
-                            h-sim/run
-                            :history)]
-        (is (= {:valid? true}
-               (-> (adya/check opts history)
-                   (select-keys results-of-interest))))))
+    ;; TODO: PR history.sim
+    ;; (doseq [seed [23 42 69]]
+    ;;   (let [output-dir (str output-dir "/simulated/" seed)
+    ;;         opts       (assoc util/causal-opts :directory output-dir)
+    ;;         history    (->> {:db          :causal-lww
+    ;;                          :limit       10000
+    ;;                          :concurrency 10
+    ;;                          :seed        seed}
+    ;;                         h-sim/run
+    ;;                         :history)]
+    ;;     (is (= {:valid? true}
+    ;;            (-> (adya/check opts history)
+    ;;                (select-keys results-of-interest))))))
     ; brat db
     (let [output-dir (str output-dir "/simulated/brat")
           opts       (assoc util/causal-opts :directory output-dir)
@@ -398,19 +396,21 @@
              (-> (adya/check opts history)
                  (select-keys results-of-interest)))))
     ; causal-lww db with failures
-    (let [output-dir (str output-dir "/simulated/failure")
-          opts       (assoc util/causal-opts :directory output-dir)
-          history    (->> {:db           :causal-lww
-                           :limit        10000
-                           :concurrency  10
-                           :failure-rate 500}
-                          h-sim/run
-                          :history)]
-      (is (= {:valid? false
-              :anomaly-types [:G-single-item-process]
-              :not #{:repeatable-read :snapshot-isolation :strong-session-consistent-view}}
-             (-> (adya/check opts history)
-                 (select-keys results-of-interest)))))))
+    ;; TODO: PR history.sim
+    ;; (let [output-dir (str output-dir "/simulated/failure")
+    ;;       opts       (assoc util/causal-opts :directory output-dir)
+    ;;       history    (->> {:db           :causal-lww
+    ;;                        :limit        10000
+    ;;                        :concurrency  10
+    ;;                        :failure-rate 500}
+    ;;                       h-sim/run
+    ;;                       :history)]
+    ;;   (is (= {:valid? false
+    ;;           :anomaly-types [:G-single-item-process]
+    ;;           :not #{:repeatable-read :snapshot-isolation :strong-session-consistent-view}}
+    ;;          (-> (adya/check opts history)
+    ;;              (select-keys results-of-interest)))))
+    ))
 
 ;; (deftest internal
 ;;   (testing "internal"
@@ -482,47 +482,38 @@
 ;;              (-> (cc/check opts example-e-not-CC-nor-CM-nor-CCv-interpretation-2)
 ;;                  (select-keys [:valid? :anomaly-types])))))))
 
-(def anomaly-history
-  (->> {:db          :causal-lww
-        :limit       10000
-        :concurrency 10}
-       h-sim/run
-       :history))
-(def anomaly-history-oks
-  (->> anomaly-history h/oks))
-(def anomaly-history-indexes
-  (adya/indexes anomaly-history-oks))
+
+(comment
+  (def last-history
+    (->> (store/test -1)
+         :history))
+
+  (def last-history-oks
+    (->> last-history
+         h/oks))
+
+  (def last-history-indexes
+    (->> last-history-oks
+         adya/indexes))
 
 
-(def last-history
-  (->> (store/test -1)
-       :history))
-
-(def last-history-oks
-  (->> last-history
-       h/oks))
-
-(def last-history-indexes
-  (->> last-history-oks
-       adya/indexes))
-
-(defn version-filter
-  "Given a set of versions, #{[k v]}, and a history,
+  (defn version-filter
+    "Given a set of versions, #{[k v]}, and a history,
    returns all ok ops that interacted with any of the [k v]."
-  [vers history]
-  (let [history-oks (->> history
-                         h/oks)
-        {:keys [write-index read-index]
-         :as   _indexes} (adya/indexes history-oks)
+    [vers history]
+    (let [history-oks (->> history
+                           h/oks)
+          {:keys [write-index read-index]
+           :as   _indexes} (adya/indexes history-oks)
 
         ; writes and reads of vers
-        ops (->> vers
-                 (reduce (fn [ops kv]
-                           (-> ops
-                               (conj      (get write-index kv))
-                               (set/union (get read-index  kv))))
-                         #{}))]
+          ops (->> vers
+                   (reduce (fn [ops kv]
+                             (-> ops
+                                 (conj      (get write-index kv))
+                                 (set/union (get read-index  kv))))
+                           #{}))]
     ; output will be sorted by :index    
-    (->> ops
-         (into (sorted-set-by (fn [op op']
-                                (compare (:index op) (:index op'))))))))
+      (->> ops
+           (into (sorted-set-by (fn [op op']
+                                  (compare (:index op) (:index op')))))))))
