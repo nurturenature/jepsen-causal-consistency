@@ -21,6 +21,7 @@
   {:lww-causal         lww/causal
    :lww-strong         lww/strong
    :lww-causal+strong  lww/causal+strong
+   :lww-intermediate-read lww/intermediate-read
    :gset               gset/workload
    :gset-homogeneous   gset/workload-homogeneous-txns
    :gset-single-writes gset/workload-single-writes

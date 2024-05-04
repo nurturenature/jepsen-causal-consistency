@@ -30,3 +30,20 @@
          {:checker (checker/compose
                     {:causal-consistency (adya/checker (merge util/causal-opts opts))
                      :strong-convergence (sc/final-reads)})}))
+
+(defn intermediate-read
+  "Custom workload to demonstrate intermediate-read anomalies."
+  [opts]
+  (let [opts (merge opts
+                    {:min-txn-length     4
+                     :max-writes-per-key 128}
+                    {:consistency-models []
+                     :anomalies          [:G1b]
+                     :anomalies-ignored  nil})]
+    (causal+strong opts)))
+
+(comment
+  ;; (set/difference (elle.consistency-model/anomalies-prohibited-by [:strong-session-consistent-view])
+  ;;                 (elle.consistency-model/anomalies-prohibited-by [:strong-session-PL-2]))
+  ;; #{:G-cursor :G-monotonic :G-single :G-single-item :G-single-item-process :G-single-process :G1-process :lost-update}
+  )

@@ -57,6 +57,12 @@
                        {:process 1, :type :ok, :f :txn, :value [[:r :x [0]]],   :index 3, :time -1}]
                       h/history))
 
+(def invalid-G1b-read-of-final (->> [{:process 0, :type :ok, :f :txn, :value [[:append :x 0] [:append :x 1]], :index 1, :time -1}
+                                     {:process 1, :type :ok, :f :txn, :value [[:r :x [0]]],   :index 3, :time -1}
+                                     {:process 1, :type :ok, :f :txn, :value [[:r :x [0 1]]],   :index 5, :time -1}
+                                     {:process 2, :type :ok, :f :txn, :value [[:r :x [0 1]]],   :index 7, :time -1}]
+                                    h/history))
+
 (def valid-ryw (->> [{:process 0, :type :ok, :f :txn, :value [[:r :x nil]], :index 1, :time -1}
                      {:process 0, :type :ok, :f :txn, :value [[:append :x 0]],   :index 3, :time -1}
                      {:process 0, :type :ok, :f :txn, :value [[:r :x [0]]], :index 5, :time -1}]
@@ -263,6 +269,11 @@
               :anomaly-types [:G-single-item :G1b]
               :not #{:read-committed}}
              (-> (adya/check opts invalid-G1b)
+                 (select-keys results-of-interest))))
+      (is (= {:valid? false
+              :anomaly-types [:G-single-item :G1b]
+              :not #{:read-committed}}
+             (-> (adya/check opts invalid-G1b-read-of-final)
                  (select-keys results-of-interest)))))))
 
 (deftest read-your-writes

@@ -83,7 +83,7 @@
   This function takes a history, and
   produces a sequence of error objects, each representing a read of an
   intermediate state."
-  [history-oks]
+  [{:keys [read-index] :as _indexes} history-oks]
   ; Build a map of keys to maps of intermediate elements to the ops that wrote
   ; them
   (let [intermediate-writes (ct/intermediate-write-indices #{:append} history-oks)
@@ -92,18 +92,36 @@
     ; Look for ok ops with a read mop of an intermediate append
     (->> history-oks
          ct/op-mops
-         (keep (fn [[^Op op [f k v :as mop]]]
+         (keep (fn [[^Op op [f r-k r-v :as mop]]]
                  (when (= :r f)
 									 ; We've got an illegal read if value came from an
 				           ; intermediate append.
-                   (let [v          (last v)]
-                     (when-let [writer-index (get-in intermediate-writes [k v])]
+                   (let [r-v (last r-v)]
+                     (when-let [writer-index (get-in intermediate-writes [r-k r-v])]
                        ; Internal reads are OK!
                        (when (not= (.index op) writer-index)
-                         {:read-op            (display-op op)
-                          :intermediate-read  mop
-                          :write-op           (display-op (h/get-index history-oks writer-index))
-                          :intermediate-write [:append k v]}))))))
+                         ; look for reads of final write
+                         (let [write-op        (h/get-index history-oks writer-index)
+                               [_f _k final-v] (->> (.value write-op)
+                                                    (filter (fn [[f w-k _v]]
+                                                              (and (= f :append)
+                                                                   (= r-k w-k))))
+                                                    last)
+                               r's-of-final (->> (get read-index [r-k final-v])
+                                                 ; first read in each process
+                                                 (group-by :process)
+                                                 (map (fn [[_process r-ops]]
+                                                        (->> r-ops
+                                                             (sort-by :index)
+                                                             first)))
+                                                 (sort-by :index)
+                                                 (map display-op))]
+                           {:read-op            (display-op op)
+                            :intermediate-read  mop
+                            :write-op           (display-op write-op)
+                            :intermediate-write [:append r-k r-v]
+                            :final-write        [:append r-k final-v]
+                            :reads-of-final     r's-of-final})))))))
          seq)))
 
 (defn processes
@@ -288,8 +306,6 @@
          type-sanity  (h/task history-oks :type-sanity []
                               (ct/assert-type-sanity history-oks))
          ;;  g1a      (h/task history     :g1a [] (g1a-cases history)) ; needs complete history including :fail
-         g1b          (h/task history-oks :g1b []
-                              (g1b-cases history-oks))
          ;;  internal (h/task history-oks :internal [] (internal-cases history-oks))
 
          {:keys [processes
@@ -298,6 +314,9 @@
                                                 indexes
                                                 (h/task history-oks :indexes [])
                                                 deref)
+
+         g1b          (h/task history-oks :g1b []
+                              (g1b-cases indexes history-oks))
 
          cycles       (->> processes
                            (map (fn [process]
