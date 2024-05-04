@@ -196,12 +196,12 @@
 (def db-specs
   "Map of node names to db-specs."
   {"postgresql"  {:dbtype   "postgresql"
-                  :host     "hosthost"
+                  :host     "postgres"
                   :user     "postgres"
                   :password "db_password"
                   :dbname   "electric-sqlite3-client"}
    "electricsql" {:dbtype   "postgresql"
-                  :host     "hosthost"
+                  :host     "postgres"
                   :port     65432
                   :user     "postgres"
                   :password "proxy_password"

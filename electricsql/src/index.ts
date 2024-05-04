@@ -1,6 +1,6 @@
-import assert from "assert";
-import dotenv from "dotenv";
-import express, { Express, Request, Response } from "express";
+import assert from "assert"
+import dotenv from "dotenv"
+import express, { Express, Request, Response } from "express"
 
 dotenv.config();
 
@@ -8,12 +8,12 @@ dotenv.config();
 import Database from 'better-sqlite3'
 import { electrify } from 'electric-sql/node'
 import { schema } from './generated/client/index.js'
-import { ElectricConfig } from "electric-sql/config";
+import { ElectricConfig } from "electric-sql/config"
 import { insecureAuthToken } from 'electric-sql/auth'
 
 /* create an electric conn, database, and client */
 const config: ElectricConfig = {
-    url: 'http://hosthost:5133',
+    url: process.env.ELECTRIC_SERVICE || 'http://localhost:5133',
     debug: true
 }
 const e_conn = new Database('electric.db')
@@ -33,7 +33,7 @@ const txn_conn = new Database('electric.db')
 txn_conn.pragma('journal_mode = WAL')
 
 /* webserver */
-const port = process.env.PORT || 3000;
+const port = process.env.CLIENT_PORT || 8089
 const app: Express = express();
 app.use(express.json())
 
