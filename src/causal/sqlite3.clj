@@ -1,5 +1,5 @@
 (ns causal.sqlite3
-  (:require [clojure.tools.logging :refer [info]]
+  (:require [clojure.tools.logging :refer [info warn]]
             [jepsen
              [db :as db]
              [control :as c]
@@ -101,9 +101,9 @@
       ; one client sets up ElectricSQL
       (locking electricsql-setup?
         (when-not @electricsql-setup?
-          (info "Running ElectricSQL db:migrations")
-          (c/cd app-dir
-                c/exec (app-env opts) :npm :run "db:migrations")
+          (warn "Assuming that db migrations have already been run, db is available with tables created")
+          ;; (c/cd app-dir
+          ;;       c/exec (app-env opts) :npm :run "db:migrate")
 
           (swap! electricsql-setup? (fn [_] true))))
 
