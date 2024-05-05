@@ -116,11 +116,12 @@
                                                              first)))
                                                  (sort-by :index)
                                                  (map display-op))]
-                           {:read-op            (display-op op)
-                            :intermediate-read  mop
-                            :write-op           (display-op write-op)
+
+                           {:write-op           (display-op write-op)
                             :intermediate-write [:append r-k r-v]
                             :final-write        [:append r-k final-v]
+                            :read-op            (display-op op)
+                            :intermediate-read  mop
                             :reads-of-final     r's-of-final})))))))
          seq)))
 

@@ -35,11 +35,11 @@
   "Custom workload to demonstrate intermediate-read anomalies."
   [opts]
   (let [opts (merge opts
-                    {:min-txn-length     4
-                     :max-writes-per-key 128}
                     {:consistency-models []
-                     :anomalies          [:G1b]
-                     :anomalies-ignored  nil})]
+                     :anomalies          [:G-single-item :G1b]
+                     :anomalies-ignored  nil}
+                    {:min-txn-length     4
+                     :max-writes-per-key 128})]
     (causal+strong opts)))
 
 (comment
