@@ -33,14 +33,14 @@
 
 (def app-ps-name "node")
 
-(defn app-env-vars
+(defn app-env-map
   [{:keys [electric-host] :as _opts}]
-  (->> (merge (when electric-host
-                {:ELECTRIC_SERVICE (str "http://" electric-host ":5133")}))))
+  (let [electric-host (or electric-host "electric")]
+    {:ELECTRIC_SERVICE (str "http://" electric-host ":5133")}))
 
 (defn app-env
   [opts]
-  (->> (app-env-vars opts)
+  (->> (app-env-map opts)
        (c/env)))
 
 (def electricsql-setup?
@@ -138,7 +138,7 @@
         (do
           (c/su
            (cu/start-daemon!
-            {:env     (app-env-vars opts)
+            {:env     (app-env-map opts)
              :chdir   app-dir
              :logfile log-file
              :pidfile pid-file}
