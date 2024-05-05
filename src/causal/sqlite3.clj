@@ -10,7 +10,7 @@
 
 (def install-dir
   "Directory to install into."
-  "/root/jepsen-causal-consistency")
+  "/jepsen/jepsen-causal-consistency")
 
 (def app-dir
   "Application directory."
