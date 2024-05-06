@@ -11,11 +11,15 @@ jobs:
       - name: Checkout jepsen-docker
         uses: actions/checkout@v4
         
-      - name: Run Intermediate-Read Jepsen Test
+      - name: Bring Up Docker Environment
         run: |
           cd $GITHUB_WORKSPACE/docker
           ./electricsql-build.sh
           ./electricsql-up.sh
+          
+      - name: Run Intermediate-Read Jepsen Test
+        run: |
+          cd $GITHUB_WORKSPACE/docker
           ./electricsql-run-migrations.sh
           ./electricsql-intermediate-read.sh
 
