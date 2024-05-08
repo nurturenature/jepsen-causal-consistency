@@ -3,8 +3,9 @@
   (:require [causal.gset.workload :as gset]
             [causal.lww-list-append.workload :as lww]
             [causal
-             [sqlite3 :as sqlite3]
-             [nemesis :as nemesis]]
+             [local-sqlite3 :as local-sqlite3]
+             [nemesis :as nemesis]
+             [sqlite3 :as sqlite3]]
             [clojure.string :as str]
             [elle.consistency-model :as cm]
             [jepsen
@@ -92,7 +93,9 @@
   [opts]
   (let [workload-name (:workload opts)
         workload ((workloads workload-name) opts)
-        db       (sqlite3/db opts)
+        db       (if (:local-sqlite3? opts)
+                   (local-sqlite3/db)
+                   (sqlite3/db opts))
         nemesis  (nemesis/nemesis-package
                   {:db         db
                    :nodes      (:nodes opts)
@@ -164,6 +167,9 @@
    [nil "--key-dist DISTRIBUTION" "Exponential or uniform."
     :parse-fn keyword
     :validate [#{:exponential :uniform} "Must be exponential or uniform."]]
+
+   [nil "--local-sqlite3? BOOL" "Use a shared local SQLite3 db?"
+    :parse-fn parse-boolean]
 
    [nil "--max-txn-length NUM" "Maximum number of operations in a transaction."
     :default  4
