@@ -9,7 +9,7 @@ import Database from 'better-sqlite3'
 
 /* create a conn for db transactions, see https://www.sqlite.org/isolation.html */
 /* a shared conn has no isolation */
-const txn_conn = new Database(process.env.LOCAL_SQLITE3_DATABASE || '/var/jepsen/share/db/local.db')
+const txn_conn = new Database(process.env.LOCAL_SQLITE3_DATABASE || '/var/jepsen/shared/db/local.db')
 txn_conn.pragma('journal_mode = WAL')
 
 /* webserver */
