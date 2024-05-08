@@ -18,7 +18,7 @@
 
 (def database-dir
   "Local SQLite3 database dir."
-  (str app-dir "/var/jepsen/shared/db"))
+  "/var/jepsen/shared/db")
 
 (def database-file
   "Local SQLite3 database file."
