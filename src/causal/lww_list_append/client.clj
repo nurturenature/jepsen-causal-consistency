@@ -28,14 +28,11 @@
   (let [_                     (assert (= status 200))
         rslt                  (json/parse-string body true)
         [type' value' error'] [(keyword (:type rslt)) (:value rslt) (:error rslt)]
-        _                     (assert (= (count value)
-                                         (count value'))
-                                      {:op     op
-                                       :rslt   rslt
-                                       :value  value
-                                       :type'  type'
-                                       :value' value'
-                                       :error' error'})
+
+        type'  (if (= error' {:code "SQLITE_BUSY"})
+                 :fail
+                 type')
+
         value' (->> value'
                     (map (fn [[f k v] mop]
                            (let [[f' k' v'] [(keyword (:f mop)) (:k mop) (:v mop)]]
@@ -59,9 +56,18 @@
                     (into []))]
     (case type'
       :ok
-      (assoc op
-             :type  :ok
-             :value value')
+      (do
+        (assert (= (count value)
+                   (count value'))
+                {:op     op
+                 :rslt   rslt
+                 :value  value
+                 :type'  type'
+                 :value' value'
+                 :error' error'})
+        (assoc op
+               :type  :ok
+               :value value'))
 
       :fail
       (assoc op
