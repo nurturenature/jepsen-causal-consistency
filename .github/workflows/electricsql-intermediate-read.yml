@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:  
-      - name: Checkout jepsen-docker
+      - name: Checkout jepsen-causal-consistency
         uses: actions/checkout@v4
         
       - name: Bring Up Docker Environment

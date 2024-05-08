@@ -159,11 +159,10 @@
                                    :append
                                    (do
                                      (assert (= 1
-                                                (let [id (->> k (* 10000) (+ v))]
-                                                  (->> (jdbc/execute! tx [(str "INSERT INTO " table " (k,v) VALUES (" k ",'" v "')"
-                                                                               "ON CONFLICT (k) DO UPDATE SET v = lww.v || ' ' || '" v "'")])
-                                                       first
-                                                       :next.jdbc/update-count))))
+                                                (->> (jdbc/execute! tx [(str "INSERT INTO " table " (k,v) VALUES (" k ",'" v "')"
+                                                                             "ON CONFLICT (k) DO UPDATE SET v = lww.v || ' ' || '" v "'")])
+                                                     first
+                                                     :next.jdbc/update-count)))
                                      mop))))
                           (into [])))]
          (assoc op
