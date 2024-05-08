@@ -2,6 +2,8 @@ name: 'Local-SQLite3: Intermediate-Read'
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron:  '0 0 * * *'
 
 jobs:
   local-sqlite3-intermediate-read:
