@@ -29,7 +29,13 @@
         rslt                  (json/parse-string body true)
         [type' value' error'] [(keyword (:type rslt)) (:value rslt) (:error rslt)]
         _                     (assert (= (count value)
-                                         (count value')))
+                                         (count value'))
+                                      {:op     op
+                                       :rslt   rslt
+                                       :value  value
+                                       :type'  type'
+                                       :value' value'
+                                       :error' error'})
         value' (->> value'
                     (map (fn [[f k v] mop]
                            (let [[f' k' v'] [(keyword (:f mop)) (:k mop) (:v mop)]]
