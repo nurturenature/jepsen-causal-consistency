@@ -29,7 +29,7 @@
         rslt                  (json/parse-string body true)
         [type' value' error'] [(keyword (:type rslt)) (:value rslt) (:error rslt)]
 
-        type'  (if (= error' {:code "SQLITE_BUSY"})
+        type'  (if (->> error' :code (contains? #{"SQLITE_BUSY" "SQLITE_BUSY_SNAPSHOT"}))
                  :fail
                  type')
 
