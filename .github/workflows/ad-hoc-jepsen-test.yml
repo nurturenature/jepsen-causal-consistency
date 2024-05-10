@@ -8,6 +8,14 @@ on:
         type: string
         required: true
         default: 'lein run test --workload lww-causal+strong --rate 100 --time-limit 60'
+  workflow_call:
+    inputs:
+      jepsen_cli:
+        description: 'Ad-hoc Jepsen CLI'
+        type: string
+        required: true
+        default: 'lein run test --workload lww-causal+strong --rate 100 --time-limit 60'
+
 
 jobs:
   ad-hoc-jepsen-test:
