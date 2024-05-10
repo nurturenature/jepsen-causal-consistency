@@ -7,10 +7,10 @@ on:
         description: 'Jepsen CLI'
         type: string
         required: true
-        default: 'lein run test --workload lww-causal+strong --rate 100 --time 60'
+        default: 'lein run test --workload lww-causal+strong --rate 100 --time-limit 60'
 
 jobs:
-  electricsql-intermediate-read:
+  jepsen-test:
     runs-on: ubuntu-latest
 
     steps:  
