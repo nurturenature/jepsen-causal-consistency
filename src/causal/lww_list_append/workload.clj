@@ -42,6 +42,17 @@
                      :max-writes-per-key 128})]
     (causal+strong opts)))
 
+(defn read-your-writes
+  "Custom workload to demonstrate read-your-writes anomalies."
+  [opts]
+  (let [opts (merge opts
+                    {:consistency-models []
+                     :anomalies          [:G-single-item-process :cyclic-versions]
+                     :anomalies-ignored  nil}
+                    {:min-txn-length     4
+                     :max-writes-per-key 128})]
+    (causal+strong opts)))
+
 (comment
   ;; (set/difference (elle.consistency-model/anomalies-prohibited-by [:strong-session-consistent-view])
   ;;                 (elle.consistency-model/anomalies-prohibited-by [:strong-session-PL-2]))
