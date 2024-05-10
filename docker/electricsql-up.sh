@@ -12,6 +12,8 @@ docker compose \
        --detach \
        --wait
 
+docker ps --format="table {{.Names}}\t{{.Image}}\t{{.Status}}"
+
 echo
 echo "A full Jepsen + ElectricSQL cluster is up and available"
 echo "Create test database tables and electrify them with ./electricsql-run-migrations.sh"
