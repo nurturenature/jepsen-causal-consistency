@@ -1,4 +1,4 @@
-name: 'ElectricSQL: Low tps for 1 Hour'
+name: 'ElectricSQL: 2 tps per Client for 1 Hour'
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ on:
         description: 'Name of Test'
         type: string
         required: true
-        default: 'Low tps for 1 Hour'
+        default: '2 tps per Client for 1 Hour'
       jepsen_cli:
         description: 'Jepsen CLI'
         type: string
@@ -20,6 +20,6 @@ jobs:
   electricsql-low-tps-for-1-hour:
     uses: nurturenature/jepsen-causal-consistency/.github/workflows/ad-hoc-jepsen-test.yml@main
     with:
-      test_name: ${{ inputs.test_name || 'Low tps for 1 Hour' }}
+      test_name: ${{ inputs.test_name || '2 tps per Client for 1 Hour' }}
       jepsen_cli: ${{ inputs.jepsen_cli || 'lein run test --workload lww-strong --rate 2 --time-limit 3600' }}
 
