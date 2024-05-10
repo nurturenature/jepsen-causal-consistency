@@ -13,11 +13,7 @@ on:
 
 jobs:
   electricsql-low-tps-for-30-minutes:
-    runs-on: ubuntu-latest
-    env:
+    uses: nurturenature/jepsen-causal-consistency/.github/workflows/ad-hoc-jepsen-test.yml@main
+    with:
       jepsen_cli: ${{ inputs.jepsen_cli || 'lein run test --workload lww-strong --rate 1 --time-limit 1800' }}
-    steps:
-      - name: ${{ env.jepsen_cli }}
-        uses: nurturenature/jepsen-causal-consistency/.github/workflows/ad-hoc-jepsen-test.yml@main
-        with:
-          jepsen_cli: ${{ env.jepsen_cli }}
+
