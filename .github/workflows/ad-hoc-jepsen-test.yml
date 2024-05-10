@@ -3,15 +3,25 @@ name: 'Ad-hoc Jepsen Test'
 on:
   workflow_dispatch:
     inputs:
+      test_name:
+        description: 'Name of Test'
+        type: string
+        required: true
+        default: 'Ad-hoc Jepsen Test'
       jepsen_cli:
-        description: 'Ad-hoc Jepsen CLI'
+        description: 'Jepsen CLI'
         type: string
         required: true
         default: 'lein run test --workload lww-causal+strong --rate 100 --time-limit 60'
   workflow_call:
     inputs:
+      test_name:
+        description: 'Name of Test'
+        type: string
+        required: true
+        default: 'Ad-hoc Jepsen Test'
       jepsen_cli:
-        description: 'Ad-hoc Jepsen CLI'
+        description: 'Jepsen CLI'
         type: string
         required: true
         default: 'lein run test --workload lww-causal+strong --rate 100 --time-limit 60'
@@ -31,7 +41,7 @@ jobs:
           ./electricsql-build.sh
           ./electricsql-up.sh
           
-      - name: ${{ inputs.jepsen_cli }}
+      - name: ${{ inputs.test_name }}
         run: |
           cd $GITHUB_WORKSPACE/docker
           ./electricsql-run-migrations.sh
@@ -48,7 +58,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: 'Ad-hoc-Jepsen-Test-results'
+          name: '${{ inputs.test_name }}-results'
           path: |
             ${{ github.workspace }}/store/current/results.edn
             
@@ -56,7 +66,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: 'Ad-hoc-Jepsen-Test-full'
+          name: '${{ inputs.test_name }}-full'
           path: |
             ${{ github.workspace }}/store/current
             
