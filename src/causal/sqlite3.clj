@@ -93,9 +93,6 @@
 
       ; install deps
       (c/cd app-dir
-            ; there's a dependency problem in electricsql@0.10.1, so need to be explicit
-            (c/exec :npm :install "react-dom@18.3.1")
-            (c/exec :npm :install "react@18.3.1")
             (c/exec :npm :install))
 
       ; one client sets up ElectricSQL

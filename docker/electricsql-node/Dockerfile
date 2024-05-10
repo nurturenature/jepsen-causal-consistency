@@ -22,6 +22,4 @@ FROM electricsql-setup AS electricsql-node
 # jepsen-causal-consistency
 RUN git clone --depth 1 "https://github.com/nurturenature/jepsen-causal-consistency.git" /jepsen/jepsen-causal-consistency
 WORKDIR /jepsen/jepsen-causal-consistency/electricsql
-RUN npm install "react-dom@18.3.1"
-RUN npm install "react@18.3.1"
 RUN npm install
