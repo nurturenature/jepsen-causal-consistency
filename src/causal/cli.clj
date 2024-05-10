@@ -110,7 +110,7 @@
                                                      :correlation  :25%
                                                      :distribution :normal}}]}
                    :clock      {:targets [:minority-third]}
-                   :offline-online {:targets [:minority-third]}
+                   :offline-online {:targets [:minority]}
                    :interval   (:nemesis-interval opts)})]
     (merge tests/noop-test
            opts

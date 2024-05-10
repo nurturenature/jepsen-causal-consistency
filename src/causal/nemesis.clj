@@ -4,19 +4,32 @@
              [control :as c]
              [generator :as gen]
              [nemesis :as nemesis]]
-            [jepsen.nemesis.combined :as nc]))
+            [jepsen.nemesis.combined :as nc]
+            [slingshot.slingshot :refer [try+ throw+]]))
 
 (defn online!
   "Bring sync service online."
   [_test node]
-  (http/get (str "http://" node ":8089/control/connect"))
-  :online)
+  (try+
+   (http/get (str "http://" node ":8089/control/connect"))
+   :online
+
+   (catch (and (instance? java.net.ConnectException %)
+               (re-find #"Connection refused" (.getMessage %)))
+          {}
+     :connection-refused)))
 
 (defn offline!
   "Take sync service offline."
   [_test node]
-  (http/get (str "http://" node ":8089/control/disconnect"))
-  :offline)
+  (try+
+   (http/get (str "http://" node ":8089/control/disconnect"))
+   :offline
+
+   (catch (and (instance? java.net.ConnectException %)
+               (re-find #"Connection refused" (.getMessage %)))
+          {}
+     :connection-refused)))
 
 (defn offline-online-nemesis
   "A nemesis to take the sync service offline and online.

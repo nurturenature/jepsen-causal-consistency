@@ -1,0 +1,25 @@
+name: 'ElectricSQL: Offline-Online'
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_name:
+        description: 'Name of Test'
+        type: string
+        required: true
+        default: 'Offline-Online'
+      jepsen_cli:
+        description: 'Jepsen CLI'
+        type: string
+        required: true
+        default: 'lein run test --workload lww-causal+strong --nemesis offline-online --rate 10 --time-limit 60'
+  schedule:
+    - cron:  '0 0 * * *'
+
+jobs:
+  electricsql-offline-online:
+    uses: nurturenature/jepsen-causal-consistency/.github/workflows/ad-hoc-jepsen-test.yml@main
+    with:
+      test_name: ${{ inputs.test_name || 'Offline-Online' }}
+      jepsen_cli: ${{ inputs.jepsen_cli || 'lein run test --workload lww-causal+strong --nemesis offline-online --rate 10 --time-limit 60' }}
+
