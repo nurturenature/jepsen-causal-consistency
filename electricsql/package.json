@@ -7,9 +7,8 @@
   "scripts": {
     "backend:start": "npx electric-sql start --with-postgres",
     "backend:stop": "npx electric-sql stop",
-    "backend:up": "npx electric-sql start --with-postgres --detach",
+    "backend:up": "npx electric-sql start --with-postgres --detach --image electricsql/electric:canary",
     "backend:down": "npx electric-sql stop --remove",
-    "electric:start": "npx electric-sql start",
     "db:migrate": "npx electric-sql with-config \"npx pg-migrations apply --database {{ELECTRIC_PROXY}} --directory ./db/migrations\"",
     "db:psql": "npx electric-sql psql",
     "client:generate": "npx electric-sql generate --module-resolution nodenext",
@@ -21,7 +20,7 @@
   "dependencies": {
     "better-sqlite3": "^9.6.0",
     "dotenv": "^16.4.5",
-    "electric-sql": "latest",
+    "electric-sql": "canary",
     "express": "^4.19.2",
     "jsonwebtoken": "^9.0.2",
     "react": "^18.3.1",

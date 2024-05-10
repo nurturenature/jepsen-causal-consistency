@@ -34,7 +34,7 @@ services:
       - pg_data:/var/lib/postgresql/data
 
   electric:
-    image: "${ELECTRIC_IMAGE:-electricsql/electric:latest}"
+    image: "${ELECTRIC_IMAGE:-electricsql/electric:canary}"
     init: true
     environment:
       ELECTRIC_WRITE_TO_PG_MODE: direct_writes
