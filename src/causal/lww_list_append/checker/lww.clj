@@ -1,0 +1,83 @@
+(ns causal.lww-list-append.checker.lww
+  (:require [causal.util :as u]
+            [causal.lww-list-append.checker
+             [adya :as adya]
+             [graph :as adya-g]]
+            [elle
+             [core :as elle]
+             [txn :as txn]]
+            [jepsen
+             [checker :as checker]
+             [history :as h]
+             [store :as store]]))
+
+(defn graph
+  "Given indexes and a history of client transactions, computes a
+   ```
+   {:graph      transaction-graph
+    :explainer  explainer-for-graph
+    :anomalies  seq-of-anomalies}
+   ```
+   by combining a w->w graph derived from observed version ordering and a realtime ordered graph."
+  [{:keys [observed-vg write-index] :as _indexes} history-clients]
+  (let [; TODO: note use of observed-vg as causal-vg to include monotonic reads
+        ;       can this be done in the adya checker too?
+        ww-tg     (adya-g/ww-tg {:causal-vg   observed-vg
+                                 :write-index write-index} nil)
+        analyzers [elle/realtime-graph
+                   (fn [_history] ww-tg)]
+
+        analyzer  (apply elle/combine analyzers)]
+
+    (analyzer history-clients)))
+
+(defn check
+  "Does a w->w ordering derived from observed version order combined with a realtime graph cycle?
+   
+   Returns nil or an anomalies map.
+   
+   To align with Elle, we test for
+   ```
+   :strong-PL-1 [:strong-PL-1-cycle-exists
+                 :G0-realtime]
+   ```"
+  [opts history-complete]
+  (let [history-clients (->> history-complete
+                             h/client-ops)
+        history-oks     (->> history-clients
+                             ; TODO: shouldn't be any :info in total sticky availability, handle explicitly
+                             h/oks)
+
+        opts            (-> opts
+                            ; lww anomalies
+                            (update :anomalies into [:G0-realtime :strong-PL-1-cycle-exists])
+                            (update :directory str "/lww"))
+
+        {:keys [observed-cyclic-versions]
+         :as indexes}   (adya/indexes history-oks)
+
+        anomalies       (->> history-clients
+                             (txn/cycles! opts (partial graph indexes))
+                             :anomalies)
+        anomalies       (merge anomalies
+                               (when (seq observed-cyclic-versions)
+                                 {:cyclic-versions observed-cyclic-versions}))]
+
+    (cond-> {:valid? true}
+      (seq anomalies)
+      (merge {:valid?        false
+              :anomaly-types (-> anomalies keys sort)
+              :anomalies     anomalies}))))
+
+(defn checker
+  "For Jepsen test map."
+  [defaults]
+  (reify checker/Checker
+    (check [_this test history opts]
+      (let [opts (merge defaults opts)
+            opts (update opts :directory (fn [old]
+                                           (if (nil? old)
+                                             nil
+                                             (store/path test [old]))))]
+        (check opts history)))))
+

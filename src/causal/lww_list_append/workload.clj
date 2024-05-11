@@ -2,6 +2,7 @@
   (:require [causal.lww-list-append.client :as client]
             [causal.lww-list-append.checker
              [adya :as adya]
+             [lww :as lww]
              [strong-convergence :as sc]]
             [elle.list-append :as l-a]
             [causal.util :as util]
@@ -30,6 +31,13 @@
          {:checker (checker/compose
                     {:causal-consistency (adya/checker (merge util/causal-opts opts))
                      :strong-convergence (sc/final-reads)})}))
+
+(defn lww
+  "Basic LWW list-append workload with *only* a lww checker."
+  [opts]
+  (merge (causal opts)
+         {:checker (checker/compose
+                    {:lww (lww/checker (merge util/causal-opts opts))})}))
 
 (defn intermediate-read
   "Custom workload to demonstrate intermediate-read anomalies."

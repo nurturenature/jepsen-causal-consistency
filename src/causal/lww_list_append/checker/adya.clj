@@ -271,7 +271,7 @@
    (let [history-clients (->> history-complete
                               h/client-ops)
          history-oks     (->> history-clients
-                           ; TODO: shouldn't be any :info in total sticky availability, handle explicitly
+                              ; TODO: shouldn't be any :info in total sticky availability, handle explicitly
                               h/oks)
 
          type-sanity  (h/task history-oks :type-sanity []
