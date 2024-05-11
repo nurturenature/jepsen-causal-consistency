@@ -25,7 +25,7 @@
                     {:strong-convergence (sc/final-reads)})}))
 
 (defn causal+strong
-  "Basic LWW list-append workload with *only* a strong convergence checker."
+  "Basic LWW list-append workload with both a causal and strong convergence checker."
   [opts]
   (merge (causal opts)
          {:checker (checker/compose
@@ -38,6 +38,15 @@
   (merge (causal opts)
          {:checker (checker/compose
                     {:lww (lww/checker (merge util/causal-opts opts))})}))
+
+(defn causal+strong+lww
+  "Basic LWW list-append workload with a causal, a strong convergence, and a lww checker."
+  [opts]
+  (merge (causal opts)
+         {:checker (checker/compose
+                    {:causal-consistency (adya/checker (merge util/causal-opts opts))
+                     :strong-convergence (sc/final-reads)
+                     :lww                (lww/checker (merge util/causal-opts opts))})}))
 
 (defn intermediate-read
   "Custom workload to demonstrate intermediate-read anomalies."
