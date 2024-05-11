@@ -8,46 +8,15 @@
             [clojure.tools.logging :refer [info]]
             [elle
              [core :as elle]
-             [txn :as ct]
-             [graph :as g]]
+             [graph :as g]
+             [list-append :as list-append]
+             [txn :as ct]]
             [jepsen
              [checker :as checker]
              [history :as h]
              [store   :as store]]
             [jepsen.history.sim :as h-sim])
   (:import (jepsen.history Op)))
-
-(defn op-internal-case
-  "Given an op, returns a map describing internal consistency violations, or
-  nil otherwise. Our maps are:
-
-      {:op        The operation which went wrong
-       :mop       The micro-operation which went wrong
-       :expected  The state we expected to observe.}"
-  [op]
-  ; We maintain a map of keys to expected states.
-  (->> (:value op)
-       (reduce (fn [[state error] [f k v :as mop]]
-                 (case f
-                   :append [(assoc! state k v) error]
-                   :r (let [s (get state k)]
-                        (if (and s (not= s v))
-                          ; Not equal!
-                          (reduced [state
-                                    {:op       op
-                                     :mop      mop
-                                     :expected s}])
-                          ; OK! Either a match, or our first time seeing k.
-                          [(assoc! state k v) error]))))
-               [(transient {}) nil])
-       second))
-
-(defn internal-cases
-  "Given a history, finds operations which exhibit internal consistency
-  violations: e.g. some read [:r k v] in the transaction fails to observe a v
-  consistent with that transaction's previous write to k."
-  [history]
-  (ct/ok-keep op-internal-case history))
 
 (defn g1a-cases
   "G1a, or aborted read, is an anomaly where a transaction reads data from an
@@ -306,8 +275,11 @@
 
          type-sanity  (h/task history-oks :type-sanity []
                               (ct/assert-type-sanity history-oks))
+
+         internal     (h/task history-oks :internal []
+                              (list-append/internal-cases history-oks))
+
          ;;  g1a      (h/task history     :g1a [] (g1a-cases history)) ; needs complete history including :fail
-         ;;  internal (h/task history-oks :internal [] (internal-cases history-oks))
 
          {:keys [processes
                  observed-cyclic-versions]
@@ -335,8 +307,8 @@
 
          ; Build up anomaly map
          anomalies (cond-> cycles
-                     ;;  @internal     (assoc :internal @internal)
                      ;;  @g1a          (assoc :G1a @g1a)
+                     @internal                (merge @internal)
                      @g1b                     (assoc :G1b @g1b)
                      observed-cyclic-versions (assoc :cyclic-versions observed-cyclic-versions))]
      (ct/result-map opts anomalies))))

@@ -50,6 +50,25 @@
         {:process 2, :type :ok, :f :txn, :value [[:append :y 0]], :index 7, :time -1}]
        h/history))
 
+(def valid-internal (->> [{:process 0, :type :ok, :f :txn, :value [[:append :x 0]], :index 1}
+                          {:process 1, :type :ok, :f :txn, :value [[:r :x [0]] [:append :x 1] [:r :x [0 1]]], :index 3}
+                          {:process 2, :type :ok, :f :txn, :value [[:append :x 2] [:r :x [0 2]]], :index 5}]
+                         h/history))
+
+(def invalid-internal-ryw (->> [{:process 0, :type :ok, :f :txn, :value [[:append :x 0]], :index 1}
+                                {:process 1, :type :ok, :f :txn, :value [[:r :x [0]] [:append :x 1] [:r :x [0]]], :index 3}
+                                {:process 2, :type :ok, :f :txn, :value [[:append :x 2] [:r :x [0 1]]], :index 5}]
+                               h/history))
+
+(def invalid-internal-mono-reads (->> [{:process 0, :type :ok, :f :txn, :value [[:append :x 0]], :index 1}
+                                       {:process 1, :type :ok, :f :txn, :value [[:r :x [0]] [:append :x 1] [:r :x [1]]], :index 3}
+                                       {:process 2, :type :ok, :f :txn, :value [[:r :x [0]] [:r :x [0 1]] [:r :x [0]]], :index 5}]
+                                      h/history))
+
+(def invalid-internal-future-read (->> [{:process 0, :type :ok, :f :txn, :value [[:r :x nil] [:append :x 0] [:r :x [0]]], :index 1}
+                                        {:process 0, :type :ok, :f :txn, :value [[:r :y [0]] [:append :y 0]], :index 3}]
+                                       h/history))
+
 (def invalid-G1b (->> [{:process 0, :type :ok, :f :txn, :value [[:append :x 0] [:append :x 1]], :index 1, :time -1}
                        {:process 1, :type :ok, :f :txn, :value [[:r :x [0]]],   :index 3, :time -1}]
                       h/history))
@@ -133,21 +152,6 @@
                                    {:process 2, :type :ok, :f :txn, :value [[:r :x [0]]], :index 9}]
                                   h/history))
 
-(def valid-internal (->> [{:process 0, :type :ok, :f :txn, :value [[:append :x 0]], :index 1}
-                          {:process 1, :type :ok, :f :txn, :value [[:r :x #{0}] [:append :x 1] [:r :x #{0 1}]], :index 3}
-                          {:process 2, :type :ok, :f :txn, :value [[:append :x 2] [:r :x #{0 2}]], :index 5}]
-                         h/history))
-
-(def invalid-internal-ryw (->> [{:process 0, :type :ok, :f :txn, :value [[:append :x 0]], :index 1}
-                                {:process 1, :type :ok, :f :txn, :value [[:r :x #{0}] [:append :x 1] [:r :x #{0}]], :index 3}
-                                {:process 2, :type :ok, :f :txn, :value [[:append :x 2] [:r :x #{0 1}]], :index 5}]
-                               h/history))
-
-(def invalid-internal-mono-reads (->> [{:process 0, :type :ok, :f :txn, :value [[:append :x 0]], :index 1}
-                                       {:process 1, :type :ok, :f :txn, :value [[:r :x #{0}] [:append :x 1] [:r :x #{1}]], :index 3}
-                                       {:process 2, :type :ok, :f :txn, :value [[:r :x #{0}] [:r :x #{0 1}] [:r :x #{0}]], :index 5}]
-                                      h/history))
-
 (def invalid-G1a (->> [{:process 0, :type :ok,   :f :txn, :value [[:append :x 0]], :index 1}
                        {:process 0, :type :fail, :f :txn, :value [[:append :x 1]], :index 3}
                        {:process 1, :type :ok,   :f :txn, :value [[:r :x #{0 1}]], :index 5}]
@@ -157,10 +161,6 @@
                             {:process 0, :type :fail, :f :txn, :value [[:append :x 2] [:append :x 3]], :index 3}
                             {:process 1, :type :ok,   :f :txn, :value [[:r :x #{0 1 2 3}]], :index 5}]
                            h/history))
-
-(def invalid-G1b (->> [{:process 0, :type :ok, :f :txn, :value [[:append :x 0] [:append :x 1]], :index 1}
-                       {:process 1, :type :ok, :f :txn, :value [[:r :x #{0}]], :index 3}]
-                      h/history))
 
 ;; On Verifying Causal Consistency (POPL'17), Bouajjani
 
@@ -257,6 +257,29 @@
       ;;        (-> (cc/check opts invalid-wr-realtime)
       ;;            (select-keys results-of-interest))))
       )))
+
+(deftest internal
+  (testing "internal"
+    (let [output-dir (str output-dir "/internal")
+          opts       (assoc util/causal-opts :directory output-dir)]
+      (is (= {:valid? true}
+             (-> (adya/check opts valid-internal)
+                 (select-keys results-of-interest))))
+      (is (= {:valid? false
+              :anomaly-types [:cyclic-versions :internal]
+              :not #{:read-uncommitted}}
+             (-> (adya/check opts invalid-internal-ryw)
+                 (select-keys results-of-interest))))
+      (is (= {:valid? false
+              :anomaly-types [:G-single-item :cyclic-versions :internal]
+              :not #{:read-uncommitted}}
+             (-> (adya/check opts invalid-internal-mono-reads)
+                 (select-keys results-of-interest))))
+      (is (= {:valid? false
+              :anomaly-types [:cyclic-versions :future-read]
+              :not #{:read-uncommitted}}
+             (-> (adya/check opts invalid-internal-future-read)
+                 (select-keys results-of-interest)))))))
 
 (deftest G1b
   (testing "G1b"
@@ -369,8 +392,8 @@
                           h-sim/run
                           :history)]
       (is (= {:valid? false
-              :anomaly-types [:G-single-item :G0 :G1b :G1c]
-              :not #{:read-uncommitted}}
+              :anomaly-types [:garbage-versions :internal]
+              :not #{:read-atomic}}
              (-> (adya/check opts history)
                  (select-keys results-of-interest)))))
     ; prefix db
