@@ -217,12 +217,12 @@
              (cc/check opts valid-ryw)))
       (is (= {:valid? false
               :anomaly-types [:G-single-item-process]
-              :not #{:strong-session-consistent-view}}
+              :not #{:strong-session-snapshot-isolation}}
              (-> (cc/check opts invalid-ryw)
                  (select-keys results-of-interest))))
       (is (= {:valid? false
               :anomaly-types [:G-single-item-process]
-              :not #{:strong-session-consistent-view}}
+              :not #{:strong-session-snapshot-isolation}}
              (-> (cc/check opts invalid-ryw-not-nil)
                  (select-keys results-of-interest)))))))
 
@@ -234,7 +234,7 @@
              (cc/check opts valid-monotonic-writes)))
       (is (= {:valid? false
               :anomaly-types [:G-single-item-process]
-              :not #{:strong-session-consistent-view}}
+              :not #{:strong-session-snapshot-isolation}}
              (-> (cc/check opts invalid-monotonic-writes)
                  (select-keys results-of-interest)))))))
 
@@ -246,12 +246,12 @@
              (cc/check opts valid-wfr)))
       (is (= {:valid? false
               :anomaly-types [:G-single-item-process]
-              :not #{:strong-session-consistent-view}}
+              :not #{:strong-session-snapshot-isolation}}
              (-> (cc/check opts invalid-wfr)
                  (select-keys results-of-interest))))
       (is (= {:valid? false
               :anomaly-types [:G-single-item-process]
-              :not #{:strong-session-consistent-view}}
+              :not #{:strong-session-snapshot-isolation}}
              (-> (cc/check opts invalid-wfr-mop)
                  (select-keys results-of-interest))))
       (is (= {:valid? false
@@ -271,7 +271,7 @@
           opts       (assoc util/causal-opts :directory output-dir)]
       (is (= {:valid? false
               :anomaly-types [:G-single-item-process :monotonic-reads]
-              :not #{:strong-session-consistent-view}}
+              :not #{:strong-session-snapshot-isolation}}
              (-> (cc/check opts invalid-monotonic-reads)
                  (select-keys results-of-interest)))))))
 
