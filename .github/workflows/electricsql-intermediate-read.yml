@@ -2,49 +2,23 @@ name: 'ElectricSQL: Intermediate-Read'
 
 on:
   workflow_dispatch:
+    inputs:
+      test_name:
+        description: 'Name of Test'
+        type: string
+        required: true
+        default: 'Intermediate-Read'
+      jepsen_cli:
+        description: 'Jepsen CLI'
+        type: string
+        required: true
+        default: 'lein run test --workload lww-intermediate-read --rate 10 --time-limit 30'
   schedule:
     - cron:  '0 0 * * *'
 
 jobs:
   electricsql-intermediate-read:
-    runs-on: ubuntu-latest
-
-    steps:  
-      - name: Checkout jepsen-causal-consistency
-        uses: actions/checkout@v4
-        
-      - name: Bring Up Docker Environment
-        run: |
-          cd $GITHUB_WORKSPACE/docker
-          ./electricsql-build.sh
-          ./electricsql-up.sh
-          
-      - name: Run Intermediate-Read Jepsen Test
-        run: |
-          cd $GITHUB_WORKSPACE/docker
-          ./electricsql-run-migrations.sh
-          ./electricsql-intermediate-read.sh
-
-      - name: Jepsen, ElectricSQL, and PostgreSQL Logs
-        if: ${{ always() }}
-        run: |
-          docker cp jepsen-control:/jepsen/jepsen-causal-consistency/store $GITHUB_WORKSPACE
-          docker logs jepsen-electric-1 > $GITHUB_WORKSPACE/store/current/electricsql.log 
-          docker logs jepsen-postgres-1 > $GITHUB_WORKSPACE/store/current/postgresql.log 
-          
-      - name: 'Jepsen Test Artifacts: results'
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: 'ElectricSQL-intermediate-read-results'
-          path: |
-            ${{ github.workspace }}/store/current/results.edn
-            
-      - name: 'Jepsen Test Artifacts: full'
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: 'ElectricSQL-intermediate-read-full'
-          path: |
-            ${{ github.workspace }}/store/current
-            
+    uses: nurturenature/jepsen-causal-consistency/.github/workflows/ad-hoc-jepsen-test.yml@main
+    with:
+      test_name: ${{ inputs.test_name || 'Intermediate-Read' }}
+      jepsen_cli: ${{ inputs.jepsen_cli || 'lein run test --workload lww-intermediate-read --rate 10 --time-limit 30' }}
