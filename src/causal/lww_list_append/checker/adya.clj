@@ -28,20 +28,21 @@
   This function takes a history (which should include :fail events!), and
   produces a sequence of error objects, each representing an operation which
   read state written by a failed transaction."
-  [history]
+  [history-all]
   ; Build a map of keys to maps of failed elements to the ops that appended
   ; them.
-  (let [failed (ct/failed-write-indices #{:append} history)]
+  (let [failed (ct/failed-write-indices #{:append} history-all)]
     ; Look for ok ops with a read mop of a failed append
-    (->> history
+    (->> history-all
          h/oks
          ct/op-mops
          (keep (fn [[^Op op [f k v :as mop]]]
                  (when (= :r f)
-                   (when-let [writer-index (get-in failed [k v])]
-                     {:op        op
-                      :mop       mop
-                      :writer    (h/get-index history writer-index)}))))
+                   (let [v (last v)]
+                     (when-let [writer-index (get-in failed [k v])]
+                       {:op        op
+                        :mop       mop
+                        :writer    (h/get-index history-all writer-index)})))))
          seq)))
 
 (defn g1b-cases
@@ -279,7 +280,7 @@
          internal     (h/task history-oks :internal []
                               (list-append/internal-cases history-oks))
 
-         ;;  g1a      (h/task history     :g1a [] (g1a-cases history)) ; needs complete history including :fail
+         g1a         (h/task history-clients :g1a [] (g1a-cases history-clients)) ; needs complete history including :fail
 
          {:keys [processes
                  observed-cyclic-versions]
@@ -307,8 +308,8 @@
 
          ; Build up anomaly map
          anomalies (cond-> cycles
-                     ;;  @g1a          (assoc :G1a @g1a)
                      @internal                (merge @internal)
+                     @g1a                     (assoc :G1a @g1a)
                      @g1b                     (assoc :G1b @g1b)
                      observed-cyclic-versions (assoc :cyclic-versions observed-cyclic-versions))]
      (ct/result-map opts anomalies))))

@@ -69,6 +69,16 @@
                                         {:process 0, :type :ok, :f :txn, :value [[:r :y [0]] [:append :y 0]], :index 3}]
                                        h/history))
 
+(def invalid-G1a (->> [{:process 0, :type :ok,   :f :txn, :value [[:append :x 0]], :index 1}
+                       {:process 0, :type :fail, :f :txn, :value [[:append :x 1]], :index 3}
+                       {:process 1, :type :ok,   :f :txn, :value [[:r :x [0 1]]], :index 5}]
+                      h/history))
+
+(def invalid-G1a-mops (->> [{:process 0, :type :ok,   :f :txn, :value [[:append :x 0] [:append :x 1]], :index 1}
+                            {:process 0, :type :fail, :f :txn, :value [[:append :x 2] [:append :x 3]], :index 3}
+                            {:process 1, :type :ok,   :f :txn, :value [[:r :x [0 1 2 3]]], :index 5}]
+                           h/history))
+
 (def invalid-G1b (->> [{:process 0, :type :ok, :f :txn, :value [[:append :x 0] [:append :x 1]], :index 1, :time -1}
                        {:process 1, :type :ok, :f :txn, :value [[:r :x [0]]],   :index 3, :time -1}]
                       h/history))
@@ -151,16 +161,6 @@
                                    {:process 2, :type :ok, :f :txn, :value [[:r :x [0 1]]], :index 7}
                                    {:process 2, :type :ok, :f :txn, :value [[:r :x [0]]], :index 9}]
                                   h/history))
-
-(def invalid-G1a (->> [{:process 0, :type :ok,   :f :txn, :value [[:append :x 0]], :index 1}
-                       {:process 0, :type :fail, :f :txn, :value [[:append :x 1]], :index 3}
-                       {:process 1, :type :ok,   :f :txn, :value [[:r :x #{0 1}]], :index 5}]
-                      h/history))
-
-(def invalid-G1a-mops (->> [{:process 0, :type :ok,   :f :txn, :value [[:append :x 0] [:append :x 1]], :index 1}
-                            {:process 0, :type :fail, :f :txn, :value [[:append :x 2] [:append :x 3]], :index 3}
-                            {:process 1, :type :ok,   :f :txn, :value [[:r :x #{0 1 2 3}]], :index 5}]
-                           h/history))
 
 ;; On Verifying Causal Consistency (POPL'17), Bouajjani
 
@@ -279,6 +279,21 @@
               :anomaly-types [:cyclic-versions :future-read]
               :not #{:read-uncommitted}}
              (-> (adya/check opts invalid-internal-future-read)
+                 (select-keys results-of-interest)))))))
+
+(deftest G1a
+  (testing "G1a"
+    (let [output-dir (str output-dir "/G1a")
+          opts       (assoc util/causal-opts :directory output-dir)]
+      (is (= {:valid? false
+              :anomaly-types [:G1a :garbage-versions]
+              :not #{:read-committed}}
+             (-> (adya/check opts invalid-G1a)
+                 (select-keys results-of-interest))))
+      (is (= {:valid? false
+              :anomaly-types [:G1a :garbage-versions]
+              :not #{:read-committed}}
+             (-> (adya/check opts invalid-G1a-mops)
                  (select-keys results-of-interest)))))))
 
 (deftest G1b
