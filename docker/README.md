@@ -24,7 +24,7 @@
 # can only run one test per setup
 ./jepsen-docker-cli.sh lein run test --workload lww-intermediate-read --rate 10 --time-limit 30
 ./jepsen-docker-cli.sh lein run test --workload lww-read-your-writes --rate 10 --time-limit 30
-./jepsen-docker-cli.sh lein run test --workload lww-causal+strong --nemesis offline-online --rate 10 --time-limit 60
+./jepsen-docker-cli.sh lein run test --workload lww-strong --nemesis offline-online --rate 10 --time-limit 100
 
 # run a webserver for test results on jepsen-control
 # available at http://localhost:8080
