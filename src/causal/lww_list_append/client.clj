@@ -208,12 +208,12 @@
   "Map node names to db-specs."
   [{:keys [electric-host postgres-host] :as _opts}]
   {"postgresql"  {:dbtype   "postgresql"
-                  :host     (or postgres-host "postgres")
+                  :host     postgres-host
                   :user     "postgres"
                   :password "db_password"
                   :dbname   "electric-sqlite3-client"}
    "electricsql" {:dbtype   "postgresql"
-                  :host     (or electric-host "postgres")
+                  :host     electric-host
                   :port     65432
                   :user     "postgres"
                   :password "proxy_password"

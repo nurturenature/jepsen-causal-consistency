@@ -35,8 +35,7 @@
 
 (defn app-env-map
   [{:keys [electric-host] :as _opts}]
-  (let [electric-host (or electric-host "electric")]
-    {:ELECTRIC_SERVICE (str "http://" electric-host ":5133")}))
+  {:ELECTRIC_SERVICE (str "http://" electric-host ":5133")})
 
 (defn app-env
   [opts]

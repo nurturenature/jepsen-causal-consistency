@@ -156,6 +156,7 @@
     :validate [pos? "Must be a positive integer"]]
 
    [nil "--electric-host HOST" "Host name of the ElectricSQL service"
+    :default "electric"
     :parse-fn read-string]
 
    [nil "--electricsql-nodes NODES" "A comma-separated list of nodes that should get ElectricSQL clients"
@@ -197,6 +198,7 @@
     :validate [pos? "Must be a positive number."]]
 
    [nil "--postgres-host HOST" "Host name of the PostgreSQL service"
+    :default "postgres"
     :parse-fn read-string]
 
    [nil "--postgresql-nodes NODES" "A comma-separated list of nodes that should get PostgreSQL clients"
