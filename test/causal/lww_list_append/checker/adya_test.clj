@@ -118,7 +118,7 @@
 
 (def invalid-monotonic-writes (->> [{:process 0, :type :ok, :f :txn, :value [[:append :x 0]], :index 1}
                                     {:process 0, :type :ok, :f :txn, :value [[:append :x 1]], :index 3}
-                                    {:process 1, :type :ok, :f :txn, :value [[:r :x [0 1]]], :index 5}
+                                    {:process 1, :type :ok, :f :txn, :value [[:r :x [1]]], :index 5}
                                     {:process 1, :type :ok, :f :txn, :value [[:r :x [0]]], :index 7}]
                                    h/history))
 

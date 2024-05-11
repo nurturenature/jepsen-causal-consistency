@@ -17,39 +17,83 @@ This project explores using Jepsen to test for [Causal Consistency](https://jeps
 > 
 >   -- Adya, [Weak Consistency](https://dspace.mit.edu/handle/1721.1/149899)
 
-#### Modifies Elle's consistency model [graph](https://github.com/jepsen-io/elle/blob/main/images/models.png)
+#### Proposes Completing Elle's Consistency Model [graph](https://github.com/jepsen-io/elle/blob/main/images/models.png) for Weaker Consistency Models
 
-Causal Consistency requires process order.
+- Causal Consistency requires process order
 
-But Adya doesn't include process order and anomalies with many models, importantly to us, Consistent View(PL-2+).
+- but Adya doesn't include process order and anomalies with many models, importantly to us, Consistent View(PL-2+).
 
-Elle has already added a strong-session, process order and process anomalies, to most stronger models.
+- Elle has already added a strong-session, process order and process anomalies, to most stronger models.
 
 So we complete Elle's existing consistency models by adding a strong-session-consistent-view:
   - adds process graph and process variants of anomalies
   - fills in the gap between existing stronger and weaker forms of strong-session consistency models 
 
-#### Building the Directed Acyclic Graph of Causal Dependencies
+----
 
-We combine:
+### Data Model: Last Write Wins Register of Append Only List
+
+Last write wins is a common type of CRDT.
+
+Using an append only list for the register value:
+- preserves write lineage
+- greatly increases the ability to order writes and infer read/write dependencies
+- more texture than a grow only set
+- forces database updates/upserts vs just creates
+
+```sql
+-- last write wins list-append register
+CREATE TABLE IF NOT EXISTS lww (
+  k INTEGER PRIMARY KEY,
+  v TEXT
+);
+```
+
+Random transactions are generated:
+
+```clj
+[[:append 9 73] [:r 8 [3 5 6 8 10 15 17 22 24 25 28 30]] [:append 7 18]]
+```
+
+And executed as SQL transactions on random nodes:
+
+```sql
+BEGIN;
+  SELECT k,v FROM lww WHERE k = ?;
+  INSERT INTO lww (k,v) VALUES(?, ?) ON CONFLICT(k) DO UPDATE SET v = v || ' ' || ?;
+END;
+
+```
+
+----
+
+### Building a Directed Acyclic Graph of Causal Dependencies
+
+#### Deriving Causal Version Order
+
+- `nil` <hb all versions
+
+- prefix order, `[:r k [v v' v'']]`, v <hb v' <hb v''
+
+- monotonic writes
+
+- writes follow reads
+
+- monotonic reads
+
+#### Deriving Causal Transaction Order
 
 - process order
-   
-- w->r order, the write of [k v] happens before all reads of [k v]
-   
-- w->w order, a write of [k v] is ordered after the writes of all previously observed [k v] in the process
-  - (writes follow reads)
+- 
+- w->r: `[:append k v]` <hb `[:r k v]`
 
-- r->w order, infer that all reads that don't observe [k v] happen before the write of [k v]
-  - ordering edges are only created for one process at a time
-  - each process requires checking itself against the full graph for cycles
-    - multiple cycle checks are expensive
-  - necessary for causal to reflect a per process view of other processes
+- w->w: `[:append k v]` <hb `[:append k v']` version order
 
-- r->r order, inferred through combining process + wr + ww + rw
-  - use of process + wr + ww + rw is
-    - better at catching anomalies across diverse keys in transactions
-    - provides more explicit explanation of cycle dependencies
+- r->w: `[:r k v]` <hb `[:append k v']` version order
+         - read of v, earlier version, <hb write of v', later version
+         - can only infer and check one process, `rw-process`, at a time
+
+- r->r: implied by process + wr + ww + rw
 
 ----
 
@@ -58,45 +102,49 @@ We combine:
 #### Read Your Writes
   - `[:G-single-item-process]`
     ```clj
-    [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]],   :index 1}
-     {:process 0, :type :ok, :f :txn, :value [[:r :x nil]], :index 3}]
+    [{:process 0, :f :txn, :value [[:append :x 0]], :index 1}
+     {:process 0, :f :txn, :value [[:r :x nil]], :index 3}]
     ```
+
+    ![read your writes G-single-item-process](doc/ryw-G-single-item-process.svg)
+
     ```txt
     G-single-item-process
     Let:
-      T1 = {:index 3, :time -1, :type :ok, :process 0, :f :txn, :value [[:r :x nil]]}
-      T2 = {:index 1, :time -1, :type :ok, :process 0, :f :txn, :value [[:w :x 0]]}
+      T1 = {:process 0, :f :txn, :value [[:r :x nil]], :index 3}
+      T2 = {:process 0, :f :txn, :value [[:append :x 0]], :index 1}
     
     Then:
-      - T1 < T2, because T1's read of [:x nil] did not observe T2's write of [:x 0] (r->w).
+      - T1 < T2, because T1 read version [:x nil] which <hb the version [:x 0] that T2 wrote.
       - However, T2 < T1, because process 0 executed T2 before T1: a contradiction!
     ```
-    ![read your writes G-single-item-process](doc/ryw-G-single-item-process.svg)
-
+    
 ----
 
 #### Monotonic Writes
   - `[:G-single-item-process]`
     ```clj
-    [{:process 0, :type :ok, :f :txn, :value [[:w :x 0]], :index 1}
-     {:process 0, :type :ok, :f :txn, :value [[:w :x 1]], :index 3}
-     {:process 1, :type :ok, :f :txn, :value [[:r :x #{1}]], :index 5}
-     {:process 1, :type :ok, :f :txn, :value [[:r :x #{0 1}]], :index 7}]
+    [{:process 0, :f :txn, :value [[:append :x 0]], :index 1}
+     {:process 0, :f :txn, :value [[:append :x 1]], :index 3}
+     {:process 1, :f :txn, :value [[:r :x [1]]], :index 5}
+     {:process 1, :f :txn, :value [[:r :x [0]]], :index 7}]
     ```
+    
+    ![monotonic writes G-single-item-process](doc/monotonic-writes-G-single-item-process.svg)
+
     ```txt
     G-single-item-process
     Let:
-      T1 = {:index 5, :time -1, :type :ok, :process 1, :f :txn, :value [[:r :x #{1}]]}
-      T2 = {:index 1, :time -1, :type :ok, :process 0, :f :txn, :value [[:w :x 0]]}
-      T3 = {:index 3, :time -1, :type :ok, :process 0, :f :txn, :value [[:w :x 1]]}
+      T1 = {:index 7, :time -1, :type :ok, :process 1, :f :txn, :value [[:r :x [0]]]}
+      T2 = {:index 3, :time -1, :type :ok, :process 0, :f :txn, :value [[:append :x 1]]}
+      T3 = {:index 5, :time -1, :type :ok, :process 1, :f :txn, :value [[:r :x [1]]]}
     
     Then:
-      - T1 < T2, because T1's read of [:x #{1}] did not observe T2's write of [:x 0] (r->w).
-      - T2 < T3, because process 0 executed T2 before T3.
-      - However, T3 < T1, because T3's write of [:x 1] was read by T1 (w->r): a contradiction!
+      - T1 < T2, because T1 read version [:x 0] which <hb the version [:x 1] that T2 wrote.
+      - T2 < T3, because T2 wrote :x = 1, which was read by T3.
+      - However, T3 < T1, because process 1 executed T3 before T1: a contradiction!
     ```
-    ![monotonic writes G-single-item-process](doc/monotonic-writes-G-single-item-process.svg)
-
+    
 ----
 
 #### Monotonic Reads
