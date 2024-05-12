@@ -37,12 +37,12 @@
     ops))
 
 (defn hiccup-structure
-  "Given a cyclic version, `{:sources #{source} :sccs #{[k v]}}`,
+  "Given sources `#{source}`, the scc `#{[k v]}}`,
    and a history pre-filtered and mapped to only contain ops/mops that interacted with the cyclic-versions,
    returns a Hiccup structure."
-  [{:keys [sources sccs] :as _cyclic-version} history-filtered]
+  [sources scc history-filtered]
   (let [sources (into (sorted-set) sources)
-        sccs    (into (sorted-set) sccs)]
+        scc     (into (sorted-set) scc)]
     [:html
      [:head
       [:style (->> ["table { border-collapse: collapse; border: 1px solid black; }"
@@ -54,7 +54,7 @@
       [:table
        [:thead
         [:tr
-         [:th {:colspan 3} (str sccs)]]
+         [:th {:colspan 3} (str scc)]]
         [:tr
          [:th "Index"]
          [:th "Node"]
@@ -71,18 +71,19 @@
       [:p (str "Sources: " sources)]]]))
 
 (defn viz
-  "Given a sequence of cyclic versions, `{:sources #{:source} :sccs #{[kv]}}`, an output directory, and a history,
+  "Given a sequence of cyclic versions, `{:sources #{:source} :sccs (#{[kv]})}`, an output directory, and a history,
    outputs an HTML document for each cycle with the first 20 transactions that interacted with a [k v] that was in the cycle"
   [cyclic-versions output-dir history-oks]
-  (doseq [{:keys [_sources sccs] :as cyclic-version} cyclic-versions]
-    (let [sccs             (into (sorted-set) sccs)
-          ops              (->> history-oks
-                                (filter-history sccs))
-          hiccup-structure (hiccup-structure cyclic-version ops)
-          path             (io/file output-dir
-                                    (str (pr-str sccs)
-                                         ".html"))]
+  (doseq [{:keys [sources sccs] :as _cyclic-version} cyclic-versions]
+    (doseq [scc sccs]
+      (let [scc              (into (sorted-set) scc)
+            ops              (->> history-oks
+                                  (filter-history scc))
+            hiccup-structure (hiccup-structure sources scc ops)
+            path             (io/file output-dir
+                                      (str (pr-str scc)
+                                           ".html"))]
 
-      (io/make-parents path)
-      (spit path
-            (hiccup/html hiccup-structure)))))
+        (io/make-parents path)
+        (spit path
+              (hiccup/html hiccup-structure))))))
