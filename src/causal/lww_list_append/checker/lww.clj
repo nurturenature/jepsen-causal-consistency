@@ -57,18 +57,14 @@
         {:keys [observed-cyclic-versions]
          :as indexes}   (adya/indexes history-oks)
 
-        anomalies       (->> history-clients
+        cycles          (->> history-clients
                              (txn/cycles! opts (partial graph indexes))
                              :anomalies)
-        anomalies       (merge anomalies
-                               (when (seq observed-cyclic-versions)
-                                 {:cyclic-versions observed-cyclic-versions}))]
+        anomalies       (cond-> cycles
+                          observed-cyclic-versions
+                          (assoc :cyclic-versions observed-cyclic-versions))]
 
-    (cond-> {:valid? true}
-      (seq anomalies)
-      (merge {:valid?        false
-              :anomaly-types (-> anomalies keys sort)
-              :anomalies     anomalies}))))
+    (txn/result-map opts anomalies)))
 
 (defn checker
   "For Jepsen test map."

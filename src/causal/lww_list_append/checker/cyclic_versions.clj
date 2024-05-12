@@ -5,21 +5,21 @@
             [clojure.string :as str]))
 
 (defn filter-history
-  "Given a set of cyclic versions, `#{[kv]}` and a history,
+  "Given a set of versions, `#{[kv]}` and a history,
    returns the first 20 ops that interacted with a [k v] in the cyclic versions."
-  [cyclic-versions history-oks]
+  [versions history-oks]
   (let [ops (->> history-oks
                  (keep (fn [{:keys [value] :as op}]
                          (let [interactions (->> value
                                                  (reduce (fn [interactions [f k v :as mop]]
                                                            (case f
                                                              :append
-                                                             (if (contains? cyclic-versions [k v])
+                                                             (if (contains? versions [k v])
                                                                (conj interactions mop)
                                                                interactions)
 
                                                              :r
-                                                             (let [cv-vs (->> cyclic-versions
+                                                             (let [cv-vs (->> versions
                                                                               (keep (fn [[cv-k cv-v]]
                                                                                       (when (= k cv-k)
                                                                                         cv-v)))
@@ -37,11 +37,12 @@
     ops))
 
 (defn hiccup-structure
-  "Given a set of cyclic versions
+  "Given a cyclic version, `{:sources #{source} :sccs #{[k v]}}`,
    and a history pre-filtered and mapped to only contain ops/mops that interacted with the cyclic-versions,
    returns a Hiccup structure."
-  [cyclic-versions history-filtered]
-  (let [cyclic-versions (into (sorted-set) cyclic-versions)]
+  [{:keys [sources sccs] :as _cyclic-version} history-filtered]
+  (let [sources (into (sorted-set) sources)
+        sccs    (into (sorted-set) sccs)]
     [:html
      [:head
       [:style (->> ["table { border-collapse: collapse; border: 1px solid black; }"
@@ -53,7 +54,7 @@
       [:table
        [:thead
         [:tr
-         [:th {:colspan 3} (str cyclic-versions)]]
+         [:th {:colspan 3} (str sccs)]]
         [:tr
          [:th "Index"]
          [:th "Node"]
@@ -65,19 +66,21 @@
                      [:td index]
                      [:td node]
                      [:td (->> value
-                               (map (fn [mop] [:p (str mop)])))]])))]]]]))
+                               (map (fn [mop] [:p (str mop)])))]])))]]
+      [:hr]
+      [:p (str "Sources: " sources)]]]))
 
 (defn viz
-  "Given a sequence of cyclic versions, `#{[kv]}`, an output directory, and a history,
+  "Given a sequence of cyclic versions, `{:sources #{:source} :sccs #{[kv]}}`, an output directory, and a history,
    outputs an HTML document for each cycle with the first 20 transactions that interacted with a [k v] that was in the cycle"
   [cyclic-versions output-dir history-oks]
-  (doseq [versions cyclic-versions]
-    (let [versions         (into (sorted-set) versions)
+  (doseq [{:keys [_sources sccs] :as cyclic-version} cyclic-versions]
+    (let [sccs             (into (sorted-set) sccs)
           ops              (->> history-oks
-                                (filter-history versions))
-          hiccup-structure (hiccup-structure versions ops)
+                                (filter-history sccs))
+          hiccup-structure (hiccup-structure cyclic-version ops)
           path             (io/file output-dir
-                                    (str (pr-str versions)
+                                    (str (pr-str sccs)
                                          ".html"))]
 
       (io/make-parents path)
