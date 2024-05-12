@@ -24,6 +24,13 @@
          {:checker (checker/compose
                     {:strong-convergence (sc/final-reads)})}))
 
+(defn lww
+  "Basic LWW list-append workload with *only* a lww checker."
+  [opts]
+  (merge (causal opts)
+         {:checker (checker/compose
+                    {:lww (lww/checker (merge util/causal-opts opts))})}))
+
 (defn causal+strong
   "Basic LWW list-append workload with both a causal and strong convergence checker."
   [opts]
@@ -32,13 +39,6 @@
                     {:causal-consistency (adya/checker (merge util/causal-opts opts))
                      :strong-convergence (sc/final-reads)})}))
 
-(defn lww
-  "Basic LWW list-append workload with *only* a lww checker."
-  [opts]
-  (merge (causal opts)
-         {:checker (checker/compose
-                    {:lww (lww/checker (merge util/causal-opts opts))})}))
-
 (defn causal+strong+lww
   "Basic LWW list-append workload with a causal, a strong convergence, and a lww checker."
   [opts]
@@ -46,6 +46,14 @@
          {:checker (checker/compose
                     {:causal-consistency (adya/checker (merge util/causal-opts opts))
                      :strong-convergence (sc/final-reads)
+                     :lww                (lww/checker (merge util/causal-opts opts))})}))
+
+(defn strong+lww
+  "Basic LWW list-append workload with a strong convergence and lww checker."
+  [opts]
+  (merge (causal opts)
+         {:checker (checker/compose
+                    {:strong-convergence (sc/final-reads)
                      :lww                (lww/checker (merge util/causal-opts opts))})}))
 
 (defn intermediate-read
@@ -57,7 +65,7 @@
                      :anomalies-ignored  nil}
                     {:min-txn-length     4
                      :max-writes-per-key 128})]
-    (causal+strong opts)))
+    (causal+strong+lww opts)))
 
 (defn read-your-writes
   "Custom workload to demonstrate read-your-writes anomalies."
@@ -68,7 +76,7 @@
                      :anomalies-ignored  nil}
                     {:min-txn-length     4
                      :max-writes-per-key 128})]
-    (causal+strong opts)))
+    (causal+strong+lww opts)))
 
 (comment
   ;; (set/difference (elle.consistency-model/anomalies-prohibited-by [:strong-session-consistent-view])

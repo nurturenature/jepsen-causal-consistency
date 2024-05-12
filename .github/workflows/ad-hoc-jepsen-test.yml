@@ -12,7 +12,7 @@ on:
         description: 'Jepsen CLI'
         type: string
         required: true
-        default: 'lein run test --workload lww-causal+strong --rate 100 --time-limit 60'
+        default: 'lein run test --workload lww-causal+strong+lww --rate 100 --time-limit 60'
   workflow_call:
     inputs:
       test_name:
@@ -24,7 +24,7 @@ on:
         description: 'Jepsen CLI'
         type: string
         required: true
-        default: 'lein run test --workload lww-causal+strong --rate 100 --time-limit 60'
+        default: 'lein run test --workload lww-causal+strong+lww --rate 100 --time-limit 60'
 
 
 jobs:
