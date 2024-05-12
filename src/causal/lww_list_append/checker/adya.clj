@@ -3,7 +3,9 @@
   (:require [bifurcan-clj
              [graph :as bg]]
             [causal.util :as u]
-            [causal.lww-list-append.checker.graph :as cc-g]
+            [causal.lww-list-append.checker
+             [cyclic-versions :as cyclic-versions]
+             [graph :as adya-g]]
             [clojure.set :as set]
             [clojure.tools.logging :refer [info]]
             [elle
@@ -128,7 +130,7 @@
                        :causal-kvg (:observed-kvg indexes))
         ; Build our combined analyzers
         analyzers [elle/realtime-graph
-                   (partial cc-g/ww-tg indexes)]
+                   (partial adya-g/ww-tg indexes)]
         analyzer (apply elle/combine analyzers)]
     ; And go!
     (analyzer history)))
@@ -160,15 +162,15 @@
   [opts indexes history-oks]
   (let [; Build our combined analyzers
         analyzers (->> {:process-graph elle/process-graph
-                        :wr-tg         (partial cc-g/wr-tg indexes)
-                        :ww-tg         (partial cc-g/ww-tg indexes)}
+                        :wr-tg         (partial adya-g/wr-tg indexes)
+                        :ww-tg         (partial adya-g/ww-tg indexes)}
                        ; graph may be pre-built, if so, use it by wrapping in a fn
                        (mapv (fn [[graph-name graph-fn]]
                                (let [pre-built (get indexes graph-name)]
                                  (if (nil? pre-built)
                                    graph-fn
                                    (fn [_history] pre-built))))))
-        analyzers (into analyzers [(partial cc-g/rw-tg indexes)])
+        analyzers (into analyzers [(partial adya-g/rw-tg indexes)])
         analyzers (into analyzers (ct/additional-graphs opts))
         analyzer (apply elle/combine analyzers)]
     ; And go!
@@ -180,22 +182,22 @@
   (let [processes    (h/task history-oks :processes []
                              (processes history-oks))
         write-index  (h/task history-oks :write-index []
-                             (cc-g/write-index history-oks))
+                             (adya-g/write-index history-oks))
         read-index   (h/task history-oks :read-index []
-                             (cc-g/read-index history-oks))
+                             (adya-g/read-index history-oks))
 
         process-graph         (h/task history-oks :process-graph []
                                       (elle/process-graph history-oks))
         init-nil-vg           (h/task history-oks :init-nil-vg []
-                                      (cc-g/init-nil-vg history-oks))
+                                      (adya-g/init-nil-vg history-oks))
         read-prefix-vg         (h/task history-oks :read-prefix-vg []
-                                       (cc-g/read-prefix-vg history-oks))
+                                       (adya-g/read-prefix-vg history-oks))
         monotonic-writes-vg    (h/task history-oks :monotonic-writes-vg []
-                                       (cc-g/monotonic-writes-vg history-oks))
+                                       (adya-g/monotonic-writes-vg history-oks))
         writes-follow-reads-vg (h/task history-oks :writes-follow-reads-vg []
-                                       (cc-g/writes-follow-reads-vg history-oks))
+                                       (adya-g/writes-follow-reads-vg history-oks))
         monotonic-reads-vg     (h/task history-oks :monotonic-reads-vg []
-                                       (cc-g/monotonic-reads-vg history-oks))
+                                       (adya-g/monotonic-reads-vg history-oks))
 
         ; derefs below start any blocking
         vg-indexes   {:init-nil-vg            @init-nil-vg
@@ -205,9 +207,9 @@
                       :monotonic-reads-vg     @monotonic-reads-vg}
 
         observed-vg  (h/task history-oks :observed-vg []
-                             (cc-g/causal-vg vg-indexes cc-g/observed-vg-sources history-oks))
+                             (adya-g/causal-vg vg-indexes adya-g/observed-vg-sources history-oks))
         causal-vg    (h/task history-oks :causal-vg []
-                             (cc-g/causal-vg vg-indexes cc-g/causal-vg-sources history-oks))
+                             (adya-g/causal-vg vg-indexes adya-g/causal-vg-sources history-oks))
 
         ; version graphs
         {observed-vg              :causal-vg
@@ -220,9 +222,9 @@
 
         ; transaction graphs
         wr-tg         (h/task history-oks :wr-tg [write-index write-index read-index read-index]
-                              (cc-g/wr-tg {:write-index write-index :read-index read-index} nil))
+                              (adya-g/wr-tg {:write-index write-index :read-index read-index} nil))
         ww-tg         (h/task history-oks :wr-tg [write-index write-index]
-                              (cc-g/ww-tg {:write-index write-index :causal-vg causal-vg} nil))]
+                              (adya-g/ww-tg {:write-index write-index :causal-vg causal-vg} nil))]
 
     (merge {:processes                @processes
             :write-index              @write-index
@@ -323,5 +325,14 @@
             opts (update opts :directory (fn [old]
                                            (if (nil? old)
                                              nil
-                                             (store/path test [old]))))]
-        (check opts history)))))
+                                             (store/path test [old]))))
+            results (check opts history)]
+
+        ; chart cyclic-versions
+        (let [cyclic-versions (get-in results [:anomalies :cyclic-versions])
+              output-dir      (:directory opts)]
+          (when (and (seq cyclic-versions)
+                     output-dir)
+            (cyclic-versions/viz cyclic-versions (str output-dir "/cyclic-versions") (h/oks history))))
+
+        results))))

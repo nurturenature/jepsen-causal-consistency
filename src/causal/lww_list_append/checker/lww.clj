@@ -2,6 +2,7 @@
   (:require [causal.util :as u]
             [causal.lww-list-append.checker
              [adya :as adya]
+             [cyclic-versions :as cyclic-versions]
              [graph :as adya-g]]
             [elle
              [core :as elle]
@@ -78,6 +79,15 @@
             opts (update opts :directory (fn [old]
                                            (if (nil? old)
                                              nil
-                                             (store/path test [old]))))]
-        (check opts history)))))
+                                             (store/path test [old]))))
+            results (check opts history)]
+
+        ; chart cyclic-versions
+        (let [cyclic-versions (get-in results [:anomalies :cyclic-versions])
+              output-dir      (:directory opts)]
+          (when (and (seq cyclic-versions)
+                     output-dir)
+            (cyclic-versions/viz cyclic-versions (str output-dir "/cyclic-versions") (h/oks history))))
+
+        results))))
 
