@@ -144,7 +144,11 @@ END;
       - T2 < T3, because T2 wrote :x = 1, which was read by T3.
       - However, T3 < T1, because process 1 executed T3 before T1: a contradiction!
     ```
-    
+
+----
+
+### README is currently being updated. The remaining sections are slightly stale, but the results remain consistent.
+
 ----
 
 #### Monotonic Reads
