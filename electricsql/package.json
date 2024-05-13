@@ -18,7 +18,7 @@
     "app:dev": "nodemon src/index.ts"
   },
   "dependencies": {
-    "better-sqlite3": "^9.6.0",
+    "better-sqlite3": "^10.0.0",
     "dotenv": "^16.4.5",
     "electric-sql": "canary",
     "express": "^4.19.2",
