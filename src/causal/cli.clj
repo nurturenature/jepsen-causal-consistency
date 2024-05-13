@@ -19,11 +19,12 @@
 (def workloads
   "A map of workload names to functions that take CLI options and return
   workload maps."
-  {:lww-causal         lww/causal
-   :lww-strong         lww/strong
-   :lww-causal+strong  lww/causal+strong
-   :lww-lww            lww/lww
+  {:lww-causal            lww/causal
+   :lww-strong            lww/strong
+   :lww-lww               lww/lww
+   :lww-causal+strong     lww/causal+strong
    :lww-causal+strong+lww lww/causal+strong+lww
+   :lww-strong+lww        lww/strong+lww
    :lww-intermediate-read lww/intermediate-read
    :lww-read-your-writes  lww/read-your-writes
    :gset               gset/workload
