@@ -224,7 +224,7 @@
 (defn node->client
   "Maps a node name to its `client` protocol.
    BetterSQLite3Client is default."
-  [{:keys [better-sqlite3-nodes electricsql-nodes postgresql-nodes local-sqlite3?] :as _test} node]
+  [{:keys [better-sqlite3-nodes electricsql-nodes postgresql-nodes local-sqlite3?] :as test} node]
   (cond
     local-sqlite3?
     (BetterSQLite3Client. nil)
@@ -233,10 +233,10 @@
     (BetterSQLite3Client. nil)
 
     (contains? postgresql-nodes node)
-    (PostgreSQLJDBCClient. (get db-specs "postgresql"))
+    (PostgreSQLJDBCClient. (get (db-specs test) "postgresql"))
 
     (contains? electricsql-nodes node)
-    (PostgreSQLJDBCClient. (get db-specs "electricsql"))
+    (PostgreSQLJDBCClient. (get (db-specs test) "electricsql"))
 
     :else
     (BetterSQLite3Client. nil)))
