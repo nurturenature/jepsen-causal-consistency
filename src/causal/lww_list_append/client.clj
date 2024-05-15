@@ -157,11 +157,12 @@
   (let [[f k v :as mop] (first txn)]
     (assert (= :append f)  (str "upsert is append only: " mop))
     (assert (not (nil? v)) (str "nil v in append: " mop))
-    (->> {:create {:k k
-                   :v v}
-          :update {:v v}
-          :where  {:k k}}
-         json/generate-string)))
+    (let [v (str v)] ; v is a string in lww table schema
+      (->> {:create {:k k
+                     :v v}
+            :update {:v v}
+            :where  {:k k}}
+           json/generate-string))))
 
 (defn electric-upsert->txn
   "Given the original transaction and the ElectricSQL upsert result,
