@@ -85,5 +85,17 @@
                      output-dir)
             (cyclic-versions/viz cyclic-versions (str output-dir "/cyclic-versions") (h/oks history))))
 
-        results))))
+        ; chart G0-realtime versions
+        (let [G0-realtime (->> results
+                               :anomalies
+                               :G0-realtime
+                               (mapcat :steps)
+                               (filter (fn [{:keys [type]}] (= type :ww)))
+                               (map (fn [{:keys [kv kv']}]
+                                      {:sources #{:G0-realtime} :sccs (list #{kv kv'})})))
+              output-dir  (:directory opts)]
+          (when (and (seq G0-realtime)
+                     output-dir)
+            (cyclic-versions/viz G0-realtime (str output-dir "/G0-realtime-versions") (h/oks history))))
 
+        results))))

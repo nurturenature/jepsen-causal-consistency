@@ -4,8 +4,8 @@
              [adya :as adya]
              [lww :as lww]
              [strong-convergence :as sc]]
-            [elle.list-append :as l-a]
             [causal.util :as util]
+            [elle.list-append :as l-a]
             [jepsen.checker :as checker]))
 
 (defn causal

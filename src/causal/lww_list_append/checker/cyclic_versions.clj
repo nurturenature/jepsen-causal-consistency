@@ -22,7 +22,7 @@
 
 (defn filter-by-kv
   "Given a set of versions, `#{[kv]}` and a history,
-   returns the first 20 ops that interacted with a [k v] in the cyclic versions."
+   returns the transactions that interacted with a [k v] in the cyclic versions."
   [versions history-oks]
   (let [ops (->> history-oks
                  (keep (fn [{:keys [value] :as op}]
@@ -48,8 +48,7 @@
                                                                  interactions))))
                                                          []))]
                            (when (seq interactions)
-                             (assoc op :value interactions)))))
-                 (take 20))]
+                             (assoc op :value interactions))))))]
     ops))
 
 (defn hiccup-structure
@@ -85,7 +84,7 @@
 
 (defn viz-cycles
   "Given a sequence of cyclic versions, `{:sources #{:source} :sccs (#{[kv]})}`, an output directory, and a history,
-   outputs an HTML document for each cycle with the first 20 transactions that interacted with a [k v] that was in the cycle"
+   outputs an HTML document for each cycle with the transactions that interacted with a [k v] that was in the cycle"
   [cyclic-versions output-dir history-oks]
   (doseq [{:keys [sources sccs] :as _cyclic-version} cyclic-versions]
     (doseq [scc sccs]
@@ -122,7 +121,7 @@
 
 (defn viz
   "Given a sequence of cyclic versions, `{:sources #{:source} :sccs (#{[kv]})}`, an output directory, and a history,
-   outputs an HTML document for each cycle with the first 20 transactions that interacted with a [k v] that was in the cycle.
+   outputs an HTML document for each cycle with the transactions that interacted with a [k v] that was in the cycle.
    Creates a separate HTML document for each individual key with its full history."
   [cyclic-versions output-dir history-oks]
   (let [all-ks (->> cyclic-versions

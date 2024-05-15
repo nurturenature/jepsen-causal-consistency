@@ -440,9 +440,11 @@
               [k  v]  (.from edge)
               [k' v'] (.to   edge)]
           {:type  :ww
-           :kv    [k v]
-           :kv'   [k' v']
+           :op          a
            :a-mop-index (index-of (:value a) [:append k v])
+           :kv          [k v]
+           :op'         b
+           :kv'         [k' v']
            :b-mop-index (index-of (:value b) [:append k' v'])}))))
 
   (render-explanation [_ {:keys [kv kv']} a-name b-name]
