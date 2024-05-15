@@ -1,12 +1,12 @@
 (ns causal.lww-list-append.client
   (:require [cheshire.core :as json]
             [clj-http.client :as http]
+            [clojure.string :as str]
             [jepsen
              [client :as client]
              [util :as u]]
             [next.jdbc :as jdbc]
-            [slingshot.slingshot :refer [try+ throw+]]
-            [clojure.string :as str]))
+            [slingshot.slingshot :refer [try+ throw+]]))
 
 (defn op->better-sqlite3
   "Given an op, return the JSON for a better-sqlite3 transaction."
@@ -101,6 +101,119 @@
                                    :connection-timeout 1000
                                    :accept             :json})]
               (better-sqlite3->op op rslt))
+            (catch (and (instance? java.net.ConnectException %)
+                        (re-find #"Connection refused" (.getMessage %)))
+                   {}
+              (assoc op
+                     :type  :fail
+                     :error :connection-refused))
+            (catch (or (instance? java.net.SocketException %)
+                       (instance? java.net.SocketTimeoutException %)
+                       (instance? org.apache.http.NoHttpResponseException %))
+                   {:keys [cause]}
+              (assoc op
+                     :type  :info
+                     :error cause)))))
+
+  (teardown!
+    [_this _test])
+
+  (close!
+    [this _test]
+    (dissoc this
+            :node
+            :url)))
+
+(defn txn->electric-findUnique
+  "Given a transaction, returns the JSON necessary to use ElectricSQL findUnique.
+   Transaction is assumed to be a read mop."
+  [txn]
+  (assert (= 1 (count txn))
+          (str "findUnique is single mop only: " txn))
+  (let [[f k v :as mop] (first txn)]
+    (assert (= :r f)  (str "findUnique is read only: " mop))
+    (assert (= nil v) (str "malformed read: " mop))
+    (->> {:where {:k k}}
+         json/generate-string)))
+
+(defn electric-findUnique->txn
+  "Given the original transaction and the result of an ElectricSQL findUnique,
+   returns the transaction with the result merged."
+  [txn result]
+  (assert (= 1 (count txn))
+          (str "findUnique is single mop only: " txn))
+  (let [[f k v :as mop] (first txn)
+        {:keys [_k' v']} (json/parse-string result true)]
+    (assert (= :r f)  (str "findUnique is read only: " mop))
+    (assert (= nil v) (str "malformed read: " mop))
+    [[:r k v']]))
+
+(defn txn->electric-upsert
+  "Given a transaction, returns the JSON necessary to use ElectricSQL upsert.
+   Transaction is assumed to be a write."
+  [txn]
+  (assert (= 1 (count txn))
+          (str "upsert is single mop only: " txn))
+  (let [[f k v :as mop] (first txn)]
+    (assert (= :append f) (str "upsert is append only: " mop))
+    (assert (= nil v)     (str "malformed append: " mop))
+    (->> {:create {:k k
+                   :v v}
+          :update {:v v}
+          :where  {:k k}}
+         json/generate-string)))
+
+(defn electric-upsert->txn
+  "Given the original transaction and the ElectricSQL upsert result,
+   return the transaction with the results merged in."
+  [txn result]
+  (assert (= 1 (count txn))
+          (str "upsert is single mop only: " txn))
+  (let [[f k v :as mop] (first txn)
+        {:keys [k' v'] :as result} (json/parse-string result true)]
+    (assert (= :append f) (str "upsert is append only: " mop))
+    (assert (= k k')      (str "different keys: " mop ", " result))
+    (assert (= v v')      (str "different values: " mop ", " result))
+    [[:append k v]]))
+
+(defrecord ElectricSQLClient [conn]
+  client/Client
+  (open!
+    [this _test node]
+    (assoc this
+           :node node
+           :url  (str "http://" node ":8089")))
+
+  (setup!
+    [_this _test])
+
+  (invoke!
+    [{:keys [node url] :as _this} _test {:keys [value] :as op}]
+    (assert (= 1 (count value))
+            (str "ElectricSQLClient is single mop only: " value))
+    (let [op (assoc op :node node)]
+      (try+ (let [[f _k _v]  (first value)
+                  [url body] (case f
+                               :r
+                               [(str url "/lww/electric-findUnique")
+                                (txn->electric-findUnique value)]
+
+                               :append
+                               [(str url "/lww/electric-upsert")
+                                (txn->electric-upsert value)])
+                  result (http/post url
+                                    {:body               body
+                                     :content-type       :json
+                                     :socket-timeout     1000
+                                     :connection-timeout 1000
+                                     :accept             :json})
+                  result (:body result)
+                  result (case f
+                           :r      (electric-findUnique->txn value result)
+                           :append (electric-upsert->txn     value result))]
+              (assoc op
+                     :type  :ok
+                     :value result))
             (catch (and (instance? java.net.ConnectException %)
                         (re-find #"Connection refused" (.getMessage %)))
                    {}
@@ -226,17 +339,18 @@
    BetterSQLite3Client is default."
   [{:keys [better-sqlite3-nodes electricsql-nodes postgresql-nodes local-sqlite3?] :as test} node]
   (cond
+    ; overrides all others
     local-sqlite3?
     (BetterSQLite3Client. nil)
 
     (contains? better-sqlite3-nodes node)
     (BetterSQLite3Client. nil)
 
+    (contains? electricsql-nodes node)
+    (ElectricSQLClient. nil)
+
     (contains? postgresql-nodes node)
     (PostgreSQLJDBCClient. (get (db-specs test) "postgresql"))
-
-    (contains? electricsql-nodes node)
-    (PostgreSQLJDBCClient. (get (db-specs test) "electricsql"))
 
     :else
     (BetterSQLite3Client. nil)))

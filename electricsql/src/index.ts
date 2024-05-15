@@ -127,6 +127,16 @@ app.get("/lww/list", async (req: Request, res: Response) => {
     res.send(result);
 });
 
+app.post("/lww/electric-findUnique", async (req: Request, res: Response) => {
+    const result = await electric.db.lww.findUnique(req.body)
+    res.send(result)
+});
+
+app.post("/lww/electric-upsert", async (req: Request, res: Response) => {
+    const result = await electric.db.lww.upsert(req.body)
+    res.send(result)
+});
+
 app.post("/lww/better-sqlite3", (req: Request, res: Response) => {
     const upsert = txn_conn.prepare(
         'INSERT INTO lww (k,v) VALUES (@k,@v) ON CONFLICT (k) DO UPDATE SET v = v || \' \' || @v');
