@@ -155,8 +155,8 @@
   (assert (= 1 (count txn))
           (str "upsert is single mop only: " txn))
   (let [[f k v :as mop] (first txn)]
-    (assert (= :append f) (str "upsert is append only: " mop))
-    (assert (= nil v)     (str "malformed append: " mop))
+    (assert (= :append f)  (str "upsert is append only: " mop))
+    (assert (not (nil? v)) (str "nil v in append: " mop))
     (->> {:create {:k k
                    :v v}
           :update {:v v}
