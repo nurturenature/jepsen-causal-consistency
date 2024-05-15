@@ -90,12 +90,15 @@
     (doseq [scc sccs]
       (let [scc              (into (sorted-set) scc)
             sources          (into (sorted-set) sources)
+            description      (str scc)
+            description      (if (< (.length description) 32)
+                               description
+                               (str (subs description 0 32) "..."))
             ops              (->> history-oks
                                   (filter-by-kv scc))
             hiccup-structure (hiccup-structure (str scc) (str "Sources: " sources) ops)
             path             (io/file output-dir
-                                      (str (pr-str scc)
-                                           ".html"))]
+                                      (str description ".html"))]
 
         (io/make-parents path)
         (spit path
