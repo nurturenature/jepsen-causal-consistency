@@ -170,8 +170,9 @@
   [txn result]
   (assert (= 1 (count txn))
           (str "upsert is single mop only: " txn))
-  (let [[f k v :as mop] (first txn)
-        {k' :k v' :v :as result} (json/parse-string result true)]
+  (let [[f k v :as mop]          (first txn)
+        {k' :k v' :v :as result} (json/parse-string result true)
+        v'                       (parse-long v')] ; returned as a string, but handled internally as a long
     (assert (= :append f) (str "upsert is append only: " mop))
     (assert (= k k')      (str "different keys: " mop ", " result))
     (assert (= v v')      (str "different values: " mop ", " result))
