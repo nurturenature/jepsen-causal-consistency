@@ -17,7 +17,7 @@ on:
     - cron:  '0 0 * * *'
 
 jobs:
-  electricsql-read-your-writes:
+  typescript-api-and-homogeneous-transactions:
     uses: nurturenature/jepsen-causal-consistency/.github/workflows/ad-hoc-jepsen-test.yml@main
     with:
       test_name: ${{ inputs.test_name || 'TypeScript API and Homogeneous Transactions' }}
