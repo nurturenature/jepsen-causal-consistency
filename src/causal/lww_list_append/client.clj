@@ -242,10 +242,10 @@
                                   (txn->electric-findMany value)])
 
                                :append
-                               (assert (= 1 (count value))
-                                       (str "ElectricSQLClient is single :append mop only: " value))
-                               [(str url "/lww/electric-upsert")
-                                (txn->electric-upsert value)])
+                               (do (assert (= 1 (count value))
+                                           (str "ElectricSQLClient is single :append mop only: " value))
+                                   [(str url "/lww/electric-upsert")
+                                    (txn->electric-upsert value)]))
                   result (http/post url
                                     {:body               body
                                      :content-type       :json
