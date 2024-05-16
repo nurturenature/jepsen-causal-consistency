@@ -5,14 +5,16 @@
              [lww :as lww]
              [strong-convergence :as sc]]
             [causal.util :as util]
-            [elle.list-append :as l-a]
+            [elle
+             [list-append :as list-append]
+             [txn :as txn]]
             [jepsen.checker :as checker]))
 
 (defn causal
   "Basic LWW list-append workload *only* a causal consistency checker."
   [opts]
   {:client          (client/->LWWListAppendClient nil)
-   :generator       (l-a/gen opts)
+   :generator       (list-append/gen opts)
    :final-generator (util/final-generator opts)
    :checker         (checker/compose
                      {:causal-consistency (adya/checker (merge util/causal-opts opts))})})
@@ -77,6 +79,52 @@
                     {:min-txn-length     4
                      :max-writes-per-key 128})]
     (causal+strong+lww opts)))
+
+(def homogeneous-generator
+  "A generator that produces homogeneous transactions to work with the ElectricSQL TypeScript API:
+   - single mop :appends
+   - single or multi mop reads with distinct keys"
+  (->>
+   ; seq of mops 
+   {:min-txn-length     1
+    :max-txn-length     1
+    :max-writes-per-key 256}
+   list-append/append-txns
+   (map first)
+
+   ; process in chunks
+   (partition 1000)
+
+   ; combine mops into homogeneous txns 
+   (mapcat (fn [mops]
+             (->> mops
+                  (reduce (fn [[txns txn keys] [f k _v :as mop]]
+                            (cond
+                              ; append is always a single mop
+                              (= :append f)
+                              (let [new-txns  (if (seq txn)
+                                                [txn [mop]]
+                                                [[mop]])]
+                                [(into txns new-txns) [] #{}])
+
+                              ; read of new key
+                              (and (= :r f)
+                                   (not (contains? keys k)))
+                              [txns (conj txn mop) (conj keys k)]
+
+                              ; read of key already in txn
+                              :else
+                              [(conj txns txn) [mop] #{k}]))
+                          [nil [] #{}])
+                  first       ; destructure accumulator, note we drop any mops in current txn
+                  reverse)))  ; keep original generator order
+   (txn/gen)))
+
+(defn homogeneous
+  "Custom workload exclusively for ElectricSQL TypeScript Clients."
+  [opts]
+  (merge (causal+strong+lww opts)
+         {:generator homogeneous-generator}))
 
 (comment
   ;; (set/difference (elle.consistency-model/anomalies-prohibited-by [:strong-session-consistent-view])

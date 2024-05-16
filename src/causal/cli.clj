@@ -27,6 +27,7 @@
    :lww-strong+lww        lww/strong+lww
    :lww-intermediate-read lww/intermediate-read
    :lww-read-your-writes  lww/read-your-writes
+   :lww-homogeneous       lww/homogeneous
    :gset               gset/workload
    :gset-homogeneous   gset/workload-homogeneous-txns
    :gset-single-writes gset/workload-single-writes
