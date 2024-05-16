@@ -178,9 +178,11 @@
           (str "findMany is multi mop only: " txn))
   (let [result (json/parse-string result true)
         result (->> result
-                    (map (fn [{:keys [v] :as rec}]
-                           (assoc rec :v (when v [(parse-long v)]))))
-                    (apply merge))]
+                    (reduce (fn [result {:keys [k v] :as _record}]
+                              (assoc result
+                                     :k k
+                                     :v (when v [(parse-long v)])))
+                            {}))]
 
     (->> txn
          (mapv (fn [[f k v :as mop]]
