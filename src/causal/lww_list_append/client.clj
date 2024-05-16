@@ -180,8 +180,7 @@
         result (->> result
                     (reduce (fn [result {:keys [k v] :as _record}]
                               (assoc result
-                                     :k k
-                                     :v (when v [(parse-long v)])))
+                                     k (when v [(parse-long v)])))
                             {}))]
 
     (->> txn
