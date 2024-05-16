@@ -132,6 +132,11 @@ app.post("/lww/electric-findUnique", async (req: Request, res: Response) => {
     res.send(result)
 });
 
+app.post("/lww/electric-findMany", async (req: Request, res: Response) => {
+    const result = await electric.db.lww.findMany(req.body)
+    res.send(result)
+});
+
 app.post("/lww/electric-upsert", async (req: Request, res: Response) => {
     const result = await electric.db.lww.upsert(req.body)
     res.send(result)

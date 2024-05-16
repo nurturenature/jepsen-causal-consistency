@@ -143,10 +143,50 @@
   (assert (= 1 (count txn))
           (str "findUnique is single mop only: " txn))
   (let [[f k v :as mop] (first txn)
-        {:keys [_k' v']} (json/parse-string result true)]
+        {_k' :k v' :v}  (json/parse-string result true)
+        v'              (when v'              ; may return null
+                          [(parse-long v')])] ; returned as a string, processed as a vector of longs
     (assert (= :r f)  (str "findUnique is read only: " mop))
     (assert (= nil v) (str "malformed read: " mop))
     [[:r k v']]))
+
+(defn txn->electric-findMany
+  "Given a transaction, returns the JSON necessary to use ElectricSQL findMany.
+   Transaction is assumed to be all read mops of unique keys."
+  [txn]
+  (assert (< 1 (count txn))
+          (str "findMany is multi mop only: " txn))
+  (let [ks (->> txn
+                (map (fn [[f k v :as mop]]
+                       (assert (= :r f)  (str "findMany is read only: " mop))
+                       (assert (= nil v) (str "malformed read: " mop))
+                       k))
+                distinct
+                (into []))]
+
+    (assert (= (count txn)
+               (count ks))
+            (str "not unique keys in txn: " txn ", " ks))
+    (->> {:where {:k {:in ks}}}
+         json/generate-string)))
+
+(defn electric-findMany->txn
+  "Given the original transaction and the result of an ElectricSQL findMany,
+   returns the transaction with the result merged."
+  [txn result]
+  (assert (< 1 (count txn))
+          (str "findMany is multi mop only: " txn))
+  (let [result (json/parse-string result true)
+        result (->> result
+                    (map (fn [{:keys [v] :as rec}]
+                           (assoc rec :v (when v [(parse-long v)]))))
+                    (apply merge))]
+
+    (->> txn
+         (mapv (fn [[f k v :as mop]]
+                 (assert (= :r f)  (str "findMany is read only: " mop))
+                 (assert (= nil v) (str "malformed read: " mop))
+                 [:r k (get result k)])))))
 
 (defn txn->electric-upsert
   "Given a transaction, returns the JSON necessary to use ElectricSQL upsert.
@@ -191,16 +231,19 @@
 
   (invoke!
     [{:keys [node url] :as _this} _test {:keys [value] :as op}]
-    (assert (= 1 (count value))
-            (str "ElectricSQLClient is single mop only: " value))
     (let [op (assoc op :node node)]
       (try+ (let [[f _k _v]  (first value)
                   [url body] (case f
                                :r
-                               [(str url "/lww/electric-findUnique")
-                                (txn->electric-findUnique value)]
+                               (if (= 1 (count value))
+                                 [(str url "/lww/electric-findUnique")
+                                  (txn->electric-findUnique value)]
+                                 [(str url "/lww/electric-findMany")
+                                  (txn->electric-findMany value)])
 
                                :append
+                               (assert (= 1 (count value))
+                                       (str "ElectricSQLClient is single :append mop only: " value))
                                [(str url "/lww/electric-upsert")
                                 (txn->electric-upsert value)])
                   result (http/post url
@@ -211,7 +254,9 @@
                                      :accept             :json})
                   result (:body result)
                   result (case f
-                           :r      (electric-findUnique->txn value result)
+                           :r      (if (= 1 (count value))
+                                     (electric-findUnique->txn value result)
+                                     (electric-findMany->txn   value result))
                            :append (electric-upsert->txn     value result))]
               (assoc op
                      :type  :ok
