@@ -69,7 +69,7 @@
       ; install deps
       (c/cd app-dir
             (c/exec :npm :install)
-            (c/exec :sed :-i "'1s/^/import { WebSocket } from \"ws\";\\n'" "./node_modules/electric-sql/dist/sockets/web.js"))
+            (c/exec :sed :-i "1s/^/import { WebSocket } from 'ws';\\n" "./node_modules/electric-sql/dist/sockets/web.js"))
 
       ; build client
       (c/cd app-dir
