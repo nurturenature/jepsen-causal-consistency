@@ -309,18 +309,20 @@
   (let [result (json/parse-string result true)]
     (mapv (fn [[f mop-k _mop-v :as mop] {:keys [rows affectedRows]}]
             (let [{row-k :k row-v :v :as row} (first rows)]
-              (assert (and row-v
-                           (= mop-k row-k))
-                      (str "different keys: " mop ", " row))
               (case f
                 :r
-                [:r mop-k (when row-v (->> (str/split row-v #" ")
-                                           (mapv parse-long)))]
+                (if (nil? row)
+                  mop
+                  (do
+                    (assert (= mop-k row-k)
+                            (str "different keys: " mop ", " row))
+                    [:r mop-k (->> (str/split row-v #" ")
+                                   (mapv parse-long))]))
 
                 :append
                 (do
                   (assert (= 1 affectedRows)
-                          (str "invalid affectedRows: " affectedRows))
+                          (str "invalid affectedRows: " mop ", " row))
                   mop))))
           txn
           result)))
