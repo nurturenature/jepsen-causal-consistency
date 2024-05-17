@@ -5,6 +5,7 @@
             [causal
              [local-sqlite3 :as local-sqlite3]
              [nemesis :as nemesis]
+             [pglite :as pglite]
              [sqlite3 :as sqlite3]]
             [clojure.string :as str]
             [elle.consistency-model :as cm]
@@ -98,8 +99,14 @@
   [opts]
   (let [workload-name (:workload opts)
         workload ((workloads workload-name) opts)
-        db       (if (:local-sqlite3? opts)
+        db       (cond
+                   (:local-sqlite3? opts)
                    (local-sqlite3/db)
+
+                   (:pglite? opts)
+                   (pglite/db opts)
+
+                   :else
                    (sqlite3/db opts))
         nemesis  (nemesis/nemesis-package
                   {:db         db
@@ -200,6 +207,9 @@
     :default 5
     :parse-fn read-string
     :validate [pos? "Must be a positive number."]]
+
+   [nil "--pglite? BOOL" "Use PGlite database and clients?"
+    :parse-fn parse-boolean]
 
    [nil "--postgres-host HOST" "Host name of the PostgreSQL service"
     :default "postgres"

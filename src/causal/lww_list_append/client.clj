@@ -285,6 +285,102 @@
             :node
             :url)))
 
+(defn txn->pglite-exec
+  "Given a transaction, returns the JSON necessary to use PGlite exec.
+   Transaction is assumed to be a write."
+  [txn]
+  (let [statements (->> txn
+                        (map (fn [[f k v :as _mop]]
+                               (case f
+                                 :r
+                                 (str "SELECT k,v FROM lww WHERE k = " k ";")
+
+                                 :append
+                                 (str "INSERT INTO lww (k,v) VALUES (" k ",'" v "')"
+                                      "ON CONFLICT (k) DO UPDATE SET v = lww.v || ' ' || '" v "';")))))]
+
+    (->> {:query (str/join " " statements)}
+         json/generate-string)))
+
+(defn pglite-exec->txn
+  "Given the original transaction and the PGlite exec result,
+   return the transaction with the results merged in."
+  [txn result]
+  (let [[f k v :as mop]          (first txn)
+        {k' :k v' :v :as result} (json/parse-string result true)
+        v'                       (parse-long v')] ; returned as a string, but handled internally as a long
+    (assert (= :append f) (str "upsert is append only: " mop))
+    (assert (= k k')      (str "different keys: " mop ", " result))
+    (assert (= v v')      (str "different values: " mop ", " result))
+    [[:append k v]]))
+
+(defrecord PGliteClient [conn]
+  client/Client
+  (open!
+    [this _test node]
+    (assoc this
+           :node node
+           :url  (str "http://" node ":8089")))
+
+  (setup!
+    [_this _test])
+
+  (invoke!
+    [{:keys [node url] :as _this} _test {:keys [value] :as op}]
+    (let [op (assoc op :node node)]
+      (try+ (let [[f _k _v]  (first value)
+                  [url body] (case f
+                               :r
+                               (if (= 1 (count value))
+                                 [(str url "/lww/electric-findUnique")
+                                  (txn->electric-findUnique value)]
+                                 [(str url "/lww/electric-findMany")
+                                  (txn->electric-findMany value)])
+
+                               :append
+                               (do (assert (= 1 (count value))
+                                           (str "ElectricSQLClient is single :append mop only: " value))
+                                   [(str url "/lww/electric-upsert")
+                                    (txn->electric-upsert value)]))
+                  result (http/post url
+                                    {:body               body
+                                     :content-type       :json
+                                     :socket-timeout     1000
+                                     :connection-timeout 1000
+                                     :accept             :json})
+                  result (:body result)
+                  result (case f
+                           :r      (if (= 1 (count value))
+                                     (electric-findUnique->txn value result)
+                                     (electric-findMany->txn   value result))
+                           :append (electric-upsert->txn     value result))]
+              (assoc op
+                     :type  :ok
+                     :value result))
+            (catch (and (instance? java.net.ConnectException %)
+                        (re-find #"Connection refused" (.getMessage %)))
+                   {}
+              (assoc op
+                     :type  :fail
+                     :error :connection-refused))
+            (catch (or (instance? java.net.SocketException %)
+                       (instance? java.net.SocketTimeoutException %)
+                       (instance? org.apache.http.NoHttpResponseException %))
+                   {:keys [cause]}
+              (assoc op
+                     :type  :info
+                     :error cause)))))
+
+  (teardown!
+    [_this _test])
+
+  (close!
+    [this _test]
+    (dissoc this
+            :node
+            :url)))
+
+
 (defn get-jdbc-connection
   "Tries to get a `jdbc` connection for a total of ms, default 5000, every 1000ms.
    Throws if no client can be gotten."
@@ -385,12 +481,16 @@
 (defn node->client
   "Maps a node name to its `client` protocol.
    BetterSQLite3Client is default."
-  [{:keys [better-sqlite3-nodes electricsql-nodes postgresql-nodes local-sqlite3?] :as test} node]
+  [{:keys [better-sqlite3-nodes electricsql-nodes postgresql-nodes local-sqlite3? pglite?] :as test} node]
   (cond
-    ; overrides all others
+    ; override flags
     local-sqlite3?
     (BetterSQLite3Client. nil)
 
+    pglite?
+    (PGliteClient. nil)
+
+    ; specified nodes
     (contains? better-sqlite3-nodes node)
     (BetterSQLite3Client. nil)
 
@@ -400,6 +500,7 @@
     (contains? postgresql-nodes node)
     (PostgreSQLJDBCClient. (get (db-specs test) "postgresql"))
 
+    ; default
     :else
     (BetterSQLite3Client. nil)))
 
