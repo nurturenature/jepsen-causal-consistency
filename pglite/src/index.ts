@@ -52,7 +52,7 @@ app.post("/lww/electric-upsert", async (req: Request, res: Response) => {
 });
 
 app.post("/lww/pglite-exec", async (req: Request, res: Response) => {
-    const result = await pglite.exec(req.body)
+    const result = await pglite.exec(req.body.query)
     res.send(result)
 });
 

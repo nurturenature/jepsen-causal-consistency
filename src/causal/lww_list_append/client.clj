@@ -306,13 +306,24 @@
   "Given the original transaction and the PGlite exec result,
    return the transaction with the results merged in."
   [txn result]
-  (let [[f k v :as mop]          (first txn)
-        {k' :k v' :v :as result} (json/parse-string result true)
-        v'                       (parse-long v')] ; returned as a string, but handled internally as a long
-    (assert (= :append f) (str "upsert is append only: " mop))
-    (assert (= k k')      (str "different keys: " mop ", " result))
-    (assert (= v v')      (str "different values: " mop ", " result))
-    [[:append k v]]))
+  (let [result (json/parse-string result true)]
+    (mapv (fn [[f mop-k _mop-v :as mop] {:keys [rows affectedRows]}]
+            (let [{row-k :k row-v :v :as row} (first rows)]
+              (assert (and row-v
+                           (= mop-k row-k))
+                      (str "different keys: " mop ", " row))
+              (case f
+                :r
+                [:r mop-k (when row-v (->> (str/split row-v #" ")
+                                           (mapv parse-long)))]
+
+                :append
+                (do
+                  (assert (= 1 affectedRows)
+                          (str "invalid affectedRows: " affectedRows))
+                  mop))))
+          txn
+          result)))
 
 (defrecord PGliteClient [conn]
   client/Client
@@ -329,19 +340,26 @@
     [{:keys [node url] :as _this} _test {:keys [value] :as op}]
     (let [op (assoc op :node node)]
       (try+ (let [[f _k _v]  (first value)
-                  [url body] (case f
-                               :r
-                               (if (= 1 (count value))
-                                 [(str url "/lww/electric-findUnique")
-                                  (txn->electric-findUnique value)]
-                                 [(str url "/lww/electric-findMany")
-                                  (txn->electric-findMany value)])
+                  [txn-type
+                   url
+                   body] (cond
+                           (and (= 1 (count value))
+                                (= :r f))
+                           [:electric-findUnique
+                            (str url "/lww/electric-findUnique")
+                            (txn->electric-findUnique value)]
 
-                               :append
-                               (do (assert (= 1 (count value))
-                                           (str "ElectricSQLClient is single :append mop only: " value))
-                                   [(str url "/lww/electric-upsert")
-                                    (txn->electric-upsert value)]))
+                           (and (= 1 (count value))
+                                (= :append f))
+                           [:electric-upsert
+                            (str url "/lww/electric-upsert")
+                            (txn->electric-upsert value)]
+
+                           :else
+                           [:pglite-exec
+                            (str url "/lww/pglite-exec")
+                            (txn->pglite-exec value)])
+
                   result (http/post url
                                     {:body               body
                                      :content-type       :json
@@ -349,11 +367,10 @@
                                      :connection-timeout 1000
                                      :accept             :json})
                   result (:body result)
-                  result (case f
-                           :r      (if (= 1 (count value))
-                                     (electric-findUnique->txn value result)
-                                     (electric-findMany->txn   value result))
-                           :append (electric-upsert->txn     value result))]
+                  result (case txn-type
+                           :electric-findUnique (electric-findUnique->txn value result)
+                           :electric-upsert     (electric-upsert->txn     value result)
+                           :pglite-exec         (pglite-exec->txn         value result))]
               (assoc op
                      :type  :ok
                      :value result))
