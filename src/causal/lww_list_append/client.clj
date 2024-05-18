@@ -307,7 +307,7 @@
    return the transaction with the results merged in."
   [txn result]
   (let [result (json/parse-string result true)]
-    (mapv (fn [[f mop-k _mop-v :as mop] {:keys [rows affectedRows]}]
+    (mapv (fn [[f mop-k _mop-v :as mop] {:keys [rows]}]
             (let [{row-k :k row-v :v :as row} (first rows)]
               (case f
                 :r
@@ -320,10 +320,7 @@
                                    (mapv parse-long))]))
 
                 :append
-                (do
-                  (assert (= 1 affectedRows)
-                          (str "invalid affectedRows: " mop ", " row))
-                  mop))))
+                mop)))
           txn
           result)))
 
