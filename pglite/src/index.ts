@@ -10,9 +10,6 @@ import { schema } from './generated/client/index.js'
 import { ElectricConfig } from "electric-sql/config"
 import { insecureAuthToken } from 'electric-sql/auth'
 
-/* TODO? does this work? */
-import { WebSocket } from 'ws';
-
 /* create an electric conn, database, and client */
 const config: ElectricConfig = {
     url: process.env.ELECTRIC_SERVICE || 'http://electric:5133',
