@@ -144,8 +144,9 @@
           (str "findUnique is single mop only: " txn))
   (let [[f k v :as mop] (first txn)
         {_k' :k v' :v}  (json/parse-string result true)
-        v'              (when v'              ; may return null
-                          [(parse-long v')])] ; returned as a string, processed as a vector of longs
+        v'              (when v'                    ; may return null
+                          (->> (str/split v' #"\s+")  ; returned as a string, processed as a vector of longs
+                               (mapv parse-long)))]
     (assert (= :r f)  (str "findUnique is read only: " mop))
     (assert (= nil v) (str "malformed read: " mop))
     [[:r k v']]))
@@ -180,7 +181,9 @@
         result (->> result
                     (reduce (fn [result {:keys [k v] :as _record}]
                               (assoc result
-                                     k (when v [(parse-long v)])))
+                                     k (when v
+                                         (->> (str/split v #"\s+ ")  ; returned as a string, processed as a vector of longs
+                                              (mapv parse-long)))))
                             {}))]
 
     (->> txn
@@ -316,7 +319,7 @@
                   (do
                     (assert (= mop-k row-k)
                             (str "different keys: " mop ", " row))
-                    [:r mop-k (->> (str/split row-v #" ")
+                    [:r mop-k (->> (str/split row-v #"\s+")
                                    (mapv parse-long))]))
 
                 :append
