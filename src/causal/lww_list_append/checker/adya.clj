@@ -333,6 +333,6 @@
               output-dir      (:directory opts)]
           (when (and (seq cyclic-versions)
                      output-dir)
-            (cyclic-versions/viz cyclic-versions (str output-dir "/cyclic-versions") (h/oks history))))
+            (cyclic-versions/viz cyclic-versions (str output-dir "/cyclic-versions") history)))
 
         results))))

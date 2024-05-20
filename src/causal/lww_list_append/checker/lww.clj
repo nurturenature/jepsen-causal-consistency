@@ -83,7 +83,7 @@
               output-dir      (:directory opts)]
           (when (and (seq cyclic-versions)
                      output-dir)
-            (cyclic-versions/viz cyclic-versions (str output-dir "/cyclic-versions") (h/oks history))))
+            (cyclic-versions/viz cyclic-versions (str output-dir "/cyclic-versions") history)))
 
         ; chart G0-realtime versions
         (let [G0-realtime (->> results
@@ -96,6 +96,6 @@
               output-dir  (:directory opts)]
           (when (and (seq G0-realtime)
                      output-dir)
-            (cyclic-versions/viz G0-realtime (str output-dir "/G0-realtime-versions") (h/oks history))))
+            (cyclic-versions/viz G0-realtime (str output-dir "/G0-realtime-versions") history)))
 
         results))))
