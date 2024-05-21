@@ -1,4 +1,4 @@
-name: 'ElectricSQL using SQLite3 with better-sqlite3 API and Multi Transactions'
+name: 'SQLite3 + better-sqlite3 API + Multi Transactions'
 
 on:
   workflow_dispatch:
@@ -7,12 +7,12 @@ on:
         description: 'Name of Test'
         type: string
         required: true
-        default: 'ElectricSQL using SQLite3 with better-sqlite3 API and Multi Transactions'
+        default: 'SQLite3 + better-sqlite3 API + Multi Transactions'
       jepsen_cli:
         description: 'Jepsen CLI'
         type: string
         required: true
-        default: 'lein run test --workload electric-sqlite --min-txn-length 2 --max-txn-length 4 --rate 10 --time-limit 30'
+        default: 'lein run test --workload better-sqlite --rate 10 --time-limit 60'
   schedule:
     - cron:  '0 0 * * *'
 
@@ -20,5 +20,5 @@ jobs:
   electric-sqlite-multi-txn:
     uses: nurturenature/jepsen-causal-consistency/.github/workflows/ad-hoc-jepsen-test.yml@main
     with:
-      test_name: ${{ inputs.test_name || 'ElectricSQL using SQLite3 with better-sqlite3 API and Multi Transactions' }}
-      jepsen_cli: ${{ inputs.jepsen_cli || 'lein run test --workload electric-sqlite --min-txn-length 2 --max-txn-length 4 --rate 10 --time-limit 30' }}
+      test_name: ${{ inputs.test_name || 'SQLite3 + better-sqlite3 API + Multi Transactions' }}
+      jepsen_cli: ${{ inputs.jepsen_cli || 'lein run test --workload better-sqlite --rate 10 --time-limit 60' }}

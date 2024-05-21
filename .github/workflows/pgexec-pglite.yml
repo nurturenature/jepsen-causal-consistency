@@ -1,0 +1,24 @@
+name: 'PGlite + PGlite.exec API + Multi Transactions'
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_name:
+        description: 'Name of Test'
+        type: string
+        required: true
+        default: 'PGlite + PGlite.exec API + Multi Transactions'
+      jepsen_cli:
+        description: 'Jepsen CLI'
+        type: string
+        required: true
+        default: 'lein run test --workload pgexec-pglite --rate 10 --time-limit 60'
+  schedule:
+    - cron:  '0 0 * * *'
+
+jobs:
+  electric-sqlite-multi-txn:
+    uses: nurturenature/jepsen-causal-consistency/.github/workflows/ad-hoc-jepsen-test.yml@main
+    with:
+      test_name: ${{ inputs.test_name || 'PGlite + PGlite.exec API + Multi Transactions' }}
+      jepsen_cli: ${{ inputs.jepsen_cli || 'lein run test --workload pgexec-pglite --rate 10 --time-limit 60' }}
