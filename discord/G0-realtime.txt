@@ -1,8 +1,0 @@
-G0-realtime #0
-Let:
-  T1 = {:index 3917, :time 50387221906, :type :ok, :process 3, :f :txn, :value [[:append 10 206]], :node "n4"}
-  T2 = {:index 3919, :time 50406036540, :type :ok, :process 4, :f :txn, :value [[:append 10 207]], :node "n5"}
-
-Then:
-  - T1 < T2, because T1 completed at index 3917, 0.006 seconds before the invocation of T2, at index 3918.
-  - However, T2 < T1, because T2 wrote [10 207] which <hb in causal version order T1's write of [10 206]: a contradiction!
