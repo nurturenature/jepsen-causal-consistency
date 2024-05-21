@@ -19,3 +19,8 @@ updates:
     directory: "/local-sqlite3"
     schedule:
       interval: "weekly"
+
+  - package-ecosystem: "npm"
+    directory: "/pglite"
+    schedule:
+      interval: "weekly"

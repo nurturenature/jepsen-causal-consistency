@@ -1,11 +1,10 @@
 (ns causal.cli
   "Command-line entry point for ElectricSQL tests."
   (:require [causal.gset.workload :as gset]
-            [causal.lww-list-append.workload :as lww]
+            [causal.lww-list-append
+             [workload :as lww]]
             [causal
-             [local-sqlite3 :as local-sqlite3]
              [nemesis :as nemesis]
-             [pglite :as pglite]
              [sqlite3 :as sqlite3]]
             [clojure.string :as str]
             [elle.consistency-model :as cm]
@@ -20,15 +19,14 @@
 (def workloads
   "A map of workload names to functions that take CLI options and return
   workload maps."
-  {:lww-causal            lww/causal
-   :lww-strong            lww/strong
-   :lww-lww               lww/lww
-   :lww-causal+strong     lww/causal+strong
-   :lww-causal+strong+lww lww/causal+strong+lww
-   :lww-strong+lww        lww/strong+lww
-   :lww-intermediate-read lww/intermediate-read
-   :lww-read-your-writes  lww/read-your-writes
-   :lww-homogeneous       lww/homogeneous
+  {:electric-sqlite        lww/electric-sqlite
+   :electric-sqlite-strong lww/electric-sqlite-strong
+   :electric-pglite        lww/electric-pglite
+   :electric-pglite-strong lww/electric-pglite-strong
+   :better-sqlite          lww/better-sqlite
+   :pgexec-pglite          lww/pgexec-pglite
+   :local-sqlite           lww/local-sqlite
+
    :gset               gset/workload
    :gset-homogeneous   gset/workload-homogeneous-txns
    :gset-single-writes gset/workload-single-writes
@@ -36,7 +34,7 @@
 
 (def all-workloads
   "A collection of workloads we run by default."
-  [:gset])
+  [:electric-sqlite :electric-pglite :local-sqlite])
 
 (def all-nemeses
   "Combinations of nemeses for tests"
@@ -70,28 +68,13 @@
   "A map of consistency model names to a short name."
   {:strong-session-consistent-view "Consistent-View"})
 
-(defn short-client-names
-  "Given test opts, returns a short string describing the clients being used."
-  [opts]
-  (->> {:postgresql-nodes     "pg"
-        :better-sqlite3-nodes "better"
-        :sqlite3-cli-nodes    "cli"
-        :electricsql-nodes    "electric"}
-       (keep (fn [[node-type abbreviation]]
-               (let [nodes-of-type (get opts node-type)]
-                 (when (seq nodes-of-type)
-                   (str (count nodes-of-type) abbreviation)))))
-       (str/join ",")))
-
 (defn test-name
   "Given opts, returns a meaningful test name."
   [opts]
-  (str "Electric"
-       " " (name (:workload opts))
+  (str (name (:workload opts))
        " " (str/join "," (->> (:consistency-models opts)
                               (map #(short-consistency-name % (name %)))))
        " " (str/join "," (map name (:nemesis opts)))
-       " " (short-client-names opts)
        " " (:rate opts) "tps-" (:time-limit opts) "s"))
 
 (defn causal-test
@@ -99,15 +82,7 @@
   [opts]
   (let [workload-name (:workload opts)
         workload ((workloads workload-name) opts)
-        db       (cond
-                   (:local-sqlite3? opts)
-                   (local-sqlite3/db)
-
-                   (:pglite? opts)
-                   (pglite/db opts)
-
-                   :else
-                   (sqlite3/db opts))
+        db       (:db workload)
         nemesis  (nemesis/nemesis-package
                   {:db         db
                    :nodes      (:nodes opts)
@@ -154,10 +129,7 @@
 
 (def cli-opts
   "Command line options"
-  [[nil "--better-sqlite3-nodes NODES" "A comma-separated list of nodes that should get better-sqlite3 clients"
-    :parse-fn parse-nodes-spec]
-
-   [nil "--consistency-models MODELS" "What consistency models to check for."
+  [[nil "--consistency-models MODELS" "What consistency models to check for."
     :parse-fn parse-nemesis-spec
     :validate [(partial every? cm/all-models)
                (str "Must be one or more of " cm/all-models)]]
@@ -170,9 +142,6 @@
     :default "electric"
     :parse-fn read-string]
 
-   [nil "--electricsql-nodes NODES" "A comma-separated list of nodes that should get ElectricSQL clients"
-    :parse-fn parse-nodes-spec]
-
    [nil "--key-count NUM" "Number of keys in active rotation."
     :parse-fn parse-long
     :validate [pos? "Must be a positive integer"]]
@@ -181,11 +150,7 @@
     :parse-fn keyword
     :validate [#{:exponential :uniform} "Must be exponential or uniform."]]
 
-   [nil "--local-sqlite3? BOOL" "Use a shared local SQLite3 db?"
-    :parse-fn parse-boolean]
-
    [nil "--max-txn-length NUM" "Maximum number of operations in a transaction."
-    :default  4
     :parse-fn parse-long
     :validate [pos? "Must be a positive integer"]]
 
@@ -208,13 +173,11 @@
     :parse-fn read-string
     :validate [pos? "Must be a positive number."]]
 
-   [nil "--pglite? BOOL" "Use PGlite database and clients?"
-    :parse-fn parse-boolean]
-
    [nil "--postgres-host HOST" "Host name of the PostgreSQL service"
     :default "postgres"
     :parse-fn read-string]
 
+   ; TODO reenable active/active with postgresql clients
    [nil "--postgresql-nodes NODES" "A comma-separated list of nodes that should get PostgreSQL clients"
     :parse-fn parse-nodes-spec]
 
@@ -226,11 +189,8 @@
     :parse-fn read-string
     :validate [pos? "Must be a positive number."]]
 
-   [nil "--sqlite3-cli-nodes NODES" "A comma-separated list of nodes that should get SQLite3 CLI clients"
-    :parse-fn parse-nodes-spec]
-
    ["-w" "--workload NAME" "What workload should we run?"
-    :default  :lww-causal+strong
+    :default  :electric-sqlite
     :parse-fn keyword
     :missing  (str "Must specify a workload: " (cli/one-of workloads))
     :validate [workloads (cli/one-of workloads)]]])

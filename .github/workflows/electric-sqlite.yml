@@ -1,0 +1,24 @@
+name: 'ElectricSQL using SQLite3 with Generated API and Single Transactions'
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_name:
+        description: 'Name of Test'
+        type: string
+        required: true
+        default: 'ElectricSQL using SQLite3 with Generated API and Single Transactions'
+      jepsen_cli:
+        description: 'Jepsen CLI'
+        type: string
+        required: true
+        default: 'lein run --workload electric-sqlite --rate 50 --time-limit 100'
+  schedule:
+    - cron:  '0 0 * * *'
+
+jobs:
+  electric-sqlite-single-txn:
+    uses: nurturenature/jepsen-causal-consistency/.github/workflows/ad-hoc-jepsen-test.yml@main
+    with:
+      test_name: ${{ inputs.test_name || 'ElectricSQL using SQLite3 with Generated API and Single Transactions' }}
+      jepsen_cli: ${{ inputs.jepsen_cli || 'lein run test --workload electric-sqlite --rate 50 --time-limit 100' }}

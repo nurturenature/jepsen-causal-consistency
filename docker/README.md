@@ -22,9 +22,8 @@
 # easier to view results on test webserver
 #
 # can only run one test per setup
-./jepsen-docker-cli.sh lein run test --workload lww-intermediate-read --rate 10 --time-limit 30
-./jepsen-docker-cli.sh lein run test --workload lww-read-your-writes --rate 10 --time-limit 30
-./jepsen-docker-cli.sh lein run test --workload lww-strong --nemesis offline-online --rate 10 --time-limit 100
+./jepsen-docker-cli.sh lein run test --workload electric-sqlite --min-txn-length 2 --max-txn-length 4 --rate 10 --time-limit 30
+./jepsen-docker-cli.sh lein run test --workload electric-sqlite-strong --nemesis offline-online --rate 10 --time-limit 100
 
 # run a webserver for test results on jepsen-control
 # available at http://localhost:8080

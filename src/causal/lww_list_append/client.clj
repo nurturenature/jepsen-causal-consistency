@@ -237,19 +237,33 @@
     [{:keys [node url] :as _this} _test {:keys [value] :as op}]
     (let [op (assoc op :node node)]
       (try+ (let [[f _k _v]  (first value)
-                  [url body] (case f
-                               :r
-                               (if (= 1 (count value))
-                                 [(str url "/lww/electric-findUnique")
-                                  (txn->electric-findUnique value)]
-                                 [(str url "/lww/electric-findMany")
-                                  (txn->electric-findMany value)])
+                  [url
+                   body
+                   parse-fn]
+                  (cond
+                    (and (= :r f)
+                         (= 1 (count value)))
+                    [(str url "/lww/electric-findUnique")
+                     (txn->electric-findUnique value)
+                     electric-findUnique->txn]
 
-                               :append
-                               (do (assert (= 1 (count value))
-                                           (str "ElectricSQLClient is single :append mop only: " value))
-                                   [(str url "/lww/electric-upsert")
-                                    (txn->electric-upsert value)]))
+                    (and (= :r f)
+                         (< 1 (count value)))
+                    [(str url "/lww/electric-findMany")
+                     (txn->electric-findMany value)
+                     electric-findMany->txn]
+
+                    (and (= :append f)
+                         (= 1 (count value)))
+                    [(str url "/lww/electric-upsert")
+                     (txn->electric-upsert value)
+                     electric-upsert->txn]
+
+                    :else
+                    (throw+ {:type    :invalid-txn
+                             :message "ElectricSQL generated client can only accept one upsert."
+                             :txn     value}))
+
                   result (http/post url
                                     {:body               body
                                      :content-type       :json
@@ -257,11 +271,7 @@
                                      :connection-timeout 1000
                                      :accept             :json})
                   result (:body result)
-                  result (case f
-                           :r      (if (= 1 (count value))
-                                     (electric-findUnique->txn value result)
-                                     (electric-findMany->txn   value result))
-                           :append (electric-upsert->txn     value result))]
+                  result (parse-fn value result)]
               (assoc op
                      :type  :ok
                      :value result))
@@ -342,25 +352,31 @@
     [{:keys [node url] :as _this} _test {:keys [value] :as op}]
     (let [op (assoc op :node node)]
       (try+ (let [[f _k _v]  (first value)
-                  [txn-type
-                   url
-                   body] (cond
-                           (and (= 1 (count value))
-                                (= :r f))
-                           [:electric-findUnique
-                            (str url "/lww/electric-findUnique")
-                            (txn->electric-findUnique value)]
+                  [url
+                   body
+                   parse-fn] (cond
+                               (and (= :r f)
+                                    (= 1 (count value)))
+                               [(str url "/lww/electric-findUnique")
+                                (txn->electric-findUnique value)
+                                electric-findUnique->txn]
 
-                           (and (= 1 (count value))
-                                (= :append f))
-                           [:electric-upsert
-                            (str url "/lww/electric-upsert")
-                            (txn->electric-upsert value)]
+                               (and (= :r f)
+                                    (< 1 (count value)))
+                               [(str url "/lww/electric-findMany")
+                                (txn->electric-findMany value)
+                                electric-findMany->txn]
 
-                           :else
-                           [:pglite-exec
-                            (str url "/lww/pglite-exec")
-                            (txn->pglite-exec value)])
+                               (and (= 1 (count value))
+                                    (= :append f))
+                               [(str url "/lww/electric-upsert")
+                                (txn->electric-upsert value)
+                                electric-upsert->txn]
+
+                               :else
+                               (throw+ {:type    :invalid-txn
+                                        :message "ElectricSQL generated client can only accept one upsert."
+                                        :txn     value}))
 
                   result (http/post url
                                     {:body               body
@@ -369,10 +385,7 @@
                                      :connection-timeout 1000
                                      :accept             :json})
                   result (:body result)
-                  result (case txn-type
-                           :electric-findUnique (electric-findUnique->txn value result)
-                           :electric-upsert     (electric-upsert->txn     value result)
-                           :pglite-exec         (pglite-exec->txn         value result))]
+                  result (parse-fn value result)]
               (assoc op
                      :type  :ok
                      :value result))
@@ -399,6 +412,55 @@
             :node
             :url)))
 
+(defrecord PGExecClient [conn]
+  client/Client
+  (open!
+    [this _test node]
+    (assoc this
+           :node node
+           :url  (str "http://" node ":8089")))
+
+  (setup!
+    [_this _test])
+
+  (invoke!
+    [{:keys [node url] :as _this} _test {:keys [value] :as op}]
+    (let [op (assoc op :node node)]
+      (try+ (let [url    (str url "/lww/pglite-exec")
+                  body   (txn->pglite-exec value)
+                  result (http/post url
+                                    {:body               body
+                                     :content-type       :json
+                                     :socket-timeout     1000
+                                     :connection-timeout 1000
+                                     :accept             :json})
+                  result (:body result)
+                  result (pglite-exec->txn value result)]
+              (assoc op
+                     :type  :ok
+                     :value result))
+            (catch (and (instance? java.net.ConnectException %)
+                        (re-find #"Connection refused" (.getMessage %)))
+                   {}
+              (assoc op
+                     :type  :fail
+                     :error :connection-refused))
+            (catch (or (instance? java.net.SocketException %)
+                       (instance? java.net.SocketTimeoutException %)
+                       (instance? org.apache.http.NoHttpResponseException %))
+                   {:keys [cause]}
+              (assoc op
+                     :type  :info
+                     :error cause)))))
+
+  (teardown!
+    [_this _test])
+
+  (close!
+    [this _test]
+    (dissoc this
+            :node
+            :url)))
 
 (defn get-jdbc-connection
   "Tries to get a `jdbc` connection for a total of ms, default 5000, every 1000ms.
@@ -494,37 +556,3 @@
                   :user     "postgres"
                   :password "proxy_password"
                   :dbname   "electric-sqlite3-client"}})
-
-;; TODO: why isn't electricsql allowing a connection using jdbc?
-;;       just connecting to postgresql for now
-(defn node->client
-  "Maps a node name to its `client` protocol.
-   BetterSQLite3Client is default."
-  [{:keys [better-sqlite3-nodes electricsql-nodes postgresql-nodes local-sqlite3? pglite?] :as test} node]
-  (cond
-    ; override flags
-    local-sqlite3?
-    (BetterSQLite3Client. nil)
-
-    pglite?
-    (PGliteClient. nil)
-
-    ; specified nodes
-    (contains? better-sqlite3-nodes node)
-    (BetterSQLite3Client. nil)
-
-    (contains? electricsql-nodes node)
-    (ElectricSQLClient. nil)
-
-    (contains? postgresql-nodes node)
-    (PostgreSQLJDBCClient. (get (db-specs test) "postgresql"))
-
-    ; default
-    :else
-    (BetterSQLite3Client. nil)))
-
-(defrecord LWWListAppendClient [conn]
-  client/Client
-  (open!
-    [_this test node]
-    (client/open! (node->client test node) test node)))

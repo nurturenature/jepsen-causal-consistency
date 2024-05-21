@@ -1,4 +1,4 @@
-name: 'Non-electric-SQLite3: Full Test'
+name: 'Single Shared non-electrified SQLite3'
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
     - cron:  '0 0 * * *'
 
 jobs:
-  non-electric-sqlite3-full-test:
+  single-shared-non-electrified-sqlite3:
     runs-on: ubuntu-latest
 
     steps:  
@@ -19,7 +19,7 @@ jobs:
           ./electricsql-build.sh
           ./electricsql-up.sh
           
-      - name: Run Non-electric Full Jepsen Test
+      - name: Run Single Shared non-electrified SQLite3
         run: |
           cd $GITHUB_WORKSPACE/docker
           ./non-electric-sqlite3-full-test.sh
@@ -33,7 +33,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: 'Non-electric-SQLite3-full-test-results'
+          name: 'Non-electric-SQLite3-results'
           path: |
             ${{ github.workspace }}/store/current/results.edn
             
@@ -41,7 +41,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: 'Non-electric-SQLite3-full-test-full'
+          name: 'Non-electric-SQLite3-full'
           path: |
             ${{ github.workspace }}/store/current
             
