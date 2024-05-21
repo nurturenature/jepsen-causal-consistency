@@ -1,4 +1,4 @@
-name: 'SQLite3 + Generated API + Single Transactions Time and Rate-Limit Matrix'
+name: 'SQLite3 + Generated API Time and Rate-Limit Matrix'
 
 on:
   workflow_dispatch:
@@ -7,12 +7,14 @@ on:
 
 jobs:
   electric-sqlite-single-txn-rate-time-limit-matrix:
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         rate: [10 50 100]
         time-limit: [60 300 600 3600]
-    uses: nurturenature/jepsen-causal-consistency/.github/workflows/ad-hoc-jepsen-test.yml@main
-    with:
-      test_name: SQLite3 + Generated API + Single Transactions at ${{ matrix.rate }}tps for ${{ matrix.time-limit }}s
-      jepsen_cli: lein run test --workload electric-sqlite-strong --rate ${{ matrix.rate }} --time-limit ${{ matrix.time-limit }}
+    steps:
+      - uses: ./.github/workflows/ad-hoc-jepsen-test.yml@main
+        with:
+          test_name: SQLite3 + Generated API at ${{ matrix.rate }}tps for ${{ matrix.time-limit }}s
+          jepsen_cli: lein run test --workload electric-sqlite-strong --rate ${{ matrix.rate }} --time-limit ${{ matrix.time-limit }}
 
