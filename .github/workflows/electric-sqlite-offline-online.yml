@@ -14,6 +14,6 @@ jobs:
       nemeses: >
         [ 'offline-online' ]
       rates: >
-        [ '15' ]
+        [ '10' ]
       time-limits: >
         ['100' ]
