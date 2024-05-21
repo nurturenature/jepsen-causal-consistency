@@ -1,0 +1,109 @@
+<html>
+
+<head>
+    <style>
+        table {
+            border-collapse: collapse;
+            border: 1px solid black;
+        }
+
+        th {
+            text-align: center;
+        }
+
+        th,
+        td {
+            padding: 10px;
+        }
+
+        thead,
+        th,
+        tbody,
+        tr,
+        td {
+            border-collapse: collapse;
+            border: 1px solid black;
+        }
+
+        .invoke {
+            text-align: left;
+        }
+
+        .ok {
+            text-align: right;
+        }
+    </style>
+</head>
+
+<body>
+    <table>
+        <thead>
+            <tr>
+                <th colspan="4">header</th>
+            </tr>
+            <tr>
+                <th>Index</th>
+                <th>Node</th>
+                <th>Type</th>
+                <th>Mops</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>0</td>
+                <td></td>
+                <td class="invoke">invoke</td>
+                <td>[:append :x 0]</td>
+            </tr>
+            <tr>
+                <td>1</td>
+                <td></td>
+                <td class="invoke">invoke</td>
+                <td>[:append :x 1]</td>
+            </tr>
+            <tr>
+                <td>2</td>
+                <td></td>
+                <td class="ok">ok</td>
+                <td>[:append :x 0]</td>
+            </tr>
+            <tr>
+                <td>3</td>
+                <td></td>
+                <td class="ok">ok</td>
+                <td>[:append :x 1]</td>
+            </tr>
+            <tr>
+                <td>4</td>
+                <td></td>
+                <td class="invoke">invoke</td>
+                <td>[:r :x nil]<br />[:r :y nil]</td>
+            </tr>
+            <tr>
+                <td>5</td>
+                <td></td>
+                <td class="ok">ok</td>
+                <td>[:r :x [1]]<br />[:r :y nil]</td>
+            </tr>
+            <tr>
+                <td>6</td>
+                <td></td>
+                <td class="invoke">invoke</td>
+                <td>[:r :x nil]</td>
+            </tr>
+            <tr>
+                <td>7</td>
+                <td></td>
+                <td class="ok">ok</td>
+                <td>[:r :x [0]]</td>
+            </tr>
+        </tbody>
+        <tfoot>
+            <tr>
+                <th colspan="4">footer</th>
+            </tr>
+        </tfoot>
+    </table>
+</body>
+
+</html>
