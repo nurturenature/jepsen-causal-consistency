@@ -1,5 +1,6 @@
 (ns causal.local-sqlite3
-  (:require [clojure.tools.logging :refer [info warn]]
+  (:require [causal.util :as util]
+            [clojure.tools.logging :refer [info warn]]
             [jepsen
              [db :as db]
              [control :as c]
@@ -79,7 +80,7 @@
       (if (cu/exists? (str install-dir "/.git"))
         (c/su
          (c/cd install-dir
-               (c/exec :git :pull)))
+               (util/git-clean-pull)))
         (c/su
          (c/exec :rm :-rf install-dir)
          (c/exec :mkdir :-p install-dir)

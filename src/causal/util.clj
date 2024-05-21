@@ -1,5 +1,6 @@
 (ns causal.util
-  (:require [jepsen.generator :as gen]
+  (:require [jepsen.control :as c]
+            [jepsen.generator :as gen]
             [jepsen.tests.cycle.wr :as wr]))
 
 (defn reduce-nested
@@ -64,6 +65,13 @@
                {:type :invoke :f :r-final :value [[:r k nil]] :final-read? true}))
         (gen/each-thread)
         (gen/clients))))
+
+(defn git-clean-pull
+  "git cleans and pulls in the CWD."
+  []
+  (c/exec :git :reset :--hard :HEAD)
+  (c/exec :git :clean :-f)
+  (c/exec :git :pull))
 
 (defn op
   "Generates an operation from a string language like so:
