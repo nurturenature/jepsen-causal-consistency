@@ -38,9 +38,9 @@
 (defn electric-sqlite-strong
   "An electric-sqlite workload with only a strong convergence checker."
   [opts]
-  (update (electric-sqlite opts)
-          :checker
-          dissoc :causal-consistency :lww))
+  (merge (electric-sqlite opts)
+         {:checker (checker/compose
+                    {:strong-convergence (sc/final-reads)})}))
 
 (defn electric-pglite
   "The electric-sqlite workload with:
@@ -54,9 +54,9 @@
 (defn electric-pglite-strong
   "An electric-pglite workload with only a strong convergence checker."
   [opts]
-  (update (electric-pglite opts)
-          :checker
-          dissoc :causal-consistency :lww))
+  (merge (electric-pglite opts)
+         {:checker (checker/compose
+                    {:strong-convergence (sc/final-reads)})}))
 
 (defn better-sqlite
   "The electric-sqlite workload with:
@@ -72,9 +72,9 @@
 (defn better-sqlite-strong
   "An better-sqlite workload with only a strong convergence checker."
   [opts]
-  (update (better-sqlite opts)
-          :checker
-          dissoc :causal-consistency :lww))
+  (merge (better-sqlite opts)
+         {:checker (checker/compose
+                    {:strong-convergence (sc/final-reads)})}))
 
 (defn pgexec-pglite
   "The electric-pglite workload with:
@@ -90,9 +90,9 @@
 (defn pgexec-pglite-strong
   "An pgexec-pglite workload with only a strong convergence checker."
   [opts]
-  (update (pgexec-pglite opts)
-          :checker
-          dissoc :causal-consistency :lww))
+  (merge (pgexec-pglite opts)
+         {:checker (checker/compose
+                    {:strong-convergence (sc/final-reads)})}))
 
 (defn local-sqlite
   "A workload for:
