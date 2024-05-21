@@ -1,4 +1,4 @@
-name: 'electric-sqlite Strong Matrix'
+name: electric-sqlite - Strong Matrix
 
 on:
   workflow_dispatch:

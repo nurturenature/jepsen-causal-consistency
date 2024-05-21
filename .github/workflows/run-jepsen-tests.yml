@@ -1,4 +1,4 @@
-name: 'Run Jepsen Tests'
+name: Run Jepsen Tests
 
 on:
   workflow_dispatch:

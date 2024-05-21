@@ -1,4 +1,4 @@
-name: 'better-sqlite Strong Matrix'
+name: better-sqlite - Strong Matrix
 
 on:
   workflow_dispatch:

@@ -1,4 +1,4 @@
-name: 'electric-pglite Strong Matrix'
+name: electric-pglite - Strong Matrix
 
 on:
   workflow_dispatch:

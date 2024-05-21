@@ -1,4 +1,4 @@
-name: 'Single Shared non-electrified SQLite3'
+name: Single Shared non-electrified SQLite3
 
 on:
   workflow_dispatch:
