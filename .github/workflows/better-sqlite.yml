@@ -1,4 +1,4 @@
-name: 'better-sqlite3'
+name: better-sqlite
 
 on:
   schedule:
