@@ -1,25 +1,18 @@
-name: 'SQLite3 + Generated API + Single Transactions Going Offline and Online'
+name: electric-sqlite Going Offline and Online
 
 on:
-  workflow_dispatch:
-    inputs:
-      test_name:
-        description: 'Name of Test'
-        type: string
-        required: true
-        default: 'SQLite3 + Generated API + Single Transactions Going Offline and Online'
-      jepsen_cli:
-        description: 'Jepsen CLI'
-        type: string
-        required: true
-        default: 'lein run test --workload electric-sqlite-strong --nemesis offline-online --rate 10 --time-limit 100'
   schedule:
     - cron:  '0 0 * * *'
 
 jobs:
-  electric-sqlite-single-txn-offline-online:
-    uses: nurturenature/jepsen-causal-consistency/.github/workflows/ad-hoc-jepsen-test.yml@main
+  electric-sqlite-offline-online:
+    uses: nurturenature/jepsen-causal-consistency/.github/workflows/run-jepsen-tests.yml@main
     with:
-      test_name: ${{ inputs.test_name || 'SQLite3 + Generated API + Single Transactions Going Offline and Online' }}
-      jepsen_cli: ${{ inputs.jepsen_cli || 'lein run test --workload electric-sqlite-strong --nemesis offline-online --rate 10 --time-limit 100' }}
-
+      workloads: >
+        [ 'electric-sqlite-strong' ]
+      nemeses: >
+        [ 'offline-online' ]
+      rates: >
+        [ '10' ]
+      time-limits: >
+        ['100' ]

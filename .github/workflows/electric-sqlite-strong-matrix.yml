@@ -1,4 +1,4 @@
-name: 'electric-sqlite Rate and Time-Limit Matrix'
+name: 'electric-sqlite Strong Matrix'
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
     - cron:  '0 0 * * *'
 
 jobs:
-  electric-sqlite-rate-time-limit-matrix:
+  electric-sqlite-strong:
     uses: nurturenature/jepsen-causal-consistency/.github/workflows/run-jepsen-tests.yml@main
     with:
       workloads: >
@@ -14,6 +14,6 @@ jobs:
       nemeses: >
         [ 'none' ]
       rates: >
-        [ '5',  '10', '25' ]
+        [ '5',  '10', '15' ]
       time-limits: >
         ['60', '180', '600' ]

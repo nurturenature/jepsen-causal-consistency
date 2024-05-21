@@ -1,18 +1,19 @@
-name: pgexec-pglite
+name: 'electric-pglite Strong Matrix'
 
 on:
+  workflow_dispatch:
   schedule:
     - cron:  '0 0 * * *'
 
 jobs:
-  pgexec-pglite:
+  electric-pglite-strong:
     uses: nurturenature/jepsen-causal-consistency/.github/workflows/run-jepsen-tests.yml@main
     with:
       workloads: >
-        [ 'pgexec-pglite' ]
+        [ 'electric-pglite-strong' ]
       nemeses: >
         [ 'none' ]
       rates: >
-        [ '10' ]
+        [ '5',  '10', '15' ]
       time-limits: >
-        ['60' ]
+        ['60', '180', '600' ]
