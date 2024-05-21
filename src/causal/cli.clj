@@ -24,7 +24,9 @@
    :electric-pglite        lww/electric-pglite
    :electric-pglite-strong lww/electric-pglite-strong
    :better-sqlite          lww/better-sqlite
+   :better-sqlite-strong   lww/better-sqlite-strong
    :pgexec-pglite          lww/pgexec-pglite
+   :pgexec-pglite-strong   lww/pgexec-pglite-strong
    :local-sqlite           lww/local-sqlite
 
    :gset               gset/workload

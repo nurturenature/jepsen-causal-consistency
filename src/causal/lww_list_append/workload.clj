@@ -42,17 +42,6 @@
           :checker
           dissoc :causal-consistency :lww))
 
-(defn better-sqlite
-  "The electric-sqlite workload with:
-   - better-sqlite3 client API"
-  [{:keys [min-txn-length max-txn-length] :as opts}]
-  (let [opts (assoc opts
-                    :min-txn-length (or min-txn-length 2)
-                    :max-txn-length (or max-txn-length 4))]
-
-    (merge (electric-sqlite opts)
-           {:client (client/->BetterSQLite3Client nil)})))
-
 (defn electric-pglite
   "The electric-sqlite workload with:
    - PGlite db
@@ -69,6 +58,24 @@
           :checker
           dissoc :causal-consistency :lww))
 
+(defn better-sqlite
+  "The electric-sqlite workload with:
+   - better-sqlite3 client API"
+  [{:keys [min-txn-length max-txn-length] :as opts}]
+  (let [opts (assoc opts
+                    :min-txn-length (or min-txn-length 2)
+                    :max-txn-length (or max-txn-length 4))]
+
+    (merge (electric-sqlite opts)
+           {:client (client/->BetterSQLite3Client nil)})))
+
+(defn better-sqlite-strong
+  "An better-sqlite workload with only a strong convergence checker."
+  [opts]
+  (update (better-sqlite opts)
+          :checker
+          dissoc :causal-consistency :lww))
+
 (defn pgexec-pglite
   "The electric-pglite workload with:
    - PGlite.exec client API"
@@ -79,6 +86,13 @@
 
     (merge (electric-pglite opts)
            {:client (client/->PGExecClient nil)})))
+
+(defn pgexec-pglite-strong
+  "An pgexec-pglite workload with only a strong convergence checker."
+  [opts]
+  (update (pgexec-pglite opts)
+          :checker
+          dissoc :causal-consistency :lww))
 
 (defn local-sqlite
   "A workload for:
