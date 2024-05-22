@@ -43,15 +43,15 @@
             <td>PGlite.exec</td>
             <td>2 / 4</td>
             <td>fail at<br />5tps 60s</td>
-            <td>n/a</td>
+            <td>10tps 300s<br />20tps 180s</td>
         </tr>
         <tr>
             <td>local-sqlite</td>
             <td>single shared<br />SQLite3</td>
             <td>better-sqlite3</td>
             <td>2 / 4</td>
-            <td>valid at all<br />rates durations</td>
-            <td>valid at all<br />rates durations</td>
+            <td>valid at all<br />rates & durations</td>
+            <td>valid at all<br />rates & durations</td>
         </tr>
     </tbody>
 </table>
