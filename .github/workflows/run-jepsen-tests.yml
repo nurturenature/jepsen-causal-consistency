@@ -71,7 +71,6 @@ jobs:
           cd $GITHUB_WORKSPACE/docker
           ./electricsql-build.sh
           ./electricsql-up.sh
-          docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
           
       - name: ${{ env.test-title }}
         run: |
