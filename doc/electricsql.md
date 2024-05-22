@@ -26,7 +26,7 @@
             <td>PGlite</td>
             <td>generated</td>
             <td>1 / 1</td>
-            <td>5tps 600s<br />20tps 300s</td>
+            <td>10tps 300s<br />20tps 300s</td>
             <td>10tps 600s<br />20tps 60s</td>
         </tr>
         <tr>
