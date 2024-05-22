@@ -131,7 +131,10 @@
 
 (def cli-opts
   "Command line options"
-  [[nil "--consistency-models MODELS" "What consistency models to check for."
+  [[nil "--active-active? BOOL" "Generate transactions on both PostgreSQL and ElectricSQL clients."
+    :parse-fn parse-boolean]
+
+   [nil "--consistency-models MODELS" "What consistency models to check for."
     :parse-fn parse-nemesis-spec
     :validate [(partial every? cm/all-models)
                (str "Must be one or more of " cm/all-models)]]

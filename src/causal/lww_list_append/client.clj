@@ -123,6 +123,100 @@
     (dissoc this
             :node
             :url)))
+(defn db-specs
+  "Map node names to db-specs."
+  [{:keys [electric-host postgres-host] :as _opts}]
+  {"postgresql"  {:dbtype   "postgresql"
+                  :host     postgres-host
+                  :user     "postgres"
+                  :password "db_password"
+                  :dbname   "electric-sqlite3-client"}
+   "electricsql" {:dbtype   "postgresql"
+                  :host     electric-host
+                  :port     65432
+                  :user     "postgres"
+                  :password "proxy_password"
+                  :dbname   "electric-sqlite3-client"}})
+
+(defn get-jdbc-connection
+  "Tries to get a `jdbc` connection for a total of ms, default 5000, every 1000ms.
+   Throws if no client can be gotten."
+  ([db-spec] (get-jdbc-connection db-spec 5000))
+  ([db-spec ms]
+   (let [conn (u/timeout ms nil (u/retry 1 (->> db-spec
+                                                jdbc/get-datasource
+                                                jdbc/get-connection)))]
+     (when (nil? conn)
+       (throw+ {:connection-failure db-spec}))
+     conn)))
+
+(defrecord PostgreSQLJDBCClient [db-spec]
+  client/Client
+  (open!
+    [this test node]
+    (let [table (get test :postgresql-table "lww")]
+      (assoc this
+             :node      node
+             :conn      (get-jdbc-connection db-spec)
+             :table     table
+             :result-kw (keyword table "v"))))
+
+  (setup!
+    [_this _test])
+
+  (invoke!
+    [{:keys [conn node table result-kw] :as _this} _test {:keys [value] :as op}]
+    (let [op (assoc op
+                    :node node)]
+      (try+
+       (let [mops' (jdbc/with-transaction
+                     [tx conn {:isolation :repeatable-read}]
+                     (->> value
+                          (map (fn [[f k v :as mop]]
+                                 (case f
+                                   :r
+                                   (let [v (->> (jdbc/execute! tx [(str "SELECT k,v FROM " table " WHERE k = " k)])
+                                                (map result-kw)
+                                                first)
+                                         v (when v
+                                             (->> (str/split v #"\s+")
+                                                  (mapv parse-long)))]
+                                     [:r k v])
+                                   :append
+                                   (do
+                                     (assert (= 1
+                                                (->> (jdbc/execute! tx [(str "INSERT INTO " table " (k,v) VALUES (" k ",'" v "')"
+                                                                             "ON CONFLICT (k) DO UPDATE SET v = lww.v || ' ' || '" v "'")])
+                                                     first
+                                                     :next.jdbc/update-count)))
+                                     mop))))
+                          (into [])))]
+         (assoc op
+                :type  :ok
+                :value mops'))
+       (catch (fn [e]
+                (if (and (instance? org.postgresql.util.PSQLException e)
+                         (re-find #"ERROR\: deadlock detected\n.*" (.getMessage e)))
+                  true
+                  false)) {}
+         (assoc op
+                :type  :fail
+                :error :deadlock))
+       (catch (fn [e]
+                (if (and (instance? org.postgresql.util.PSQLException e)
+                         (re-find #"ERROR: could not serialize access due to concurrent update\n.*" (.getMessage e)))
+                  true
+                  false)) {}
+         (assoc op
+                :type  :fail
+                :error :concurrent-update)))))
+
+  (teardown!
+    [_this _test])
+
+  (close!
+    [{:keys [conn] :as _client} _test]
+    (.close conn)))
 
 (defn txn->electric-findUnique
   "Given a transaction, returns the JSON necessary to use ElectricSQL findUnique.
@@ -225,10 +319,13 @@
 (defrecord ElectricSQLClient [conn]
   client/Client
   (open!
-    [this _test node]
-    (assoc this
-           :node node
-           :url  (str "http://" node ":8089")))
+    [this {:keys [active-active?] :as test} node]
+    (if (and active-active?
+             (= "n1" node))
+      (client/open! (PostgreSQLJDBCClient. (get db-specs "postgresql")) test node)
+      (assoc this
+             :node node
+             :url  (str "http://" node ":8089"))))
 
   (setup!
     [_this _test])
@@ -462,97 +559,3 @@
             :node
             :url)))
 
-(defn get-jdbc-connection
-  "Tries to get a `jdbc` connection for a total of ms, default 5000, every 1000ms.
-   Throws if no client can be gotten."
-  ([db-spec] (get-jdbc-connection db-spec 5000))
-  ([db-spec ms]
-   (let [conn (u/timeout ms nil (u/retry 1 (->> db-spec
-                                                jdbc/get-datasource
-                                                jdbc/get-connection)))]
-     (when (nil? conn)
-       (throw+ {:connection-failure db-spec}))
-     conn)))
-
-(defrecord PostgreSQLJDBCClient [db-spec]
-  client/Client
-  (open!
-    [this test node]
-    (let [table (get test :postgresql-table "lww")]
-      (assoc this
-             :node      node
-             :conn      (get-jdbc-connection db-spec)
-             :table     table
-             :result-kw (keyword table "v"))))
-
-  (setup!
-    [_this _test])
-
-  (invoke!
-    [{:keys [conn node table result-kw] :as _this} _test {:keys [value] :as op}]
-    (let [op (assoc op
-                    :node node)]
-      (try+
-       (let [mops' (jdbc/with-transaction
-                     [tx conn {:isolation :repeatable-read}]
-                     (->> value
-                          (map (fn [[f k v :as mop]]
-                                 (case f
-                                   :r
-                                   (let [v (->> (jdbc/execute! tx [(str "SELECT k,v FROM " table " WHERE k = " k)])
-                                                (map result-kw)
-                                                first)
-                                         v (when v
-                                             (->> (str/split v #"\s+")
-                                                  (mapv parse-long)))]
-                                     [:r k v])
-                                   :append
-                                   (do
-                                     (assert (= 1
-                                                (->> (jdbc/execute! tx [(str "INSERT INTO " table " (k,v) VALUES (" k ",'" v "')"
-                                                                             "ON CONFLICT (k) DO UPDATE SET v = lww.v || ' ' || '" v "'")])
-                                                     first
-                                                     :next.jdbc/update-count)))
-                                     mop))))
-                          (into [])))]
-         (assoc op
-                :type  :ok
-                :value mops'))
-       (catch (fn [e]
-                (if (and (instance? org.postgresql.util.PSQLException e)
-                         (re-find #"ERROR\: deadlock detected\n.*" (.getMessage e)))
-                  true
-                  false)) {}
-         (assoc op
-                :type  :fail
-                :error :deadlock))
-       (catch (fn [e]
-                (if (and (instance? org.postgresql.util.PSQLException e)
-                         (re-find #"ERROR: could not serialize access due to concurrent update\n.*" (.getMessage e)))
-                  true
-                  false)) {}
-         (assoc op
-                :type  :fail
-                :error :concurrent-update)))))
-
-  (teardown!
-    [_this _test])
-
-  (close!
-    [{:keys [conn] :as _client} _test]
-    (.close conn)))
-
-(defn db-specs
-  "Map node names to db-specs."
-  [{:keys [electric-host postgres-host] :as _opts}]
-  {"postgresql"  {:dbtype   "postgresql"
-                  :host     postgres-host
-                  :user     "postgres"
-                  :password "db_password"
-                  :dbname   "electric-sqlite3-client"}
-   "electricsql" {:dbtype   "postgresql"
-                  :host     electric-host
-                  :port     65432
-                  :user     "postgres"
-                  :password "proxy_password"
-                  :dbname   "electric-sqlite3-client"}})
