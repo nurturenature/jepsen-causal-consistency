@@ -322,7 +322,7 @@
     [this {:keys [active-active?] :as test} node]
     (if (and active-active?
              (= "n1" node))
-      (client/open! (PostgreSQLJDBCClient. (get db-specs "postgresql")) test node)
+      (client/open! (PostgreSQLJDBCClient. (get (db-specs test) "postgresql")) test node)
       (assoc this
              :node node
              :url  (str "http://" node ":8089"))))

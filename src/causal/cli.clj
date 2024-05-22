@@ -32,6 +32,8 @@
 
    :local-sqlite           lww/local-sqlite
 
+   :active-active          lww/active-active
+
    :none               (fn [_] tests/noop-test)})
 
 (def all-workloads
