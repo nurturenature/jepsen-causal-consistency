@@ -87,19 +87,21 @@ jobs:
           docker cp jepsen-control:/jepsen/jepsen-causal-consistency/store $GITHUB_WORKSPACE
           docker logs jepsen-electric-1 > $GITHUB_WORKSPACE/store/current/electricsql.log 
           docker logs jepsen-postgres-1 > $GITHUB_WORKSPACE/store/current/postgresql.log 
-          
-      - name: 'Jepsen Test Artifacts: results'
+          tail -n 100 $GITHUB_WORKSPACE/store/current/jepsen.log > $GITHUB_WORKSPACE/store/current/tail-jepsen.log
+
+      - name: 'Jepsen Test Artifacts: summary'
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: '${{ env.test-title }}-results'
+          name: '${{ env.test-title }}-summary'
           path: |
             ${{ github.workspace }}/store/current/results.edn
+            ${{ github.workspace }}/store/current/tail-jepsen.log
             
-      - name: 'Jepsen Test Artifacts: full'
+      - name: 'Jepsen Test Artifacts: failure-full'
         if: ${{ failure() }}
         uses: actions/upload-artifact@v4
         with:
-          name: '${{ env.test-title }}-full'
+          name: '${{ env.test-title }}-failure-full'
           path: |
             ${{ github.workspace }}/store/current
