@@ -4,25 +4,25 @@ on:
   workflow_dispatch:
     inputs:
       workloads:
-        description: 'Workloads (as JSON)'
+        description: Workloads (as JSON)
         type: string
         required: true
-        default: '[ electric-sqlite ]'
+        default: "[ 'electric-sqlite' ]"
       nemeses:
         description: 'Nemeses (as JSON)'
         type: string
         required: true
-        default: '[ none ]'
+        default: "[ 'none' ]"
       rates:
         description: 'Rates (as JSON)'
         type: string
         required: true
-        default: '[ 10 ]'
+        default: "[ '10' ]"
       time-limits:
         description: 'Timelimits (as JSON)'
         type: string
         required: true
-        default: '[ 60 ]'
+        default: "[ '60' ]"
 
   workflow_call:
     inputs:
@@ -30,22 +30,22 @@ on:
         description: 'Workloads (as JSON)'
         type: string
         required: true
-        default: '[ electric-sqlite ]'
+        default: "[ 'electric-sqlite' ]"
       nemeses:
         description: 'Nemeses (as JSON)'
         type: string
         required: true
-        default: '[ none ]'
+        default: "[ 'none' ]"
       rates:
         description: 'Rates (as JSON)'
         type: string
         required: true
-        default: '[ 10 ]'
+        default: "[ '10' ]"
       time-limits:
         description: 'Timelimits (as JSON)'
         type: string
         required: true
-        default: '[ 60 ]'
+        default: "[ '60' ]"
 
 jobs:
   tests:
