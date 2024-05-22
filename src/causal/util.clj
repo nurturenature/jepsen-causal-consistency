@@ -22,7 +22,6 @@
   ;;                       :garbage-versions                ; lww list append only
   ;;                       :cyclic-transactions             ; lww list append only
   ;;                       :cac                             ; lww list append only
-  ;;                       :monotonic-reads                 ; gset only
   ;;                       ]
   ;;  :anomalies-ignored  [:lost-update]                    ; `lost-update`s are causally Ok, but they are PL-2+, Adya 4.1.3 ?!?
 
@@ -33,7 +32,6 @@
                :garbage-versions                ; lww list append only
                :cyclic-transactions             ; lww list append only
                :cac                             ; lww list append only
-               :monotonic-reads                 ; gset only
                ]
 
    ; where to store anomaly explanations, graphs

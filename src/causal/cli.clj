@@ -1,7 +1,6 @@
 (ns causal.cli
   "Command-line entry point for ElectricSQL tests."
-  (:require [causal.gset.workload :as gset]
-            [causal.lww-list-append
+  (:require [causal.lww-list-append
              [workload :as lww]]
             [causal
              [nemesis :as nemesis]
@@ -21,17 +20,18 @@
   workload maps."
   {:electric-sqlite        lww/electric-sqlite
    :electric-sqlite-strong lww/electric-sqlite-strong
+
    :electric-pglite        lww/electric-pglite
    :electric-pglite-strong lww/electric-pglite-strong
+
    :better-sqlite          lww/better-sqlite
    :better-sqlite-strong   lww/better-sqlite-strong
+
    :pgexec-pglite          lww/pgexec-pglite
    :pgexec-pglite-strong   lww/pgexec-pglite-strong
+
    :local-sqlite           lww/local-sqlite
 
-   :gset               gset/workload
-   :gset-homogeneous   gset/workload-homogeneous-txns
-   :gset-single-writes gset/workload-single-writes
    :none               (fn [_] tests/noop-test)})
 
 (def all-workloads

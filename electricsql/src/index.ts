@@ -22,8 +22,6 @@ const electric = await electrify(e_conn, schema, config)
 await electric.connect(insecureAuthToken({ "sub": "insecure" }))
 
 /* sync databases */
-const { synced: gset } = await electric.db.gset.sync()
-await gset
 const { synced: lww } = await electric.db.lww.sync()
 await lww
 
@@ -36,91 +34,6 @@ txn_conn.pragma('journal_mode = WAL')
 const port = process.env.CLIENT_PORT || 8089
 const app: Express = express();
 app.use(express.json())
-
-app.get("/gset/r/:k", async (req: Request, res: Response) => {
-    const value = await electric.db.gset.findMany({
-        where: {
-            k: parseInt(req.params.k, 10)
-        }
-    })
-    if (value == null) {
-        res.send({
-            'k': req.params.k,
-            'v': null
-        });
-    } else {
-        res.send(value);
-    }
-});
-
-app.get("/gset/w/:id/:k/:v", async (req: Request, res: Response) => {
-    const result = await electric.db.gset.upsert({
-        create: {
-            id: parseInt(req.params.id, 10),
-            k: parseInt(req.params.k, 10),
-            v: parseInt(req.params.v, 10)
-        },
-        update: {
-            k: parseInt(req.params.k, 10),
-            v: parseInt(req.params.v, 10)
-        },
-        where: {
-            id: parseInt(req.params.id, 10)
-        }
-    })
-    res.send(result);
-});
-
-app.get("/gset/list", async (req: Request, res: Response) => {
-    const result = await electric.db.gset.findMany()
-    res.send(result);
-});
-
-app.post("/gset/electric-findMany", async (req: Request, res: Response) => {
-    const result = await electric.db.gset.findMany(req.body)
-    res.send(result)
-});
-
-app.post("/gset/electric-createMany", async (req: Request, res: Response) => {
-    const result = await electric.db.gset.createMany(req.body)
-    res.send(result)
-});
-
-app.post("/gset/better-sqlite3", (req: Request, res: Response) => {
-    const insert = txn_conn.prepare(
-        'INSERT INTO gset (id,k,v) VALUES (@id, @k, @v)');
-
-    const select = txn_conn.prepare(
-        'SELECT k,v FROM gset WHERE k = @k');
-
-    const result = Array()
-
-    const txn = txn_conn.transaction((mops) => {
-        for (const mop of mops)
-            switch (mop.f) {
-                case 'r':
-                    const read = <any>select.all(mop)
-                    if (read.length == 0) {
-                        result.push({ 'f': 'r', 'k': mop.k, 'v': null })
-                    } else {
-                        result.push({ 'f': 'r', 'k': mop.k, 'v': read })
-                    }
-                    break;
-                case 'w':
-                    const write = insert.run(mop);
-                    assert(write.changes == 1)
-                    result.push(mop)
-                    break;
-            }
-    });
-
-    try {
-        txn(req.body.value)
-        res.send({ 'type': 'ok', 'value': result })
-    } catch (e) {
-        res.send({ 'type': 'info', 'error': e })
-    }
-});
 
 app.get("/lww/list", async (req: Request, res: Response) => {
     const result = await electric.db.lww.findMany()
