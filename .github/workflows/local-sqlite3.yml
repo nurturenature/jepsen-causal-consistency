@@ -18,6 +18,7 @@ jobs:
           cd $GITHUB_WORKSPACE/docker
           ./electricsql-build.sh
           ./electricsql-up.sh
+          docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
           
       - name: Run Single Shared non-electrified SQLite3
         run: |

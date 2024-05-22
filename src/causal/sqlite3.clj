@@ -93,7 +93,9 @@
 
       ; install deps
       (c/cd app-dir
-            (c/exec :npm :install))
+            (c/exec :npm :install)
+            (info "electric-sql version: " (c/exec :npx :electric-sql :--version)))
+
 
       ; one client sets up ElectricSQL
       (locking electricsql-setup?
