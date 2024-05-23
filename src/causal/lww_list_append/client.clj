@@ -130,7 +130,7 @@
   {"postgresql"  {:dbtype   "postgresql"
                   :host     postgres-host
                   :user     "postgres"
-                  :password "db_password"
+                  :password "pg_password"
                   :dbname   "electric-sqlite3-client"}
    "electricsql" {:dbtype   "postgresql"
                   :host     electric-host
