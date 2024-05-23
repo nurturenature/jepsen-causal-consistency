@@ -1,9 +1,8 @@
 (ns causal.lww-list-append.client
   (:require [cheshire.core :as json]
             [clj-http.client :as http]
-            [clojure
-             [logging :refer [info]]
-             [string :as str]]
+            [clojure.string :as str]
+            [clojure.tools.logging :refer [info]]
             [jepsen
              [client :as client]
              [util :as u]]
