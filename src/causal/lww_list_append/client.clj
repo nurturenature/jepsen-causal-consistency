@@ -142,14 +142,13 @@
 (defn get-jdbc-connection
   "Tries to get a `jdbc` connection for a total of ms, default 5000, every 1000ms.
    Throws if no client can be gotten."
-  ([db-spec] (get-jdbc-connection db-spec 5000))
-  ([db-spec ms]
-   (let [conn (u/timeout ms nil (u/retry 1 (->> db-spec
-                                                jdbc/get-datasource
-                                                jdbc/get-connection)))]
-     (when (nil? conn)
-       (throw+ {:connection-failure db-spec}))
-     conn)))
+  [db-spec]
+  (let [conn (->> db-spec
+                  jdbc/get-datasource
+                  jdbc/get-connection)]
+    (when (nil? conn)
+      (throw+ {:connection-failure db-spec}))
+    conn))
 
 (defrecord PostgreSQLJDBCClient [db-spec]
   client/Client
