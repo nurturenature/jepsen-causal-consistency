@@ -1,0 +1,19 @@
+name: active-active
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron:  '0 0 * * *'
+
+jobs:
+  active-active:
+    uses: nurturenature/jepsen-causal-consistency/.github/workflows/run-jepsen-tests.yml@main
+    with:
+      workloads: >
+        [ 'active-active' ]
+      nemeses: >
+        [ 'none' ]
+      rates: >
+        [ '20', '30', '40' ]
+      time-limits: >
+        ['180', '300', '600' ]
