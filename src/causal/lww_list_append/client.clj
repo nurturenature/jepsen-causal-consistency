@@ -1,7 +1,9 @@
 (ns causal.lww-list-append.client
   (:require [cheshire.core :as json]
             [clj-http.client :as http]
-            [clojure.string :as str]
+            [clojure
+             [logging :refer [info]]
+             [string :as str]]
             [jepsen
              [client :as client]
              [util :as u]]
@@ -155,6 +157,7 @@
   (open!
     [this test node]
     (let [table (get test :postgresql-table "lww")]
+      (info "PostgreSQL opening: " db-spec)
       (assoc this
              :node      node
              :conn      (get-jdbc-connection db-spec)
@@ -319,8 +322,8 @@
 (defrecord ElectricSQLClient [conn]
   client/Client
   (open!
-    [this {:keys [active-active?] :as test} node]
-    (if (and active-active?
+    [this {:keys [workload] :as test} node]
+    (if (and (= :active-active workload)
              (= "n1" node))
       (client/open! (PostgreSQLJDBCClient. (get (db-specs test) "postgresql")) test node)
       (assoc this

@@ -126,21 +126,23 @@
      - SQLite3 db
      - ElectricSQL generated client API
    - causal + strong + lww checkers"
-  [{:keys [active-active? min-txn-length max-txn-length] :as opts}]
-  (assert active-active? "active-active workload requires active-active? option be set to true")
-
-  (let [{electric-gen :generator :as electric-workload} (electric-sqlite opts)
-        postgres-gen  (->> (assoc opts
-                                  :min-txn-length (or min-txn-length 2)
-                                  :max-txn-length (or max-txn-length 4))
-                           list-append/gen
-                           (gen/map (fn [{:keys [value] :as op}]
-                                      (let [value (->> value
-                                                       (mapv (fn [[f k v :as mop]]
-                                                               (case f
-                                                                 :r      mop
-                                                                 :append [:append k (+ 1000 v)]))))]
-                                        (assoc op :value value)))))]
+  [{:keys [min-txn-length max-txn-length] :as opts}]
+  (let [opts                     (assoc opts
+                                        :key-dist  :uniform
+                                        :key-count 100)
+        {electric-gen :generator
+         :as electric-workload}  (electric-sqlite opts)
+        postgres-gen             (->> (assoc opts
+                                             :min-txn-length (or min-txn-length 2)
+                                             :max-txn-length (or max-txn-length 4))
+                                      list-append/gen
+                                      (gen/map (fn [{:keys [value] :as op}]
+                                                 (let [value (->> value
+                                                                  (mapv (fn [[f k v :as mop]]
+                                                                          (case f
+                                                                            :r      mop
+                                                                            :append [:append k (+ 1000 v)]))))]
+                                                   (assoc op :value value)))))]
 
     (merge electric-workload
            {:generator (gen/mix
