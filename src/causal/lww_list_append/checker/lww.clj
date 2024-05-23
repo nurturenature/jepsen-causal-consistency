@@ -91,8 +91,13 @@
                                :G0-realtime
                                (mapcat :steps)
                                (filter (fn [{:keys [type]}] (= type :ww)))
-                               (map (fn [{:keys [kv kv']}]
-                                      {:sources #{:G0-realtime} :sccs (list #{kv kv'})})))
+                               (reduce (fn [cyclic-versions {:keys [kv kv'] :as _ww-step}]
+                                         (-> cyclic-versions
+                                             (assoc  :sources #{:G0-realtime})
+                                             (update :sccs    conj #{kv kv'})))
+                                       nil))
+              G0-realtime (when G0-realtime
+                            (seq [G0-realtime]))
               output-dir  (:directory opts)]
           (when (and (seq G0-realtime)
                      output-dir)
