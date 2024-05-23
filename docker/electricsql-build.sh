@@ -5,11 +5,13 @@ set -e
 docker build \
        -t electricsql-node \
        --build-arg JEPSEN_REGISTRY="ghcr.io/nurturenature/jepsen-docker/" \
+       --no-cache-filter electricsql-node \
        ./electricsql-node
 
 docker build \
        -t electricsql-control \
        --build-arg JEPSEN_REGISTRY="ghcr.io/nurturenature/jepsen-docker/" \
+       --no-cache-filter electricsql-control \
        ./electricsql-control
 
 echo
