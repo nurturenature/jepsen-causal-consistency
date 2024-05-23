@@ -275,11 +275,14 @@
           (str "findMany is multi mop only: " txn))
   (let [result (json/parse-string result true)
         result (->> result
-                    (reduce (fn [result {:keys [k v] :as _record}]
-                              (assoc result
-                                     k (when v
-                                         (->> (str/split v #"\s+ ")  ; returned as a string, processed as a vector of longs
-                                              (mapv parse-long)))))
+                    (reduce (fn [result {:keys [k v] :as record}]
+                              (let [v (->> (str/split v #"\s+") ; returned as a string, processed as a vector of longs
+                                           (mapv (fn [v']
+                                                   (let [v' (parse-long v')]
+                                                     (assert (not (nil? v'))
+                                                             (str "Error parsing result record: " record))
+                                                     v'))))]
+                                (assoc result k v)))
                             {}))]
 
     (->> txn

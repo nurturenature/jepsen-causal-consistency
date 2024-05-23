@@ -127,13 +127,25 @@
      - ElectricSQL generated client API
    - causal + strong + lww checkers"
   [{:keys [min-txn-length max-txn-length] :as opts}]
-  (let [opts                     (assoc opts
-                                        :key-dist  :uniform
-                                        :key-count 100)
+  (let [all-keys                 (->> 10
+                                      range
+                                      (into #{}))
+        read-all                 (->> all-keys
+                                      (mapv (fn [k]
+                                              [:r k nil])))
+        opts                     (assoc opts
+                                        :key-dist           :uniform
+                                        :key-count          (count all-keys)
+                                        :max-writes-per-key 10000)
         {electric-gen :generator
          :as electric-workload}  (electric-sqlite opts)
+        electric-gen             (->> electric-gen
+                                      (gen/map (fn [{:keys [value] :as op}]
+                                                 (if (= :r (->> value first first))
+                                                   (assoc op :value read-all)
+                                                   op))))
         postgres-gen             (->> (assoc opts
-                                             :min-txn-length (or min-txn-length 2)
+                                             :min-txn-length (or min-txn-length 4)
                                              :max-txn-length (or max-txn-length 4))
                                       list-append/gen
                                       (gen/map (fn [{:keys [value] :as op}]
@@ -141,7 +153,7 @@
                                                                   (mapv (fn [[f k v :as mop]]
                                                                           (case f
                                                                             :r      mop
-                                                                            :append [:append k (+ 1000 v)]))))]
+                                                                            :append [:append k (+ 10000 v)]))))]
                                                    (assoc op :value value)))))]
 
     (merge electric-workload
