@@ -129,7 +129,7 @@
   [{:keys [min-txn-length max-txn-length] :as opts}]
   (let [all-keys                 (->> 10
                                       range
-                                      (into #{}))
+                                      (into (sorted-set)))
         read-all                 (->> all-keys
                                       (mapv (fn [k]
                                               [:r k nil])))
