@@ -245,7 +245,9 @@
      (gen/log "Quiesce...")
      (gen/sleep 3)
      (gen/log "Final reads...")
-     (->> (findMany opts)
+     (->> (findMany-gen opts)
+          (gen/map (fn [op] (assoc op :final-read? true)))
+          gen/once
           (gen/each-thread)
           (gen/clients)))))
 
