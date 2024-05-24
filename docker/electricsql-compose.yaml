@@ -38,7 +38,7 @@ services:
     init: true
     environment:
       ELECTRIC_WRITE_TO_PG_MODE: direct_writes
-      DATABASE_URL: postgresql://postgres:pg_password@postgres:${PG_PORT:-5432}/${APP_NAME:-electric}
+      DATABASE_URL: postgresql://postgres:db_password@postgres:${PG_PORT:-5432}/${APP_NAME:-electric}
       LOGICAL_PUBLISHER_HOST: electric
       PG_PROXY_PASSWORD: proxy_password
       AUTH_MODE: insecure
