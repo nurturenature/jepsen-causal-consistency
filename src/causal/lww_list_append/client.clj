@@ -433,7 +433,9 @@
 
                            :findMany
                            (let [kvs (->> result
-                                          (reduce merge))]
+                                          (map (fn [{:keys [k v]}]
+                                                 [k v]))
+                                          (into {}))]
                              (->> (get-in value [:where :k :in])
                                   (mapv (fn [k]
                                           [:r k (get kvs k)])))))]
