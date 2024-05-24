@@ -424,7 +424,8 @@
                   result (-> result :body (json/parse-string true))
                   result (case f
                            :updateMany
-                           (let [v  (get-in value [:data :v])
+                           (let [v  (->> (get-in value [:data :v])
+                                         parse-long)
                                  ks (get-in value [:where :k :in])]
                              (assert (= (:count result) (count ks)) (str "Update count for value: " value ", result: " result))
                              (->> ks
@@ -434,7 +435,9 @@
                            :findMany
                            (let [kvs (->> result
                                           (map (fn [{:keys [k v]}]
-                                                 [k v]))
+                                                 (let [v (when v
+                                                           [(parse-long v)])]
+                                                   [k v])))
                                           (into {}))]
                              (->> (get-in value [:where :k :in])
                                   (mapv (fn [k]
