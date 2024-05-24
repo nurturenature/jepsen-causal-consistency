@@ -426,7 +426,7 @@
                            :updateMany
                            (let [v  (get-in value [:data :v])
                                  ks (get-in value [:where :k :in])]
-                             (assert (= result (count ks)) (str "Update count for value: " value ", result: " result))
+                             (assert (= (:count result) (count ks)) (str "Update count for value: " value ", result: " result))
                              (->> ks
                                   (mapv (fn [k]
                                           [:append k v]))))
