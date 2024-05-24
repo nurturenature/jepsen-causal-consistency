@@ -1,5 +1,6 @@
 (ns causal.lww-list-append.workload
   (:require [causal
+             [electric-sqlite :as electric-sqlite]
              [local-sqlite3 :as local-sqlite3]
              [pglite :as pglite]
              [sqlite3 :as sqlite3]]
@@ -164,46 +165,92 @@
                        ; ElectricSQL SQLite3
                          (gen/on-threads #{1 2 3 4}
                                          electric-gen)])})))
+(def total-key-count
+  "The total number of keys."
+  100)
 
-(def homogeneous-generator
-  "A generator that produces homogeneous transactions to work with the ElectricSQL TypeScript API:
-   - single mop :appends
-   - single or multi mop reads with distinct keys"
-  (->>
-   ; seq of mops 
-   {:min-txn-length     1
-    :max-txn-length     1
-    :max-writes-per-key 256}
-   list-append/append-txns
-   (map first)
+(def default-key-count
+  "The default number of keys to act on in a transactions."
+  10)
 
-   ; process in chunks
-   (partition 1000)
+(def all-keys
+  "A sorted set of all keys."
+  (->> (range total-key-count)
+       (into (sorted-set))))
 
-   ; combine mops into homogeneous txns 
-   (mapcat (fn [mops]
-             (->> mops
-                  (reduce (fn [[txns txn keys] [f k _v :as mop]]
-                            (cond
-                              ; append is always a single mop
-                              (= :append f)
-                              (let [new-txns  (if (seq txn)
-                                                [txn [mop]]
-                                                [[mop]])]
-                                [(into txns new-txns) [] #{}])
+(defn op+
+  "Given a :f and :value, creates an :invoke op."
+  [f value]
+  (merge {:type :invoke :f f :value value}))
 
-                              ; read of new key
-                              (and (= :r f)
-                                   (not (contains? keys k)))
-                              [txns (conj txn mop) (conj keys k)]
+(defn updateMany
+  "Given a value, returns a updateMany transaction
+   to update a random set of keys with the value.
+   Optional opts can specify a :key-count for the number of keys to update."
+  ([v] (updateMany nil v))
+  ([{:keys [key-count] :as _opts} v]
+   (let [key-count (or key-count default-key-count)
+         in-keys   (->> all-keys
+                        shuffle
+                        (take key-count)
+                        (into []))
+         v         (str v)]
 
-                              ; read of key already in txn
-                              :else
-                              [(conj txns txn) [mop] #{k}]))
-                          [nil [] #{}])
-                  first       ; destructure accumulator, note we drop any mops in current txn
-                  reverse)))  ; keep original generator order
-   (txn/gen)))
+     {:data  {:v v}
+      :where {:k {:in in-keys}}})))
+
+(defn updateMany-gen
+  "Given optional opts, return a lazy sequence of updateMany transactions."
+  ([] (updateMany-gen nil))
+  ([opts]
+   (->> (range)
+        (map (fn [v]
+               (let [value (updateMany opts v)]
+                 (op+ :updateMany value)))))))
+
+(defn findMany
+  "Returns a findMany transaction
+   to find a random set of keys.
+   Optional opts can specify a :key-count for the number of keys to find."
+  ([] (findMany {}))
+  ([{:keys [key-count] :as _opts}]
+   (let [key-count (or key-count default-key-count)
+         in-keys   (->> all-keys
+                        shuffle
+                        (take key-count)
+                        (into []))]
+
+     {:where {:k {:in in-keys}}})))
+
+(defn findMany-gen
+  "Given optional opts, return a lazy sequence of findMany transactions."
+  ([] (findMany-gen nil))
+  ([opts]
+   (repeatedly (fn []
+                 (let [value (findMany opts)]
+                   (op+ :findMany value))))))
+
+(defn electric-generator
+  "Given option opts, return a generator of ops for the ElectricSQL TypeScript API."
+  ([] (electric-generator nil))
+  ([opts]
+   (gen/mix [(updateMany-gen opts)
+             (findMany-gen opts)])))
+
+(defn typescript
+  "A workload for:
+   - SQLite3 db
+   - ElectricSQL generated client API
+   - causal + strong + lww checkers"
+  [opts]
+  {:db              (electric-sqlite/db opts)
+   :client          (client/->TypeScriptClient nil)
+   :generator       (electric-generator opts)
+   :final-generator (util/final-generator opts)
+   :checker         (checker/compose
+                     {:causal-consistency (adya/checker (merge util/causal-opts opts))
+                      :strong-convergence (sc/final-reads)
+                      :lww                (lww/checker (merge util/causal-opts opts))})})
 
 (comment
   ;; (set/difference (elle.consistency-model/anomalies-prohibited-by [:strong-session-consistent-view])

@@ -34,6 +34,8 @@
 
    :active-active          lww/active-active
 
+   :typescript             lww/typescript
+
    :none               (fn [_] tests/noop-test)})
 
 (def all-workloads

@@ -399,6 +399,70 @@
             :node
             :url)))
 
+(defrecord TypeScriptClient [conn]
+  client/Client
+  (open!
+    [this _test node]
+    (assoc this
+           :node node
+           :url  (str "http://" node ":8089")))
+
+  (setup!
+    [_this _test])
+
+  (invoke!
+    [{:keys [node url] :as _this} _test {:keys [f value] :as op}]
+    (let [op   (assoc op :node node)
+          url  (str url "/lww/" (name f))
+          body (json/generate-string value)]
+      (try+ (let [result (http/post url
+                                    {:body               body
+                                     :content-type       :json
+                                     :socket-timeout     1000
+                                     :connection-timeout 1000
+                                     :accept             :json})
+                  result (-> result :body (json/parse-string true))
+                  result (case f
+                           :updateMany
+                           (let [v  (get-in value [:data :v])
+                                 ks (get-in value [:where :k :in])]
+                             (assert (= result (count ks)) (str "Update count for value: " value ", result: " result))
+                             (->> ks
+                                  (mapv (fn [k]
+                                          [:append k v]))))
+
+                           :findMany
+                           (let [kvs (->> result
+                                          (reduce merge))]
+                             (->> (get-in value [:where :k :in])
+                                  (mapv (fn [k]
+                                          [:r k (get kvs k)])))))]
+              (assoc op
+                     :type  :ok
+                     :value result))
+            (catch (and (instance? java.net.ConnectException %)
+                        (re-find #"Connection refused" (.getMessage %)))
+                   {}
+              (assoc op
+                     :type  :fail
+                     :error :connection-refused))
+            (catch (or (instance? java.net.SocketException %)
+                       (instance? java.net.SocketTimeoutException %)
+                       (instance? org.apache.http.NoHttpResponseException %))
+                   {:keys [cause]}
+              (assoc op
+                     :type  :info
+                     :error cause)))))
+
+  (teardown!
+    [_this _test])
+
+  (close!
+    [this _test]
+    (dissoc this
+            :node
+            :url)))
+
 (defn txn->pglite-exec
   "Given a transaction, returns the JSON necessary to use PGlite exec.
    Transaction is assumed to be a write."
