@@ -237,6 +237,18 @@
    (gen/mix [(updateMany-gen opts)
              (findMany-gen opts)])))
 
+(defn electric-final-generator
+  "final-generator for electric-generator, reads all keys from all clients."
+  [opts]
+  (let [opts (update opts :key-count or total-key-count)]
+    (gen/phases
+     (gen/log "Quiesce...")
+     (gen/sleep 3)
+     (gen/log "Final reads...")
+     (->> (findMany opts)
+          (gen/each-thread)
+          (gen/clients)))))
+
 (defn typescript
   "A workload for:
    - SQLite3 db
@@ -246,7 +258,7 @@
   {:db              (electric-sqlite/db opts)
    :client          (client/->TypeScriptClient nil)
    :generator       (electric-generator opts)
-   :final-generator (util/final-generator opts)
+   :final-generator (electric-final-generator opts)
    :checker         (checker/compose
                      {:causal-consistency (adya/checker (merge util/causal-opts opts))
                       :strong-convergence (sc/final-reads)

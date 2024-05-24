@@ -42,15 +42,6 @@
    :max-plot-bytes       1000000
    :plot-timeout         10000})
 
-(defn generator
-  "wr/gen with common options."
-  [opts]
-  (let [opts (merge
-              {}
-              opts)
-        gen (wr/gen opts)]
-    gen))
-
 (defn final-generator
   "final-generator for generator."
   [_opts]
