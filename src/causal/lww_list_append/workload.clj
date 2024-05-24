@@ -240,7 +240,7 @@
 (defn electric-final-generator
   "final-generator for electric-generator, reads all keys from all clients."
   [opts]
-  (let [opts (update opts :key-count or total-key-count)]
+  (let [opts (update opts :key-count (fn [key-count] (or key-count total-key-count)))]
     (gen/phases
      (gen/log "Quiesce...")
      (gen/sleep 3)
