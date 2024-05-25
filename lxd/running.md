@@ -20,9 +20,9 @@ lein run test ...
 
 ```bash
 # copy logs from containers into Jepsen test store
-docker logs electric-sqlite3-client-electric-1 > ./store/current/electricsql.log
+docker logs electric > ./store/current/electricsql.log
 
-docker logs electric-sqlite3-client-postgres-1 > ./store/current/postgresql.log
+docker logs postgres > ./store/current/postgresql.log
 ```
 
 ```bash

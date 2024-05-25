@@ -131,13 +131,13 @@
                   :host     postgres-host
                   :user     "postgres"
                   :password "db_password"
-                  :dbname   "electric-sqlite3-client"}
+                  :dbname   "electric"}
    "electricsql" {:dbtype   "postgresql"
                   :host     electric-host
                   :port     65432
                   :user     "postgres"
                   :password "proxy_password"
-                  :dbname   "electric-sqlite3-client"}})
+                  :dbname   "electric"}})
 
 (defn get-jdbc-connection
   "Tries to get a `jdbc` connection for a total of ms, default 5000, every 1000ms.

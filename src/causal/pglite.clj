@@ -25,8 +25,11 @@
 (def app-ps-name "node")
 
 (defn app-env-map
-  [{:keys [electric-host] :as _opts}]
-  {:ELECTRIC_SERVICE (str "http://" electric-host ":5133")})
+  [{:keys [electric-host postgres-host] :as _opts}]
+  {:ELECTRIC_DATABASE_HOST postgres-host
+   :ELECTRIC_DATABASE_NAME "electric"
+   :ELECTRIC_SERVICE       (str "http://" electric-host ":5133")
+   :ELECTRIC_SERVICE_HOST  electric-host})
 
 (defn app-env
   [opts]
