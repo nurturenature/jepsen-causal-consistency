@@ -84,8 +84,8 @@ jobs:
         if: ${{ always() }}
         run: |
           docker cp jepsen-control:/jepsen/jepsen-causal-consistency/store $GITHUB_WORKSPACE
-          docker logs jepsen-electric-1 > $GITHUB_WORKSPACE/store/current/electricsql.log 
-          docker logs jepsen-postgres-1 > $GITHUB_WORKSPACE/store/current/postgresql.log 
+          docker logs electric > $GITHUB_WORKSPACE/store/current/electricsql.log 
+          docker logs postgres > $GITHUB_WORKSPACE/store/current/postgresql.log 
           tail -n 100 $GITHUB_WORKSPACE/store/current/jepsen.log > $GITHUB_WORKSPACE/store/current/tail-jepsen.log
 
       - name: 'Jepsen Test Artifacts: summary'
