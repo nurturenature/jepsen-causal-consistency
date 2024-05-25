@@ -104,7 +104,7 @@
         (when-not @electricsql-setup?
           (info "Running db:migrate")
           (c/cd app-dir
-                c/exec (app-env opts) :npm :run "db:migrate")
+                (c/exec (app-env opts) :npm :run "db:migrate"))
 
           (swap! electricsql-setup? (fn [_] true))))
 
