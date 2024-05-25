@@ -16,4 +16,4 @@ docker ps --format="table {{.Names}}\t{{.Image}}\t{{.Status}}"
 
 echo
 echo "A full Jepsen + ElectricSQL cluster is up and available"
-echo "Create test database tables and electrify them with ./electricsql-run-migrations.sh"
+echo "Run a Jepsen test with ./jepsen-docker-cli.sh lein run test"

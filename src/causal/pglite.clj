@@ -33,6 +33,10 @@
   (->> (app-env-map opts)
        (c/env)))
 
+(def electricsql-setup?
+  "Is ElectricSQL setup?"
+  (atom false))
+
 (defn db
   "ElectricSQL PGlite database."
   [opts]
@@ -71,8 +75,16 @@
       (c/cd app-dir
             (c/exec :rm :-rf "node_modules/" "dist/" "src/generated/")
             (c/exec :npm :install)
-            (c/exec :sed :-i "1s/^/import { WebSocket } from 'ws';\\n/" "./node_modules/electric-sql/dist/sockets/web.js")
-            (info "electric-sql version: " (c/exec :npx :electric-sql :--version)))
+            (c/exec :sed :-i "1s/^/import { WebSocket } from 'ws';\\n/" "./node_modules/electric-sql/dist/sockets/web.js"))
+
+      ; one client sets up ElectricSQL
+      (locking electricsql-setup?
+        (when-not @electricsql-setup?
+          (info "Running db:migrate")
+          (c/cd app-dir
+                c/exec (app-env opts) :npm :run "db:migrate")
+
+          (swap! electricsql-setup? (fn [_] true))))
 
       ; build client
       (c/cd app-dir

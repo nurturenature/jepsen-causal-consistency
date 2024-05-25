@@ -3,14 +3,12 @@
 Use electricsql-sql package commands as much as possible.
 
 ```bash
-# bring up backend and run migrations
+# bring up backend
 # in project/electricsql
 
 npm install
 
 npm run backend:up
-
-npm run db:migrate
 ```
 
 ```bash

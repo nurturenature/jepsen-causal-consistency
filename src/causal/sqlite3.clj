@@ -93,16 +93,15 @@
 
       ; install deps
       (c/cd app-dir
-            (c/exec :npm :install)
-            (info "electric-sql version: " (c/exec :npx :electric-sql :--version)))
+            (c/exec :npm :install))
 
 
       ; one client sets up ElectricSQL
       (locking electricsql-setup?
         (when-not @electricsql-setup?
-          (warn "Assuming that db migrations have already been run, db is available with tables created")
-          ;; (c/cd app-dir
-          ;;       c/exec (app-env opts) :npm :run "db:migrate")
+          (info "Running db:migrate")
+          (c/cd app-dir
+                c/exec (app-env opts) :npm :run "db:migrate")
 
           (swap! electricsql-setup? (fn [_] true))))
 

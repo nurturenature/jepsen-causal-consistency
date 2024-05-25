@@ -14,9 +14,6 @@
 #   -f jepsen-electricsql-compose.yaml
 ./electricsql-up.sh
 
-# create and electrify test tables
-./electricsql-run-migrations.sh
-
 # run a test
 # lots of output ending with the results map
 # easier to view results on test webserver

@@ -75,7 +75,6 @@ jobs:
       - name: ${{ env.test-title }}
         run: |
           cd $GITHUB_WORKSPACE/docker
-          ./electricsql-run-migrations.sh
           ./jepsen-docker-cli.sh lein run test --workload   ${{ matrix.workload }} \
                                                --nemesis    ${{ matrix.nemesis }}  \
                                                --rate       ${{ matrix.rate }}     \

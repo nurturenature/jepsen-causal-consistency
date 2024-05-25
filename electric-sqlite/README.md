@@ -6,8 +6,6 @@ npm run backend:up
 
 npm run db:psql
 
-npm run db:migrate
-
 npm run client:generate
 npm run client:build
 
