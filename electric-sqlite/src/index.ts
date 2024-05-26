@@ -21,8 +21,8 @@ const electric = await electrify(e_conn, schema, config)
 await electric.connect(insecureAuthToken({ "sub": "insecure" }))
 
 /* sync databases */
-const { synced: dummy } = await electric.db.dummy.sync()
-await dummy
+const { synced: buckets } = await electric.db.buckets.sync()
+await buckets
 const { synced: lww } = await electric.db.lww.sync()
 await lww
 
@@ -41,23 +41,24 @@ app.get("/lww/list", async (req: Request, res: Response) => {
     res.send(result);
 });
 
+
 /* note use of foreign key driven updates */
-const doc_update = electric.db.dummy.update({
-    where: { dummy: 0 },
+const doc_update = electric.db.buckets.update({
+    where: { bucket: 0 },
     data: {
         v: null,
-        lww_lww_dummyTodummy: {
+        lww: {
             update: {
                 data: { v: "0" },
                 where: { k: 0 }
             }
         }
     },
-    include: { lww_lww_dummyTodummy: true }
+    include: { lww: true }
 })
 
 app.post("/lww/update", async (req: Request, res: Response) => {
-    const result = await electric.db.dummy.update(req.body)
+    const result = await electric.db.buckets.update(req.body)
     res.send(result)
 });
 

@@ -424,12 +424,12 @@
                   result (-> result :body (json/parse-string true))
                   result (case f
                            :update
-                           (let [appends (->> (get-in value [:data :lww_lww_dummyTodummy :update])
+                           (let [appends (->> (get-in value [:data :lww :update])
                                               (mapv (fn [{:keys [data where]}]
                                                       (let [v (when-let [v (:v data)]
                                                                 (parse-long v))]
                                                         [:append (:k where) v]))))
-                                 reads   (->> (get result :lww_lww_dummyTodummy)
+                                 reads   (->> (get result :lww)
                                               (mapv (fn [{:keys [k v]}]
                                                       [:r k (when v [(parse-long v)])])))]
                              (into appends reads))

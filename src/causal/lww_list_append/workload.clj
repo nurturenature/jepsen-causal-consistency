@@ -186,7 +186,7 @@
 (defn update-fk
   "Given a value, returns an update transaction
    to update a random set of keys with the value.
-   Uses foreign key from dummy table for initial select.
+   Uses foreign key from buckets table for initial select.
    Optional opts can specify a :key-count for the number of keys to update."
   ([v] (update-fk nil v))
   ([{:keys [key-count] :as _opts} v]
@@ -202,9 +202,9 @@
                                  :where {:k k}})))]
 
      {:data    {:v v
-                :lww_lww_dummyTodummy {:update updates}}
-      :where   {:dummy 0}
-      :include {:lww_lww_dummyTodummy true}})))
+                :lww {:update updates}}
+      :where   {:bucket 0}
+      :include {:lww true}})))
 
 (defn updateMany
   "Given a value, returns a updateMany transaction
