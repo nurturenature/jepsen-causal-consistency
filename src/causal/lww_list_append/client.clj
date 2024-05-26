@@ -426,7 +426,9 @@
                            :update
                            (let [appends (->> (get-in value [:data :lww_lww_dummyTodummy :update])
                                               (mapv (fn [{:keys [data where]}]
-                                                      [:append (:k where) (:v data)])))
+                                                      (let [v (when-let [v (:v data)]
+                                                                (parse-long v))]
+                                                        [:append (:k where) v]))))
                                  reads   (->> (get result :lww_lww_dummyTodummy)
                                               (mapv (fn [{:keys [k v]}]
                                                       [:r k (when v [(parse-long v)])])))]
