@@ -203,7 +203,7 @@
 
      {:data    {:v v
                 :lww_lww_dummyTodummy {:update updates}}
-      :where   {:k 0}
+      :where   {:dummy 0}
       :include {:lww_lww_dummyTodummy true}})))
 
 (defn updateMany
