@@ -41,22 +41,8 @@ app.get("/lww/list", async (req: Request, res: Response) => {
     res.send(result);
 });
 
-app.post("/lww/updateMany", async (req: Request, res: Response) => {
-    const result = await electric.db.lww.updateMany(req.body)
-    res.send(result)
-});
-
-app.post("/lww/findMany", async (req: Request, res: Response) => {
-    const result = await electric.db.lww.findMany(req.body)
-    res.send(result)
-});
-
-app.post("/lww/electric-findUnique", async (req: Request, res: Response) => {
-    const result = await electric.db.lww.findUnique(req.body)
-    res.send(result)
-});
-
-const foo = electric.db.dummy.update({
+/* note use of foreign key driven updates */
+const doc_update = electric.db.dummy.update({
     where: { dummy: 0 },
     data: {
         v: null,
@@ -70,8 +56,23 @@ const foo = electric.db.dummy.update({
     include: { lww_lww_dummyTodummy: true }
 })
 
-app.post("/lww/electric-update", async (req: Request, res: Response) => {
+app.post("/lww/update", async (req: Request, res: Response) => {
     const result = await electric.db.dummy.update(req.body)
+    res.send(result)
+});
+
+app.post("/lww/updateMany", async (req: Request, res: Response) => {
+    const result = await electric.db.lww.updateMany(req.body)
+    res.send(result)
+});
+
+app.post("/lww/findMany", async (req: Request, res: Response) => {
+    const result = await electric.db.lww.findMany(req.body)
+    res.send(result)
+});
+
+app.post("/lww/electric-findUnique", async (req: Request, res: Response) => {
+    const result = await electric.db.lww.findUnique(req.body)
     res.send(result)
 });
 

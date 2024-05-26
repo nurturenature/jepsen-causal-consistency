@@ -423,6 +423,15 @@
                                      :accept             :json})
                   result (-> result :body (json/parse-string true))
                   result (case f
+                           :update
+                           (let [appends (->> (get-in value [:data :lww_lww_dummyTodummy :update])
+                                              (mapv (fn [{:keys [data where]}]
+                                                      [:append (:k where) (:v data)])))
+                                 reads   (->> (get result :lww_lww_dummyTodummy)
+                                              (mapv (fn [{:keys [k v]}]
+                                                      [:r k (when v [(parse-long v)])])))]
+                             (into appends reads))
+
                            :updateMany
                            (let [v  (->> (get-in value [:data :v])
                                          parse-long)

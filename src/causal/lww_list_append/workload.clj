@@ -183,6 +183,29 @@
   [f value]
   (merge {:type :invoke :f f :value value}))
 
+(defn update-fk
+  "Given a value, returns an update transaction
+   to update a random set of keys with the value.
+   Uses foreign key from dummy table for initial select.
+   Optional opts can specify a :key-count for the number of keys to update."
+  ([v] (update-fk nil v))
+  ([{:keys [key-count] :as _opts} v]
+   (let [key-count (or key-count default-key-count)
+         in-keys   (->> all-keys
+                        shuffle
+                        (take key-count)
+                        (into []))
+         v         (str v)
+         updates   (->> in-keys
+                        (mapv (fn [k]
+                                {:data  {:v v}
+                                 :where {:k k}})))]
+
+     {:data    {:v v
+                :lww_lww_dummyTodummy {:update updates}}
+      :where   {:k 0}
+      :include {:lww_lww_dummyTodummy true}})))
+
 (defn updateMany
   "Given a value, returns a updateMany transaction
    to update a random set of keys with the value.
@@ -199,14 +222,16 @@
      {:data  {:v v}
       :where {:k {:in in-keys}}})))
 
-(defn updateMany-gen
-  "Given optional opts, return a lazy sequence of updateMany transactions."
-  ([] (updateMany-gen nil))
+(defn updates-gen
+  "Given optional opts, return a lazy sequence of
+   update and updateMany transactions."
+  ([] (updates-gen nil))
   ([opts]
    (->> (range)
         (map (fn [v]
-               (let [value (updateMany opts v)]
-                 (op+ :updateMany value)))))))
+               (let [[f value] (rand-nth [[:update     (update-fk  opts v)]
+                                          [:updateMany (updateMany opts v)]])]
+                 (op+ f value)))))))
 
 (defn findMany
   "Returns a findMany transaction
@@ -234,7 +259,7 @@
   "Given option opts, return a generator of ops for the ElectricSQL TypeScript API."
   ([] (electric-generator nil))
   ([opts]
-   (gen/mix [(updateMany-gen opts)
+   (gen/mix [(updates-gen opts)
              (findMany-gen opts)])))
 
 (defn electric-final-generator
