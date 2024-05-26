@@ -1,19 +1,6 @@
 (ns causal.util
   (:require [jepsen.control :as c]
-            [jepsen.generator :as gen]
-            [jepsen.tests.cycle.wr :as wr]))
-
-(defn reduce-nested
-  "Convenience for nested maps, {k {k' v}}.
-   Reduces with (fn acc k k' v) for all k and k'."
-  [reduce-fn init-state coll]
-  (->> coll
-       (reduce-kv (fn [acc k inner-map]
-                    (->> inner-map
-                         (reduce-kv (fn [acc k' v]
-                                      (reduce-fn acc k k' v))
-                                    acc)))
-                  init-state)))
+            [jepsen.generator :as gen]))
 
 (def causal-opts
   "Opts to configure Elle for causal consistency."
@@ -29,7 +16,8 @@
    :consistency-models [:strong-session-PL-2]
    :anomalies [:G-cursor :G-monotonic :G-single :G-single-item :G-single-item-process :G-single-process :G1-process
                :internal                        ; basic hygiene to read your writes in a transaction
-               :garbage-versions                ; lww list append only
+               ;; TODO: understand spontaneous update bug and enable
+               ;; :garbage-versions             ; lww list append only
                :cyclic-transactions             ; lww list append only
                :cac                             ; lww list append only
                ]

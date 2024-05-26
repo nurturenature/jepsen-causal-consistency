@@ -284,7 +284,9 @@
 (deftest G1a
   (testing "G1a"
     (let [output-dir (str output-dir "/G1a")
-          opts       (assoc util/causal-opts :directory output-dir)]
+          opts       (-> util/causal-opts
+                         (assoc :directory output-dir)
+                         (update :anomalies conj :garbage-versions))]
       (is (= {:valid? false
               :anomaly-types [:G1a :garbage-versions]
               :not #{:read-committed}}
@@ -400,7 +402,9 @@
     ;;                (select-keys results-of-interest))))))
     ; brat db
     (let [output-dir (str output-dir "/simulated/brat")
-          opts       (assoc util/causal-opts :directory output-dir)
+          opts       (-> util/causal-opts
+                         (assoc :directory output-dir)
+                         (update :anomalies conj :garbage-versions))
           history    (->> {:db          :brat
                            :limit       50
                            :concurrency 5}
