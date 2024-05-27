@@ -30,19 +30,6 @@
    :max-plot-bytes       1000000
    :plot-timeout         10000})
 
-(defn final-generator
-  "final-generator for generator."
-  [_opts]
-  (gen/phases
-   (gen/log "Quiesce...")
-   (gen/sleep 3)
-   (gen/log "Final reads...")
-   (->> (range 100)
-        (map (fn [k]
-               {:type :invoke :f :r-final :value [[:r k nil]] :final-read? true}))
-        (gen/each-thread)
-        (gen/clients))))
-
 (defn git-clean-pull
   "git cleans and pulls in the CWD."
   []

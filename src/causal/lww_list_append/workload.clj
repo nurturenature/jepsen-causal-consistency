@@ -128,6 +128,19 @@
           (gen/each-thread)
           (gen/clients)))))
 
+(defn txn-final-generator
+  "final-generator for generator."
+  [_opts]
+  (gen/phases
+   (gen/log "Quiesce...")
+   (gen/sleep 3)
+   (gen/log "Final reads...")
+   (->> (range 100)
+        (map (fn [k]
+               {:type :invoke :f :r-final :value [[:r k nil]] :final-read? true}))
+        (gen/each-thread)
+        (gen/clients))))
+
 (defn electric-sqlite
   "A workload for:
    - SQLite3 db
@@ -150,6 +163,26 @@
          {:checker (checker/compose
                     {:strong-convergence (sc/final-reads)})}))
 
+(defn better-sqlite
+  "The electric-sqlite workload with:
+   - better-sqlite3 client API"
+  [{:keys [min-txn-length max-txn-length] :as opts}]
+  (let [opts (assoc opts
+                    :min-txn-length (or min-txn-length 4)
+                    :max-txn-length (or max-txn-length 4))]
+
+    (merge (electric-sqlite opts)
+           {:client          (client/->BetterSQLite3Client nil)
+            :generator       (list-append/gen opts)
+            :final-generator (txn-final-generator opts)})))
+
+(defn better-sqlite-strong
+  "An better-sqlite workload with only a strong convergence checker."
+  [opts]
+  (merge (better-sqlite opts)
+         {:checker (checker/compose
+                    {:strong-convergence (sc/final-reads)})}))
+
 (defn electric-pglite
   "The electric-sqlite workload with:
    - PGlite db
@@ -163,26 +196,6 @@
   "An electric-pglite workload with only a strong convergence checker."
   [opts]
   (merge (electric-pglite opts)
-         {:checker (checker/compose
-                    {:strong-convergence (sc/final-reads)})}))
-
-(defn better-sqlite
-  "The electric-sqlite workload with:
-   - better-sqlite3 client API"
-  [{:keys [min-txn-length max-txn-length] :as opts}]
-  (let [opts (assoc opts
-                    :min-txn-length (or min-txn-length 4)
-                    :max-txn-length (or max-txn-length 4))]
-
-    (merge (electric-sqlite opts)
-           {:client          (client/->BetterSQLite3Client nil)
-            :generator       (list-append/gen opts)
-            :final-generator (util/final-generator opts)})))
-
-(defn better-sqlite-strong
-  "An better-sqlite workload with only a strong convergence checker."
-  [opts]
-  (merge (better-sqlite opts)
          {:checker (checker/compose
                     {:strong-convergence (sc/final-reads)})}))
 
