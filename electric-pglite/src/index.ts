@@ -1,3 +1,4 @@
+import assert from "assert"
 import dotenv from "dotenv"
 import express, { Express, Request, Response } from "express"
 
@@ -19,7 +20,9 @@ const pglite = new PGlite()
 const electric = await electrify(pglite, schema, config)
 await electric.connect(insecureAuthToken({ "sub": "insecure" }))
 
-/* sync database */
+/* sync databases */
+const { synced: buckets } = await electric.db.buckets.sync()
+await buckets
 const { synced: lww } = await electric.db.lww.sync()
 await lww
 
@@ -31,6 +34,36 @@ app.use(express.json())
 app.get("/lww/list", async (req: Request, res: Response) => {
     const result = await electric.db.lww.findMany()
     res.send(result);
+});
+
+/* note use of foreign key driven updates */
+const doc_update = electric.db.buckets.update({
+    where: { bucket: 0 },
+    data: {
+        v: null,
+        lww: {
+            update: {
+                data: { v: "0" },
+                where: { k: 0 }
+            }
+        }
+    },
+    include: { lww: true }
+})
+
+app.post("/lww/update", async (req: Request, res: Response) => {
+    const result = await electric.db.buckets.update(req.body)
+    res.send(result)
+});
+
+app.post("/lww/updateMany", async (req: Request, res: Response) => {
+    const result = await electric.db.lww.updateMany(req.body)
+    res.send(result)
+});
+
+app.post("/lww/findMany", async (req: Request, res: Response) => {
+    const result = await electric.db.lww.findMany(req.body)
+    res.send(result)
 });
 
 app.post("/lww/electric-findUnique", async (req: Request, res: Response) => {

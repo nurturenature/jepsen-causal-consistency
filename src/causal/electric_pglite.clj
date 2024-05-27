@@ -1,6 +1,6 @@
-(ns causal.pglite
+(ns causal.electric-pglite
   (:require [causal.util :as util]
-            [clojure.tools.logging :refer [info warn]]
+            [clojure.tools.logging :refer [info]]
             [jepsen
              [db :as db]
              [control :as c]
@@ -15,7 +15,7 @@
 
 (def app-dir
   "Application directory."
-  (str install-dir "/pglite"))
+  (str install-dir "/electric-pglite"))
 
 (def pid-file (str app-dir "/client.pid"))
 

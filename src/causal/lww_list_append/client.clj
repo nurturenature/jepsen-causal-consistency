@@ -442,55 +442,63 @@
           txn
           result)))
 
-(defrecord PGliteClient [conn]
+(defrecord ElectricPGliteClient [conn]
   client/Client
   (open!
-    [this _test node]
-    (assoc this
-           :node node
-           :url  (str "http://" node ":8089")))
+    [this {:keys [workload] :as test} node]
+    (if (and (= :active-active workload)
+             (= "n1" node))
+      (client/open! (PostgreSQLJDBCClient. (get (db-specs test) "postgresql")) test node)
+      (assoc this
+             :node node
+             :url  (str "http://" node ":8089"))))
 
   (setup!
     [_this _test])
 
   (invoke!
-    [{:keys [node url] :as _this} _test {:keys [value] :as op}]
-    (let [op (assoc op :node node)]
-      (try+ (let [[f _k _v]  (first value)
-                  [url
-                   body
-                   parse-fn] (cond
-                               (and (= :r f)
-                                    (= 1 (count value)))
-                               [(str url "/lww/electric-findUnique")
-                                (txn->electric-findUnique value)
-                                electric-findUnique->txn]
-
-                               (and (= :r f)
-                                    (< 1 (count value)))
-                               [(str url "/lww/electric-findMany")
-                                (txn->electric-findMany value)
-                                electric-findMany->txn]
-
-                               (and (= 1 (count value))
-                                    (= :append f))
-                               [(str url "/lww/electric-upsert")
-                                (txn->electric-upsert value)
-                                electric-upsert->txn]
-
-                               :else
-                               (throw+ {:type    :invalid-txn
-                                        :message "ElectricSQL generated client can only accept one upsert."
-                                        :txn     value}))
-
-                  result (http/post url
+    [{:keys [node url] :as _this} _test {:keys [f value] :as op}]
+    (let [op   (assoc op :node node)
+          url  (str url "/lww/" (name f))
+          body (json/generate-string value)]
+      (try+ (let [result (http/post url
                                     {:body               body
                                      :content-type       :json
                                      :socket-timeout     1000
                                      :connection-timeout 1000
                                      :accept             :json})
-                  result (:body result)
-                  result (parse-fn value result)]
+                  result (-> result :body (json/parse-string true))
+                  result (case f
+                           :update
+                           (let [appends (->> (get-in value [:data :lww :update])
+                                              (mapv (fn [{:keys [data where]}]
+                                                      (let [v (when-let [v (:v data)]
+                                                                (parse-long v))]
+                                                        [:append (:k where) v]))))
+                                 reads   (->> (get result :lww)
+                                              (mapv (fn [{:keys [k v]}]
+                                                      [:r k (when v [(parse-long v)])])))]
+                             (into appends reads))
+
+                           :updateMany
+                           (let [v  (->> (get-in value [:data :v])
+                                         parse-long)
+                                 ks (get-in value [:where :k :in])]
+                             (assert (= (:count result) (count ks)) (str "Update count for value: " value ", result: " result))
+                             (->> ks
+                                  (mapv (fn [k]
+                                          [:append k v]))))
+
+                           :findMany
+                           (let [kvs (->> result
+                                          (map (fn [{:keys [k v]}]
+                                                 (let [v (when v
+                                                           [(parse-long v)])]
+                                                   [k v])))
+                                          (into {}))]
+                             (->> (get-in value [:where :k :in])
+                                  (mapv (fn [k]
+                                          [:r k (get kvs k)])))))]
               (assoc op
                      :type  :ok
                      :value result))

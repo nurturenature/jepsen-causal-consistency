@@ -1,8 +1,8 @@
 (ns causal.lww-list-append.workload
   (:require [causal
+             [electric-pglite :as electric-pglite]
              [electric-sqlite :as electric-sqlite]
-             [local-sqlite3 :as local-sqlite3]
-             [pglite :as pglite]]
+             [local-sqlite3 :as local-sqlite3]]
             [causal.lww-list-append
              [client :as client]]
             [causal.lww-list-append.checker
@@ -189,8 +189,8 @@
    - ElectricSQL generated client API"
   [opts]
   (merge (electric-sqlite opts)
-         {:db     (pglite/db opts)
-          :client (client/->PGliteClient nil)}))
+         {:db     (electric-pglite/db opts)
+          :client (client/->ElectricPGliteClient nil)}))
 
 (defn electric-pglite-strong
   "An electric-pglite workload with only a strong convergence checker."
