@@ -21,5 +21,5 @@ FROM electricsql-setup AS electricsql-node
 
 # jepsen-causal-consistency
 RUN git clone --depth 1 "https://github.com/nurturenature/jepsen-causal-consistency.git" /jepsen/jepsen-causal-consistency
-WORKDIR /jepsen/jepsen-causal-consistency/electricsql
+WORKDIR /jepsen/jepsen-causal-consistency/electric-sqlite
 RUN npm install

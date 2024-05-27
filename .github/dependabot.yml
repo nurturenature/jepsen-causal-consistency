@@ -11,7 +11,7 @@ updates:
       interval: "weekly"
 
   - package-ecosystem: "npm"
-    directory: "/electricsql"
+    directory: "/electric-sqlite"
     schedule:
       interval: "weekly"
 

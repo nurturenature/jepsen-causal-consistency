@@ -4,7 +4,7 @@ Use electricsql-sql package commands as much as possible.
 
 ```bash
 # bring up backend
-# in project/electricsql
+# in project/electric-sqlite
 
 npm install
 
@@ -27,7 +27,7 @@ docker logs postgres > ./store/current/postgresql.log
 
 ```bash
 # bring the backend down
-# in project/electricsql
+# in project/electric-sqlite
 
 npm run backend:down
 ```
