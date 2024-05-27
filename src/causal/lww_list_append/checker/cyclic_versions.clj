@@ -112,26 +112,28 @@
     [:table
      [:thead
       [:tr
-       [:th {:colspan 4} thead]]
+       [:th {:colspan 5} thead]]
       [:tr
        [:th "Index"]
        [:th "Process"]
        [:th "Type"]
+       [:th "Fn"]
        [:th "Mops"]]]
      [:tbody
       (->> history-filtered
-           (map (fn [{:keys [index process type value] :as _op}]
+           (map (fn [{:keys [index process type f value] :as _op}]
                   [:tr
                    [:td {:class "centered"} index]
                    [:td {:class "centered"} process]
                    [:td {:class "centered"} type]
+                   [:td {:class "centered"} f]
                    [:td {:class "centered"} (->> value
                                                  (mapcat (fn [mop]
                                                            [(str mop) [:br]]))
                                                  butlast)]])))]
      [:tfoot
       [:tr
-       [:th {:colspan 4} tfoot]]]]]])
+       [:th {:colspan 5} tfoot]]]]]])
 
 (defn viz-cycles
   "Given a sequence of cyclic versions, `{:sources #{:source} :sccs (#{[kv]})}`, an output directory, and a full history,

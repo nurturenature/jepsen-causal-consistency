@@ -23,9 +23,9 @@
 
 (def database-files
   "A collection of all SQLite3 database files."
-  [(str app-dir "/electric.db")
-   (str app-dir "/electric.db-shm")
-   (str app-dir "/electric.db-wal")])
+  [database-file
+   (str database-file "-shm")
+   (str database-file "-wal")])
 
 (def pid-file (str app-dir "/client.pid"))
 

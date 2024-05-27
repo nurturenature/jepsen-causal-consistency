@@ -31,6 +31,6 @@
     (let [output-dir (str output-dir "/lww")
           opts       (assoc util/causal-opts :directory output-dir)]
       (is (= {:valid? false
-              :anomaly-types [:G0-realtime]}
+              :anomaly-types [:G0-realtime] :not #{:strong-read-uncommitted}}
              (-> (lww/check opts invalid-realtime)
                  (select-keys results-of-interest)))))))

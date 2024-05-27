@@ -1,10 +1,10 @@
 (ns causal.cli
   "Command-line entry point for ElectricSQL tests."
-  (:require [causal.lww-list-append
+  (:require [causal
+             [electric-sqlite :as electric-sqlite]
+             [nemesis :as nemesis]]
+            [causal.lww-list-append
              [workload :as lww]]
-            [causal
-             [nemesis :as nemesis]
-             [sqlite3 :as sqlite3]]
             [clojure.string :as str]
             [elle.consistency-model :as cm]
             [jepsen
@@ -33,8 +33,6 @@
    :local-sqlite           lww/local-sqlite
 
    :active-active          lww/active-active
-
-   :typescript             lww/typescript
 
    :none               (fn [_] tests/noop-test)})
 
@@ -116,7 +114,7 @@
                          :stats              (checker/stats)
                          :exceptions         (checker/unhandled-exceptions)
                          :clock              (checker/clock-plot)
-                         :logs-client        (checker/log-file-pattern #"SatelliteError" sqlite3/log-file-short)
+                         :logs-client        (checker/log-file-pattern #"SatelliteError" electric-sqlite/log-file-short)
                          :workload           (:checker workload)})
             :client    (:client workload)
             :nemesis   (:nemesis nemesis)

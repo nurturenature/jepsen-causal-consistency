@@ -1,6 +1,6 @@
 #! /usr/bin/bash
 set -e
 
-docker logs electric &> ./store/current/electricsql.log
+docker logs electric-electric-1 &> ./store/current/electricsql.log
 
-docker logs postgres &> ./store/current/postgresql.log
+docker logs electric-postgres-1 &> ./store/current/postgresql.log

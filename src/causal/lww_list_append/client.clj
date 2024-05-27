@@ -320,7 +320,7 @@
     (assert (= v v')      (str "different values: " mop ", " result))
     [[:append k v]]))
 
-(defrecord ElectricSQLClient [conn]
+(defrecord ElectricSQLiteClient [conn]
   client/Client
   (open!
     [this {:keys [workload] :as test} node]
@@ -330,82 +330,6 @@
       (assoc this
              :node node
              :url  (str "http://" node ":8089"))))
-
-  (setup!
-    [_this _test])
-
-  (invoke!
-    [{:keys [node url] :as _this} _test {:keys [value] :as op}]
-    (let [op (assoc op :node node)]
-      (try+ (let [[f _k _v]  (first value)
-                  [url
-                   body
-                   parse-fn]
-                  (cond
-                    (and (= :r f)
-                         (= 1 (count value)))
-                    [(str url "/lww/electric-findUnique")
-                     (txn->electric-findUnique value)
-                     electric-findUnique->txn]
-
-                    (and (= :r f)
-                         (< 1 (count value)))
-                    [(str url "/lww/electric-findMany")
-                     (txn->electric-findMany value)
-                     electric-findMany->txn]
-
-                    (and (= :append f)
-                         (= 1 (count value)))
-                    [(str url "/lww/electric-upsert")
-                     (txn->electric-upsert value)
-                     electric-upsert->txn]
-
-                    :else
-                    (throw+ {:type    :invalid-txn
-                             :message "ElectricSQL generated client can only accept one upsert."
-                             :txn     value}))
-
-                  result (http/post url
-                                    {:body               body
-                                     :content-type       :json
-                                     :socket-timeout     1000
-                                     :connection-timeout 1000
-                                     :accept             :json})
-                  result (:body result)
-                  result (parse-fn value result)]
-              (assoc op
-                     :type  :ok
-                     :value result))
-            (catch (and (instance? java.net.ConnectException %)
-                        (re-find #"Connection refused" (.getMessage %)))
-                   {}
-              (assoc op
-                     :type  :fail
-                     :error :connection-refused))
-            (catch (or (instance? java.net.SocketException %)
-                       (instance? java.net.SocketTimeoutException %)
-                       (instance? org.apache.http.NoHttpResponseException %))
-                   {:keys [cause]}
-              (assoc op
-                     :type  :info
-                     :error cause)))))
-
-  (teardown!
-    [_this _test])
-
-  (close!
-    [this _test]
-    (dissoc this
-            :node
-            :url)))
-
-(defrecord TypeScriptClient [conn]
-  client/Client
-  (open!
-    [this _test node]
-    (assoc this
-           :node node
-           :url  (str "http://" node ":8089")))
 
   (setup!
     [_this _test])
