@@ -210,7 +210,7 @@
     (merge (electric-pglite opts)
            {:client          (client/->PGExecClient nil)
             :generator       (list-append/gen opts)
-            :final-generator (util/final-generator opts)})))
+            :final-generator (txn-final-generator opts)})))
 
 (defn pgexec-pglite-strong
   "An pgexec-pglite workload with only a strong convergence checker."
