@@ -233,7 +233,7 @@
     {:db              (local-sqlite3/db)
      :client          (client/->BetterSQLite3Client nil)
      :generator       (list-append/gen opts)
-     :final-generator (util/final-generator opts)
+     :final-generator (txn-final-generator opts)
      :checker         (checker/compose
                        {:causal-consistency (adya/checker (merge util/causal-opts opts))
                         :strong-convergence (sc/final-reads)
