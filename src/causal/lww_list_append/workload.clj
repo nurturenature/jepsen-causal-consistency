@@ -199,6 +199,7 @@
          {:checker (checker/compose
                     {:strong-convergence (sc/final-reads)})}))
 
+;; TODO: PGlite throws parse error on INSERT but not SELECT?
 (defn pgexec-pglite
   "The electric-pglite workload with:
    - PGlite.exec client API
@@ -213,6 +214,7 @@
             :generator       (list-append/gen opts)
             :final-generator (txn-final-generator opts)})))
 
+;; TODO: PGlite throws parse error on INSERT but not SELECT?
 (defn pgexec-pglite-strong
   "An pgexec-pglite workload with only a strong convergence checker."
   [opts]

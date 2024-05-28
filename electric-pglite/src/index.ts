@@ -80,13 +80,34 @@ app.post("/lww/electric-upsert", async (req: Request, res: Response) => {
     const result = await electric.db.lww.upsert(req.body)
     res.send(result)
 });
-
+/* TODO: PGlite throws parse error on INSERT but not SELECT? */
 app.post("/lww/pglite-exec", async (req: Request, res: Response) => {
-    const result = await pglite.transaction(async (txn) => {
-        await txn.exec(req.body.query)
-    });
-    res.send(result)
+    const result = Array()
+
+    try {
+        await pglite.transaction(async (txn) => {
+            for (const mop of req.body.value)
+                switch (mop.f) {
+                    case 'r':
+                        const read = await txn.query('SELECT k,v FROM lww WHERE k = $1;', [mop.k])
+                        if (read == undefined) {
+                            result.push({ 'f': 'r', 'k': mop.k, 'v': null })
+                        } else {
+                            result.push({ 'f': 'r', 'k': mop.k, 'v': read.rows })
+                        }
+                        break;
+                    case 'append':
+                        const write = await txn.query('INSERT INTO lww (k,v,bucket) VALUES ($1,$2,0) ON CONFLICT (k) DO UPDATE SET v = v || \' \' || $2;', [mop.k, mop.v])
+                        result.push(mop)
+                        break;
+                }
+        })
+        res.send({ 'type': 'ok', 'value': result })
+    } catch (e) {
+        res.send({ 'type': 'info', 'error': e })
+    }
 });
+
 
 app.get("/control/disconnect", (req: Request, res: Response) => {
     console.log('[pglite]: disconnect request received.')

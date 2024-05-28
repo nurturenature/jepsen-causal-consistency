@@ -403,44 +403,6 @@
             :node
             :url)))
 
-(defn txn->pglite-exec
-  "Given a transaction, returns the JSON necessary to use PGlite exec.
-   Transaction is assumed to be a write."
-  [txn]
-  (let [statements (->> txn
-                        (map (fn [[f k v :as _mop]]
-                               (case f
-                                 :r
-                                 (str "SELECT k,v FROM lww WHERE k = " k ";")
-
-                                 :append
-                                 (str "INSERT INTO lww (k,v,bucket) VALUES (" k ",'" v "',0)"
-                                      "ON CONFLICT (k) DO UPDATE SET v = lww.v || ' ' || '" v "';")))))]
-
-    (->> {:query (str/join " " statements)}
-         json/generate-string)))
-
-(defn pglite-exec->txn
-  "Given the original transaction and the PGlite exec result,
-   return the transaction with the results merged in."
-  [txn result]
-  (let [result (json/parse-string result true)]
-    (mapv (fn [[f mop-k _mop-v :as mop] {:keys [rows]}]
-            (let [{row-k :k row-v :v :as row} (first rows)]
-              (case f
-                :r
-                (if (nil? row)
-                  mop
-                  (do
-                    (assert (= mop-k row-k)
-                            (str "different keys: " mop ", " row))
-                    [:r mop-k (->> (str/split row-v #"\s+")
-                                   (mapv parse-long))]))
-
-                :append
-                mop)))
-          txn
-          result)))
 
 (defrecord ElectricPGliteClient [conn]
   client/Client
@@ -525,6 +487,77 @@
             :node
             :url)))
 
+(defn op->pgexec-pglite
+  "Given an op, return the JSON for a pgexec-pglite transaction."
+  [{:keys [value] :as _op}]
+  (let [value (->> value
+                   (mapv (fn [[f k v]]
+                           (case f
+                             :r      {"f" f "k" k "v" nil}
+                             :append {"f" f "k" k "v" (str v)}))))
+        op     {:type  :invoke
+                :value value}]
+    (->> op
+         json/generate-string)))
+
+(defn pgexec-pglite->op
+  "Given the original op and a pgexec-pglite JSON result,
+   return the op updated with pgexec-pglite results."
+  [{:keys [value] :as op} {:keys [status body] :as _rslt}]
+  (let [_                     (assert (= status 200))
+        rslt                  (json/parse-string body true)
+        [type' value' error'] [(keyword (:type rslt)) (:value rslt) (:error rslt)]
+
+        value' (->> value'
+                    (map (fn [[f k v] mop]
+                           (let [[f' k' v'] [(keyword (:f mop)) (:k mop) (:v mop)]]
+                             (assert (and (= f f')
+                                          (= k k'))
+                                     (str "Original op: " op ", result: " rslt ", mismatch"))
+                             (case f
+                               :r
+                               (if (nil? v')
+                                 [:r k nil]
+                                 (let [v' (->> v'
+                                               first
+                                               :v)
+                                       v' (->> (str/split v' #"\s+")
+                                               (mapv parse-long))]
+                                   [:r k v']))
+
+                               :append
+                               (let [v' (parse-long v')]
+                                 (assert (= v v')
+                                         (str "Munged write value in result, expected " v ", actual " v'))
+                                 [f k v]))))
+                         value)
+                    (into []))]
+    (case type'
+      :ok
+      (do
+        (assert (= (count value)
+                   (count value'))
+                {:op     op
+                 :rslt   rslt
+                 :value  value
+                 :type'  type'
+                 :value' value'
+                 :error' error'})
+        (assoc op
+               :type  :ok
+               :value value'))
+
+      :fail
+      (assoc op
+             :type  :fail
+             :error error')
+
+      :info
+      (assoc op
+             :type  :info
+             :error error'))))
+
+;; TODO: PGlite throws parse error on INSERT but not SELECT?
 (defrecord PGExecPGliteClient [conn]
   client/Client
   (open!
@@ -540,18 +573,14 @@
     [{:keys [node url] :as _this} _test {:keys [value] :as op}]
     (let [op (assoc op :node node)]
       (try+ (let [url    (str url "/lww/pglite-exec")
-                  body   (txn->pglite-exec value)
+                  body   (op->pgexec-pglite op)
                   result (http/post url
                                     {:body               body
                                      :content-type       :json
                                      :socket-timeout     1000
                                      :connection-timeout 1000
-                                     :accept             :json})
-                  result (:body result)
-                  result (pglite-exec->txn value result)]
-              (assoc op
-                     :type  :ok
-                     :value result))
+                                     :accept             :json})]
+              (pgexec-pglite->op op result))
             (catch (and (instance? java.net.ConnectException %)
                         (re-find #"Connection refused" (.getMessage %)))
                    {}
