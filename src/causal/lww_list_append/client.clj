@@ -292,7 +292,7 @@
                            (parse-update value result)
 
                            :updateMany
-                           (parse-update value result)
+                           (parse-updateMany value result)
 
                            :findMany
                            (parse-findMany value result))]
