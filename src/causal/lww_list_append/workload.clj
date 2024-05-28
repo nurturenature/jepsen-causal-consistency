@@ -128,14 +128,57 @@
           (gen/each-thread)
           (gen/clients)))))
 
+(defn txn-generator
+  "Given optional opts, return a generator of multi-txn ops in the style of electric-generator,
+   e.g. random writes/reads over all-keys."
+  ([] (txn-generator nil))
+  ([{:keys [min-txn-length max-txn-length] :as opts}]
+   (let [opts (assoc opts
+                     :key-dist           :uniform
+                     :key-count          total-key-count
+                     :max-writes-per-key 1000
+                     :min-txn-length     (or min-txn-length 4)
+                     :max-txn-length     (or max-txn-length 4))]
+
+     (list-append/gen opts))))
+
+(defn negative-v-txn-generator
+  "Given optional opts, return a generator of multi-txn ops in the style of electric-generator,
+   e.g. random writes/reads over all-keys.
+   All write values are descending from -1."
+  ([] (txn-generator nil))
+  ([opts]
+   (let [opts (assoc opts
+                     :min-txn-length     1
+                     :max-txn-length     1)]
+
+     (->> (txn-generator opts)
+          (map :value)
+          (map first)
+          (keep (fn [[f k v :as mop]]
+                  (cond
+                    (and (= :append f)
+                         (= 0 v))
+                    nil
+
+                    (= :append f)
+                    [:append k (* -1 v)]
+
+                    :else
+                    mop)))
+          (partition 4)
+          (map (fn [ops]
+                 (let [ops (into [] ops)]
+                   (op+ :txn ops))))))))
+
 (defn txn-final-generator
-  "final-generator for generator."
+  "final-generator for txn-generator."
   [_opts]
   (gen/phases
    (gen/log "Quiesce...")
    (gen/sleep 3)
    (gen/log "Final reads...")
-   (->> (range 100)
+   (->> all-keys
         (map (fn [k]
                {:type :invoke :f :r-final :value [[:r k nil]] :final-read? true}))
         (gen/each-thread)
@@ -251,44 +294,26 @@
      - SQLite3 db
      - ElectricSQL generated client API
    - causal + strong + lww checkers"
-  [{:keys [min-txn-length max-txn-length] :as opts}]
-  (let [all-keys                 (->> 10
-                                      range
-                                      (into (sorted-set)))
-        read-all                 (->> all-keys
-                                      (mapv (fn [k]
-                                              [:r k nil])))
-        opts                     (assoc opts
-                                        :key-dist           :uniform
-                                        :key-count          (count all-keys)
-                                        :max-writes-per-key 10000)
-        {electric-gen :generator
-         :as electric-workload}  (electric-sqlite opts)
-        electric-gen             (->> electric-gen
-                                      (gen/map (fn [{:keys [value] :as op}]
-                                                 (if (= :r (->> value first first))
-                                                   (assoc op :value read-all)
-                                                   op))))
-        postgres-gen             (->> (assoc opts
-                                             :min-txn-length (or min-txn-length 4)
-                                             :max-txn-length (or max-txn-length 4))
-                                      list-append/gen
-                                      (gen/map (fn [{:keys [value] :as op}]
-                                                 (let [value (->> value
-                                                                  (mapv (fn [[f k v :as mop]]
-                                                                          (case f
-                                                                            :r      mop
-                                                                            :append [:append k (+ 10000 v)]))))]
-                                                   (assoc op :value value)))))]
+  [opts]
+  (let [{electric-gen       :generator
+         electric-final-gen :final-generator
+         :as electric-workload} (electric-sqlite opts)]
 
     (merge electric-workload
            {:generator (gen/mix
                         [; jdbc PostgreSQL
                          (gen/on-threads #{0}
-                                         postgres-gen)
-                       ; ElectricSQL SQLite3
+                                         (negative-v-txn-generator opts))
+                         ; ElectricSQL SQLite3
                          (gen/on-threads #{1 2 3 4}
-                                         electric-gen)])})))
+                                         electric-gen)])
+            :final-generator (gen/mix
+                              [; jdbc PostgreSQL
+                               (gen/on-threads #{0}
+                                               (txn-final-generator opts))
+                               ; ElectricSQL SQLite3
+                               (gen/on-threads #{1 2 3 4}
+                                               electric-final-gen)])})))
 
 (comment
   ;; (set/difference (elle.consistency-model/anomalies-prohibited-by [:strong-session-consistent-view])

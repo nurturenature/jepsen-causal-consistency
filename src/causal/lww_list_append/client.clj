@@ -186,7 +186,7 @@
                                    :append
                                    (do
                                      (assert (= 1
-                                                (->> (jdbc/execute! tx [(str "INSERT INTO " table " (k,v) VALUES (" k ",'" v "')"
+                                                (->> (jdbc/execute! tx [(str "INSERT INTO " table " (k,v,bucket) VALUES (" k ",'" v "',0)"
                                                                              "ON CONFLICT (k) DO UPDATE SET v = lww.v || ' ' || '" v "'")])
                                                      first
                                                      :next.jdbc/update-count)))
