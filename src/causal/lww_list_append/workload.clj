@@ -201,14 +201,15 @@
 
 (defn pgexec-pglite
   "The electric-pglite workload with:
-   - PGlite.exec client API"
+   - PGlite.exec client API
+   - txn generator"
   [{:keys [min-txn-length max-txn-length] :as opts}]
   (let [opts (assoc opts
                     :min-txn-length (or min-txn-length 4)
                     :max-txn-length (or max-txn-length 4))]
 
     (merge (electric-pglite opts)
-           {:client          (client/->PGExecClient nil)
+           {:client          (client/->PGExecPGliteClient nil)
             :generator       (list-append/gen opts)
             :final-generator (txn-final-generator opts)})))
 

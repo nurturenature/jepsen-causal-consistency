@@ -414,7 +414,7 @@
                                  (str "SELECT k,v FROM lww WHERE k = " k ";")
 
                                  :append
-                                 (str "INSERT INTO lww (k,v) VALUES (" k ",'" v "')"
+                                 (str "INSERT INTO lww (k,v,bucket) VALUES (" k ",'" v "',0)"
                                       "ON CONFLICT (k) DO UPDATE SET v = lww.v || ' ' || '" v "';")))))]
 
     (->> {:query (str/join " " statements)}
@@ -525,7 +525,7 @@
             :node
             :url)))
 
-(defrecord PGExecClient [conn]
+(defrecord PGExecPGliteClient [conn]
   client/Client
   (open!
     [this _test node]
