@@ -219,106 +219,47 @@
     [{:keys [conn] :as _client} _test]
     (.close conn)))
 
-(defn txn->electric-findUnique
-  "Given a transaction, returns the JSON necessary to use ElectricSQL findUnique.
-   Transaction is assumed to be a read mop."
-  [txn]
-  (assert (= 1 (count txn))
-          (str "findUnique is single mop only: " txn))
-  (let [[f k v :as mop] (first txn)]
-    (assert (= :r f)  (str "findUnique is read only: " mop))
-    (assert (= nil v) (str "malformed read: " mop))
-    (->> {:where {:k k}}
-         json/generate-string)))
-
-(defn electric-findUnique->txn
-  "Given the original transaction and the result of an ElectricSQL findUnique,
-   returns the transaction with the result merged."
+(defn parse-update
+  "Given the original txn and the result of an update,
+   parse and merge the results returning a txn of mops."
   [txn result]
-  (assert (= 1 (count txn))
-          (str "findUnique is single mop only: " txn))
-  (let [[f k v :as mop] (first txn)
-        {_k' :k v' :v}  (json/parse-string result true)
-        v'              (when v'                    ; may return null
-                          (->> (str/split v' #"\s+")  ; returned as a string, processed as a vector of longs
-                               (mapv parse-long)))]
-    (assert (= :r f)  (str "findUnique is read only: " mop))
-    (assert (= nil v) (str "malformed read: " mop))
-    [[:r k v']]))
+  (let [appends (->> (get-in txn [:data :lww :update])
+                     (mapv (fn [{:keys [data where]}]
+                             (let [v (when-let [v (:v data)]
+                                       (parse-long v))]
+                               [:append (:k where) v]))))
+        reads   (->> (get result :lww)
+                     (mapv (fn [{:keys [k v]}]
+                             (let [v (when v (->> (str/split v #"\s+")
+                                                  (mapv parse-long)))]
+                               [:r k v]))))]
+    (into appends reads)))
 
-(defn txn->electric-findMany
-  "Given a transaction, returns the JSON necessary to use ElectricSQL findMany.
-   Transaction is assumed to be all read mops of unique keys."
-  [txn]
-  (assert (< 1 (count txn))
-          (str "findMany is multi mop only: " txn))
-  (let [ks (->> txn
-                (map (fn [[f k v :as mop]]
-                       (assert (= :r f)  (str "findMany is read only: " mop))
-                       (assert (= nil v) (str "malformed read: " mop))
-                       k))
-                distinct
-                (into []))]
-
-    (assert (= (count txn)
-               (count ks))
-            (str "not unique keys in txn: " txn ", " ks))
-    (->> {:where {:k {:in ks}}}
-         json/generate-string)))
-
-(defn electric-findMany->txn
-  "Given the original transaction and the result of an ElectricSQL findMany,
-   returns the transaction with the result merged."
+(defn parse-updateMany
+  "Given the original txn and the result of an updateMany,
+   parse and merge the results returning a txn of mops."
   [txn result]
-  (assert (< 1 (count txn))
-          (str "findMany is multi mop only: " txn))
-  (let [result (json/parse-string result true)
-        result (->> result
-                    (reduce (fn [result {:keys [k v] :as record}]
-                              (let [v (->> (str/split v #"\s+") ; returned as a string, processed as a vector of longs
-                                           (mapv (fn [v']
-                                                   (let [v' (parse-long v')]
-                                                     (assert (not (nil? v'))
-                                                             (str "Error parsing result record: " record))
-                                                     v'))))]
-                                (assoc result k v)))
-                            {}))]
+  (let [v  (->> (get-in txn [:data :v])
+                parse-long)
+        ks (get-in txn [:where :k :in])]
+    (assert (= (:count result) (count ks)) (str "Update count for value: " txn ", result: " result))
+    (->> ks
+         (mapv (fn [k]
+                 [:append k v])))))
 
-    (->> txn
-         (mapv (fn [[f k v :as mop]]
-                 (assert (= :r f)  (str "findMany is read only: " mop))
-                 (assert (= nil v) (str "malformed read: " mop))
-                 [:r k (get result k)])))))
-
-(defn txn->electric-upsert
-  "Given a transaction, returns the JSON necessary to use ElectricSQL upsert.
-   Transaction is assumed to be a write."
-  [txn]
-  (assert (= 1 (count txn))
-          (str "upsert is single mop only: " txn))
-  (let [[f k v :as mop] (first txn)]
-    (assert (= :append f)  (str "upsert is append only: " mop))
-    (assert (not (nil? v)) (str "nil v in append: " mop))
-    (let [v (str v)] ; v is a string in lww table schema
-      (->> {:create {:k k
-                     :v v}
-            :update {:v v}
-            :where  {:k k}}
-           json/generate-string))))
-
-(defn electric-upsert->txn
-  "Given the original transaction and the ElectricSQL upsert result,
-   return the transaction with the results merged in."
+(defn parse-findMany
+  "Given the original txn and the result of an findMany,
+   parse and merge the results returning a txn of mops."
   [txn result]
-  (assert (= 1 (count txn))
-          (str "upsert is single mop only: " txn))
-  (let [[f k v :as mop]          (first txn)
-        {k' :k v' :v :as result} (json/parse-string result true)
-        v'                       (parse-long v')] ; returned as a string, but handled internally as a long
-    (assert (= :append f) (str "upsert is append only: " mop))
-    (assert (= k k')      (str "different keys: " mop ", " result))
-    (assert (= v v')      (str "different values: " mop ", " result))
-    [[:append k v]]))
+  (let [kvs (->> result
+                 (map (fn [{:keys [k v]}]
+                        (let [v (when v (->> (str/split v #"\s+")
+                                             (mapv parse-long)))]
+                          [k v])))
+                 (into {}))]
+    (->> (get-in txn [:where :k :in])
+         (mapv (fn [k]
+                 [:r k (get kvs k)])))))
 
 (defrecord ElectricSQLiteClient [conn]
   client/Client
@@ -348,35 +289,13 @@
                   result (-> result :body (json/parse-string true))
                   result (case f
                            :update
-                           (let [appends (->> (get-in value [:data :lww :update])
-                                              (mapv (fn [{:keys [data where]}]
-                                                      (let [v (when-let [v (:v data)]
-                                                                (parse-long v))]
-                                                        [:append (:k where) v]))))
-                                 reads   (->> (get result :lww)
-                                              (mapv (fn [{:keys [k v]}]
-                                                      [:r k (when v [(parse-long v)])])))]
-                             (into appends reads))
+                           (parse-update value result)
 
                            :updateMany
-                           (let [v  (->> (get-in value [:data :v])
-                                         parse-long)
-                                 ks (get-in value [:where :k :in])]
-                             (assert (= (:count result) (count ks)) (str "Update count for value: " value ", result: " result))
-                             (->> ks
-                                  (mapv (fn [k]
-                                          [:append k v]))))
+                           (parse-update value result)
 
                            :findMany
-                           (let [kvs (->> result
-                                          (map (fn [{:keys [k v]}]
-                                                 (let [v (when v
-                                                           [(parse-long v)])]
-                                                   [k v])))
-                                          (into {}))]
-                             (->> (get-in value [:where :k :in])
-                                  (mapv (fn [k]
-                                          [:r k (get kvs k)])))))]
+                           (parse-findMany value result))]
               (assoc op
                      :type  :ok
                      :value result))
@@ -432,35 +351,13 @@
                   result (-> result :body (json/parse-string true))
                   result (case f
                            :update
-                           (let [appends (->> (get-in value [:data :lww :update])
-                                              (mapv (fn [{:keys [data where]}]
-                                                      (let [v (when-let [v (:v data)]
-                                                                (parse-long v))]
-                                                        [:append (:k where) v]))))
-                                 reads   (->> (get result :lww)
-                                              (mapv (fn [{:keys [k v]}]
-                                                      [:r k (when v [(parse-long v)])])))]
-                             (into appends reads))
+                           (parse-update value result)
 
                            :updateMany
-                           (let [v  (->> (get-in value [:data :v])
-                                         parse-long)
-                                 ks (get-in value [:where :k :in])]
-                             (assert (= (:count result) (count ks)) (str "Update count for value: " value ", result: " result))
-                             (->> ks
-                                  (mapv (fn [k]
-                                          [:append k v]))))
+                           (parse-updateMany value result)
 
                            :findMany
-                           (let [kvs (->> result
-                                          (map (fn [{:keys [k v]}]
-                                                 (let [v (when v
-                                                           [(parse-long v)])]
-                                                   [k v])))
-                                          (into {}))]
-                             (->> (get-in value [:where :k :in])
-                                  (mapv (fn [k]
-                                          [:r k (get kvs k)])))))]
+                           (parse-findMany value result))]
               (assoc op
                      :type  :ok
                      :value result))
