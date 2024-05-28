@@ -563,8 +563,9 @@
           write-kvs (write-kvs-txn b-txn)]
       (->> read-kvs
            (reduce (fn [_ [r-k _r-v :as read-kv]]
-                     (let [next-kvs       (->> (g/out (get causal-kvg r-k) read-kv)
-                                               (into #{})) ; convert from bifurcan-clj Set
+                     (let [next-kvs       (when-let [vg (get causal-kvg r-k)]
+                                            (->> (g/out vg read-kv)
+                                                 (into #{}))) ; convert from bifurcan-clj Set
                            [w-k w-v
                             :as write-kv] (first (set/intersection write-kvs next-kvs))]
                        (when write-kv
