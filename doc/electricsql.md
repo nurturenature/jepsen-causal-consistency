@@ -46,7 +46,7 @@
             <td>10tps 300s<br />20tps 180s</td>
         </tr>
         <tr>
-            <td>local-sqlite</td>
+            <td>non-electric-sqlite</td>
             <td>single shared<br />SQLite3</td>
             <td>better-sqlite3</td>
             <td>2 / 4</td>

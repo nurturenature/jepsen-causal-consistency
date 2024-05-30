@@ -15,7 +15,7 @@
 
 (def app-dir
   "Application directory."
-  (str install-dir "/local-sqlite3"))
+  (str install-dir "/non-electric-sqlite"))
 
 (def database-dir
   "Local SQLite3 database dir."
@@ -38,7 +38,7 @@
 
 (def app-ps-name "node")
 
-(def local-sqlite3-setup?
+(def non-electric-sqlite-setup?
   "Is local SQLite3 setup?"
   (atom false))
 
@@ -91,14 +91,14 @@
             (c/exec :npm :install))
 
       ; one client sets up local SQLite3
-      (locking local-sqlite3-setup?
-        (when-not @local-sqlite3-setup?
+      (locking non-electric-sqlite-setup?
+        (when-not @non-electric-sqlite-setup?
           (warn "Creating local SQLite3 db and applying migrations")
           (c/cd app-dir
                 (c/exec :mkdir :-p database-dir)
                 (c/exec :sqlite3 database-file :< "./db/migrations/02-create_lww_list_append_table.sql"))
 
-          (swap! local-sqlite3-setup? (fn [_] true))))
+          (swap! non-electric-sqlite-setup? (fn [_] true))))
 
       ; build client
       (c/cd app-dir
