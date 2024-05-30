@@ -60,7 +60,7 @@ And executed as SQL transactions on random nodes:
 ```sql
 BEGIN;
   SELECT k,v FROM lww WHERE k = ?;
-  INSERT INTO lww (k,v) VALUES(?, ?) ON CONFLICT(k) DO UPDATE SET v = v || ' ' || ?;
+  INSERT INTO lww (k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v = concat_ws(' ',lww.v,?);
 END;
 
 ```

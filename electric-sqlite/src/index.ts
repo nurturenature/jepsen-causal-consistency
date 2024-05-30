@@ -85,7 +85,7 @@ app.post("/lww/electric-upsert", async (req: Request, res: Response) => {
 
 app.post("/lww/better-sqlite3", (req: Request, res: Response) => {
     const upsert = txn_conn.prepare(
-        'INSERT INTO lww (k,v,bucket) VALUES (@k,@v,0) ON CONFLICT (k) DO UPDATE SET v = v || \' \' || @v');
+        'INSERT INTO lww (k,v,bucket) VALUES (@k,@v,0) ON CONFLICT (k) DO UPDATE SET v = concat_ws(\' \',lww.v,@v)');
     const select = txn_conn.prepare(
         'SELECT k,v FROM lww WHERE k = @k');
 

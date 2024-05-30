@@ -97,7 +97,7 @@ app.post("/lww/pglite-exec", async (req: Request, res: Response) => {
                         }
                         break;
                     case 'append':
-                        const write = await txn.query('INSERT INTO lww (k,v,bucket) VALUES ($1,$2,0) ON CONFLICT (k) DO UPDATE SET v = v || \' \' || $2;', [mop.k, mop.v])
+                        const write = await txn.query('INSERT INTO lww (k,v,bucket) VALUES ($1,$2,0) ON CONFLICT (k) DO UPDATE SET v = concat_ws (\' \',lww.v,$2);', [mop.k, mop.v])
                         result.push(mop)
                         break;
                 }
