@@ -186,7 +186,7 @@
                                    (do
                                      (assert (= 1
                                                 (->> (jdbc/execute! tx [(str "INSERT INTO " table " (k,v,bucket) VALUES (" k ",'" v "',0)"
-                                                                             "ON CONFLICT (k) DO UPDATE SET v = " table ".v || ' ' || '" v "'")])
+                                                                             " ON CONFLICT (k) DO UPDATE SET v = concat_ws(' '," table ".v,'" v "')")])
                                                      first
                                                      :next.jdbc/update-count)))
                                      mop))))
@@ -196,7 +196,7 @@
                 :value mops'))
        (catch (fn [e]
                 (if (and (instance? org.postgresql.util.PSQLException e)
-                         (re-find #"ERROR\: deadlock detected\n.*" (.getMessage e)))
+                         (re-find #"ERROR\: deadlock detected" (.getMessage e)))
                   true
                   false)) {}
          (assoc op
@@ -204,7 +204,7 @@
                 :error :deadlock))
        (catch (fn [e]
                 (if (and (instance? org.postgresql.util.PSQLException e)
-                         (re-find #"ERROR: could not serialize access due to concurrent update\n.*" (.getMessage e)))
+                         (re-find #"ERROR\: could not serialize access due to concurrent update" (.getMessage e)))
                   true
                   false)) {}
          (assoc op
