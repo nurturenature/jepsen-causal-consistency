@@ -1,4 +1,4 @@
-(ns causal.local-sqlite3
+(ns causal.non-electric-sqlite
   (:require [causal.util :as util]
             [clojure.tools.logging :refer [info warn]]
             [jepsen

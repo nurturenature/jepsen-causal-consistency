@@ -5,7 +5,7 @@ docker exec \
        -t \
        -w /jepsen/jepsen-causal-consistency \
        jepsen-control \
-       bash -c 'source /root/.bashrc && cd /jepsen/jepsen-causal-consistency && lein run test --workload local-sqlite'
+       bash -c 'source /root/.bashrc && cd /jepsen/jepsen-causal-consistency && lein run test --workload non-electric-sqlite'
 
 jepsen_exit=$?
 

@@ -2,7 +2,7 @@
   (:require [causal
              [electric-pglite :as electric-pglite]
              [electric-sqlite :as electric-sqlite]
-             [local-sqlite3 :as local-sqlite3]
+             [non-electric-sqlite :as non-electric-sqlite]
              [non-electric-postgres :as non-electric-postgres]]
             [causal.lww-list-append
              [client :as client]]
@@ -265,7 +265,7 @@
          {:checker (checker/compose
                     {:strong-convergence (sc/final-reads)})}))
 
-(defn local-sqlite
+(defn non-electric-sqlite
   "A workload for:
    - single shared SQLite3 db
    - better-sqlite3 client API
@@ -276,7 +276,7 @@
                     :min-txn-length (or min-txn-length 4)
                     :max-txn-length (or max-txn-length 4))]
 
-    {:db              (local-sqlite3/db)
+    {:db              (non-electric-sqlite/db)
      :client          (client/->BetterSQLite3Client nil)
      :generator       (list-append/gen opts)
      :final-generator (txn-final-generator opts)

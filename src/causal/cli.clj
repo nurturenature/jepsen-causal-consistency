@@ -30,17 +30,16 @@
    :pgexec-pglite          lww/pgexec-pglite
    :pgexec-pglite-strong   lww/pgexec-pglite-strong
 
-   :local-sqlite           lww/local-sqlite
-
    :active-active          lww/active-active
 
    :non-electric-postgres  lww/non-electric-postgres
+   :non-electric-sqlite    lww/non-electric-sqlite
 
    :none               (fn [_] tests/noop-test)})
 
 (def all-workloads
   "A collection of workloads we run by default."
-  [:electric-sqlite :electric-pglite :local-sqlite])
+  [:electric-sqlite :electric-pglite])
 
 (def all-nemeses
   "Combinations of nemeses for tests"
