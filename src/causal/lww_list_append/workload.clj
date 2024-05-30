@@ -2,7 +2,8 @@
   (:require [causal
              [electric-pglite :as electric-pglite]
              [electric-sqlite :as electric-sqlite]
-             [local-sqlite3 :as local-sqlite3]]
+             [local-sqlite3 :as local-sqlite3]
+             [non-electric-postgres :as non-electric-postgres]]
             [causal.lww-list-append
              [client :as client]]
             [causal.lww-list-append.checker
@@ -11,8 +12,7 @@
              [strong-convergence :as sc]]
             [causal.util :as util]
             [elle
-             [list-append :as list-append]
-             [txn :as txn]]
+             [list-append :as list-append]]
             [jepsen
              [checker :as checker]
              [generator :as gen]]))
@@ -314,6 +314,22 @@
                                ; ElectricSQL SQLite3
                                (gen/on-threads #{1 2 3 4}
                                                electric-final-gen)])})))
+
+(defn non-electric-postgres
+  "A workload for:
+   - non-electric PostgreSQL db
+   - jdbc PostgreSQL client API
+   - multi-op txns
+   - causal + strong + lww checkers"
+  [opts]
+  {:db              (non-electric-postgres/db opts)
+   :client          (client/->PostgreSQLJDBCClient (get (client/db-specs opts) "postgresql") "non_electric_lww")
+   :generator       (txn-generator opts)
+   :final-generator (txn-final-generator opts)
+   :checker         (checker/compose
+                     {:causal-consistency (adya/checker (merge util/causal-opts opts))
+                      :strong-convergence (sc/final-reads)
+                      :lww                (lww/checker (merge util/causal-opts opts))})})
 
 (comment
   ;; (set/difference (elle.consistency-model/anomalies-prohibited-by [:strong-session-consistent-view])

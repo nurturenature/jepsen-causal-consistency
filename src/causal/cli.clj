@@ -34,6 +34,8 @@
 
    :active-active          lww/active-active
 
+   :non-electric-postgres  lww/non-electric-postgres
+
    :none               (fn [_] tests/noop-test)})
 
 (def all-workloads
@@ -180,13 +182,6 @@
    [nil "--postgres-host HOST" "Host name of the PostgreSQL service"
     :default "postgres"
     :parse-fn read-string]
-
-   ; TODO reenable active/active with postgresql clients
-   [nil "--postgresql-nodes NODES" "A comma-separated list of nodes that should get PostgreSQL clients"
-    :parse-fn parse-nodes-spec]
-
-   [nil "--postgresql-table TABLE" "Name of table used by PostgreSQL clients"
-    :parse-fn identity]
 
    ["-r" "--rate HZ" "Approximate request rate, in hz"
     :default 100

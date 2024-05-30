@@ -150,17 +150,16 @@
       (throw+ {:connection-failure db-spec}))
     conn))
 
-(defrecord PostgreSQLJDBCClient [db-spec]
+(defrecord PostgreSQLJDBCClient [db-spec table]
   client/Client
   (open!
-    [this test node]
-    (let [table (get test :postgresql-table "lww")]
-      (info "PostgreSQL opening: " db-spec)
-      (assoc this
-             :node      node
-             :conn      (get-jdbc-connection db-spec)
-             :table     table
-             :result-kw (keyword table "v"))))
+    [this _test node]
+    (info "PostgreSQL opening: " db-spec ", using table: " table)
+    (assoc this
+           :node      node
+           :conn      (get-jdbc-connection db-spec)
+           :table     table
+           :result-kw (keyword table "v")))
 
   (setup!
     [_this _test])
@@ -267,7 +266,7 @@
     [this {:keys [workload] :as test} node]
     (if (and (= :active-active workload)
              (= "n1" node))
-      (client/open! (PostgreSQLJDBCClient. (get (db-specs test) "postgresql")) test node)
+      (client/open! (PostgreSQLJDBCClient. (get (db-specs test) "postgresql"), "lww") test node)
       (assoc this
              :node node
              :url  (str "http://" node ":8089"))))
@@ -329,7 +328,7 @@
     [this {:keys [workload] :as test} node]
     (if (and (= :active-active workload)
              (= "n1" node))
-      (client/open! (PostgreSQLJDBCClient. (get (db-specs test) "postgresql")) test node)
+      (client/open! (PostgreSQLJDBCClient. (get (db-specs test) "postgresql"), "lww") test node)
       (assoc this
              :node node
              :url  (str "http://" node ":8089"))))
