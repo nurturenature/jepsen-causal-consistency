@@ -1,0 +1,19 @@
+name: non-electric-postgres
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron:  '0 0 * * *'
+
+jobs:
+  non-electric-postgres:
+    uses: nurturenature/jepsen-causal-consistency/.github/workflows/run-jepsen-tests.yml@main
+    with:
+      workloads: >
+        [ 'non-electric-postgres' ]
+      nemeses: >
+        [ 'none' ]
+      rates: >
+        [ '100' ]
+      time-limits: >
+        ['100' ]
