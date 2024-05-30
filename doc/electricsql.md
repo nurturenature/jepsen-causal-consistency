@@ -1,57 +1,53 @@
-<table style="text-align: center">
-    <thead >
-        <tr >
-            <th  style="text-align: center" colspan="6">ElectricSQL Tests</th>
-        </tr>
-        <tr>
-            <th style="text-align: center">workload</th>
-            <th style="text-align: center">db</th>
-            <th style="text-align: center">client<br />API</th>
-            <th style="text-align: center">min/max<br />txn len</th>
-            <th style="text-align: center">Causal</th>
-            <th style="text-align: center">Strong</th>
-        </tr>
-    </thead>
-    <tbody>
-        <tr>
-            <td>electric-sqlite</td>
-            <td>SQLite3</td>
-            <td>generated</td>
-            <td>1 / 1</td>
-            <td>10tps 600s<br />20tps 180s</td>
-            <td>10tps 900s<br />20tps 300s</td>
-        </tr>
-        <tr>
-            <td>electric-pglite</td>
-            <td>PGlite</td>
-            <td>generated</td>
-            <td>1 / 1</td>
-            <td>10tps 300s<br />20tps 300s</td>
-            <td>10tps 600s<br />20tps 60s</td>
-        </tr>
-        <tr>
-            <td>better-sqlite</td>
-            <td>SQLite3</td>
-            <td>better-sqlite3</td>
-            <td>2 / 4</td>
-            <td>fail at<br />5tps 60s</td>
-            <td>10tps 600s<br />20tps 300s</td>
-        </tr>
-        <tr>
-            <td>pgexec-pglite</td>
-            <td>PGlite</td>
-            <td>PGlite.exec</td>
-            <td>2 / 4</td>
-            <td>fail at<br />5tps 60s</td>
-            <td>10tps 300s<br />20tps 180s</td>
-        </tr>
-        <tr>
-            <td>non-electric-sqlite</td>
-            <td>single shared<br />SQLite3</td>
-            <td>better-sqlite3</td>
-            <td>2 / 4</td>
-            <td>valid at all<br />rates & durations</td>
-            <td>valid at all<br />rates & durations</td>
-        </tr>
-    </tbody>
-</table>
+## Testing ElectricSQL, Preliminary Results
+
+### Different APIs, Different Experiences?
+
+Interacting with electrified tables using SQL statements:
+
+- `better-sqlite3.transaction` or `PGlite.exec`
+  - loss of isolation
+  - non-atomic transactions with intermediate reads
+  - failure to read your writes
+  - non-monotonic reads, version cycling
+  - appear to be lost writes
+  - loses convergence at lower rates and durations
+
+Interacting with electrified tables using the generated API:
+
+- `electric.client.update,updateMany,findMany`
+  - non-monotonic reads, version cycling
+  - maybe a hint of lost writes
+  - keeps convergence at higher rates and durations
+
+#### Or are the Generated API Constraints
+
+- single value update vs concat
+- single upsert in a transaction
+- can't mix generic writes and reads in a transaction
+
+reducing the test's ability to create and analyze a transaction history that exposes deeper anomalies?
+
+----
+
+### Active / Active
+
+PostgreSQL transaction isolation:
+
+- need repeatable read to get causal+ experience
+- a bit more than needed
+- but default read committed is not enough
+
+Concurrent transactions:
+- PostgreSQL: transactions with repeatable read isolation
+- SQLite3: generated ElectricSQL client API
+
+behave the same as doing SQLite3 transactions only.
+
+----
+
+### Testing the Tests
+
+The same tests are run with a non-electrified SQLite3 and a non-electrified PostgreSQL:
+
+- run at rates and durations an order of magnitude greater than the ElectricSQL tests
+- no anomalies

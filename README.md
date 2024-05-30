@@ -420,3 +420,5 @@ The test will be developed using [ElectricSQL](https://electric-sql.com/):
   - local first
   - active/active SQLite3/PostgreSQL CRDT based sync
   - strong research team
+
+Initial [results](doc/electricsql.md).
