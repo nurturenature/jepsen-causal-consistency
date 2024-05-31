@@ -113,8 +113,8 @@ app.post("/lww/better-sqlite3", (req: Request, res: Response) => {
     try {
         txn(req.body.value)
         res.send({ 'type': 'ok', 'value': result })
-    } catch (e) {
-        res.send({ 'type': 'info', 'error': e })
+    } catch (e: any) {
+        res.send({ 'type': 'info', 'error': e.toString() })
     }
 });
 
