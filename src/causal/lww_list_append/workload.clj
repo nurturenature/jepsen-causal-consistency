@@ -11,6 +11,7 @@
              [lww :as lww]
              [strong-convergence :as sc]]
             [causal.util :as util]
+            [clojure.set :as set]
             [elle
              [list-append :as list-append]]
             [jepsen
@@ -294,25 +295,37 @@
      - SQLite3 db
      - ElectricSQL generated client API
    - causal + strong + lww checkers"
-  [opts]
-  (let [{electric-gen       :generator
+  [{:keys [nodes postgres-nodes] :as opts}]
+  (let [all-processes          (->> nodes
+                                    (map #(subs % 1))
+                                    (map parse-long)
+                                    (map #(- % 1))
+                                    (into #{}))
+        postgres-processes     (->> postgres-nodes
+                                    (map #(subs % 1))
+                                    (map parse-long)
+                                    (map #(- % 1))
+                                    (into #{}))
+        non-postgres-processes (set/difference all-processes postgres-processes)
+
+        {electric-gen       :generator
          electric-final-gen :final-generator
          :as electric-workload} (electric-sqlite opts)]
 
     (merge electric-workload
            {:generator (gen/mix
                         [; jdbc PostgreSQL
-                         (gen/on-threads #{0}
+                         (gen/on-threads postgres-processes
                                          (negative-v-txn-generator opts))
                          ; ElectricSQL SQLite3
-                         (gen/on-threads #{1 2 3 4}
+                         (gen/on-threads non-postgres-processes
                                          electric-gen)])
             :final-generator (gen/mix
                               [; jdbc PostgreSQL
-                               (gen/on-threads #{0}
+                               (gen/on-threads postgres-processes
                                                (txn-final-generator opts))
                                ; ElectricSQL SQLite3
-                               (gen/on-threads #{1 2 3 4}
+                               (gen/on-threads non-postgres-processes
                                                electric-final-gen)])})))
 
 (defn non-electric-postgres

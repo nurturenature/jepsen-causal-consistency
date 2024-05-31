@@ -23,7 +23,11 @@ on:
         type: string
         required: true
         default: "[ '60' ]"
-
+      cli-opts:
+        description: 'CLI opts string'
+        type: string
+        required: false
+       
   workflow_call:
     inputs:
       workloads:
@@ -46,6 +50,10 @@ on:
         type: string
         required: true
         default: "[ '60' ]"
+      cli-opts:
+        description: 'CLI opts string'
+        type: string
+        required: false
 
 jobs:
   tests:
@@ -78,7 +86,8 @@ jobs:
           ./jepsen-docker-cli.sh lein run test --workload   ${{ matrix.workload }} \
                                                --nemesis    ${{ matrix.nemesis }}  \
                                                --rate       ${{ matrix.rate }}     \
-                                               --time-limit ${{ matrix.time-limit }}
+                                               --time-limit ${{ matrix.time-limit }} \
+                                               ${{ inputs.cli-opts }}
 
       - name: Jepsen, ElectricSQL, and PostgreSQL Logs
         if: ${{ always() }}

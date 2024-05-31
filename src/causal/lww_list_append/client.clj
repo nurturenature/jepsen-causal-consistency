@@ -263,9 +263,9 @@
 (defrecord ElectricSQLiteClient [conn]
   client/Client
   (open!
-    [this {:keys [workload] :as test} node]
+    [this {:keys [workload postgres-nodes] :as test} node]
     (if (and (= :active-active workload)
-             (= "n1" node))
+             (contains? postgres-nodes node))
       (client/open! (PostgreSQLJDBCClient. (get (db-specs test) "postgresql"), "lww") test node)
       (assoc this
              :node node
@@ -325,9 +325,9 @@
 (defrecord ElectricPGliteClient [conn]
   client/Client
   (open!
-    [this {:keys [workload] :as test} node]
+    [this {:keys [workload postgres-nodes] :as test} node]
     (if (and (= :active-active workload)
-             (= "n1" node))
+             (contains? postgres-nodes node))
       (client/open! (PostgreSQLJDBCClient. (get (db-specs test) "postgresql"), "lww") test node)
       (assoc this
              :node node

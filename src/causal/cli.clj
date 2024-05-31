@@ -182,6 +182,9 @@
     :default "postgres"
     :parse-fn read-string]
 
+   [nil "--postgres-nodes NODES" "List of nodes that should be PostgreSQL clients"
+    :parse-fn parse-nodes-spec]
+
    ["-r" "--rate HZ" "Approximate request rate, in hz"
     :default 100
     :parse-fn read-string

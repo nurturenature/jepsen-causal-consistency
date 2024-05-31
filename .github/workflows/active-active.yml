@@ -17,3 +17,5 @@ jobs:
         [ '20', '30', '40' ]
       time-limits: >
         ['180', '300', '600' ]
+      cli-opts: >
+        '--postgres-nodes n1,n2'
