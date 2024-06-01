@@ -417,8 +417,8 @@
                                  (let [v' (->> v'
                                                first
                                                :v)
-                                       v' (->> (str/split v' #"\s+")
-                                               (mapv parse-long))]
+                                       v' (when v' (->> (str/split v' #"\s+")
+                                                        (mapv parse-long)))]
                                    [:r k v']))
 
                                :append
