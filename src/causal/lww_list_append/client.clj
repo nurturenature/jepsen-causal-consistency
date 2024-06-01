@@ -468,28 +468,31 @@
   (invoke!
     [{:keys [node url] :as _this} _test {:keys [value] :as op}]
     (let [op (assoc op :node node)]
-      (try+ (let [url    (str url "/lww/pglite-exec")
-                  body   (op->pgexec-pglite op)
-                  result (http/post url
-                                    {:body               body
-                                     :content-type       :json
-                                     :socket-timeout     1000
-                                     :connection-timeout 1000
-                                     :accept             :json})]
-              (pgexec-pglite->op op result))
-            (catch (and (instance? java.net.ConnectException %)
-                        (re-find #"Connection refused" (.getMessage %)))
-                   {}
-              (assoc op
-                     :type  :fail
-                     :error :connection-refused))
-            (catch (or (instance? java.net.SocketException %)
-                       (instance? java.net.SocketTimeoutException %)
-                       (instance? org.apache.http.NoHttpResponseException %))
-                   {:keys [cause]}
-              (assoc op
-                     :type  :info
-                     :error cause)))))
+      (try (let [url    (str url "/lww/pglite-exec")
+                 body   (op->pgexec-pglite op)
+                 result (http/post url
+                                   {:body               body
+                                    :content-type       :json
+                                    :socket-timeout     1000
+                                    :connection-timeout 1000
+                                    :accept             :json})]
+             (pgexec-pglite->op op result))
+           (catch java.net.ConnectException e
+             (if (re-find #"Connection refused" (.getMessage e))
+               (assoc op
+                      :type  :fail
+                      :error :connection-refused)
+               (assoc op
+                      :type  :info
+                      :error (.toString e))))
+           (catch Exception e
+             (if (or (instance? java.net.SocketException e)
+                     (instance? java.net.SocketTimeoutException e)
+                     (instance? org.apache.http.NoHttpResponseException e))
+               (assoc op
+                      :type  :info
+                      :error (.toString e))
+               (throw e))))))
 
   (teardown!
     [_this _test])
