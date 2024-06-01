@@ -172,9 +172,17 @@
                                    (fn [_history] pre-built))))))
         analyzers (into analyzers [(partial adya-g/rw-tg indexes)])
         analyzers (into analyzers (ct/additional-graphs opts))
-        analyzer (apply elle/combine analyzers)]
-    ; And go!
-    (analyzer history-oks)))
+        analyzer (apply elle/combine analyzers)
+        ; And go!
+        result   (analyzer history-oks)]
+    ; TODO: Elle cycles is NPE getting out vertices, why?
+    ;       try and catch it when building graph
+    (let [nil-vertices (->> result
+                            :graph
+                            bg/vertices
+                            (some nil?))]
+      (assert (not nil-vertices) (str "nil vertices in graph: " result)))
+    result))
 
 (defn indexes
   "Pre-build indexes and graphs once for multiple reuse."
