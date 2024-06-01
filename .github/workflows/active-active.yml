@@ -14,8 +14,8 @@ jobs:
       nemeses: >
         [ 'none' ]
       rates: >
-        [ '20', '30', '40' ]
+        [ '10', '20', '30' ]
       time-limits: >
-        ['180', '300', '600' ]
+        ['60', '180', '300' ]
       cli-opts: >
         '--postgres-nodes n1,n2'

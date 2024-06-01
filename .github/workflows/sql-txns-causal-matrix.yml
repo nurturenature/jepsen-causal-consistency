@@ -1,4 +1,4 @@
-name: better-sqlite
+name: sql-txns - Causal Matrix
 
 on:
   workflow_dispatch:
@@ -6,14 +6,14 @@ on:
     - cron:  '0 0 * * *'
 
 jobs:
-  better-sqlite:
+  sql-txns-causal:
     uses: nurturenature/jepsen-causal-consistency/.github/workflows/run-jepsen-tests.yml@main
     with:
       workloads: >
-        [ 'better-sqlite' ]
+        [ 'better-sqlite', 'pgexec-pglite' ]
       nemeses: >
         [ 'none' ]
       rates: >
-        [ '10' ]
+        [ '5', '10', '15' ]
       time-limits: >
-        ['60' ]
+        ['60', '180', '300' ]

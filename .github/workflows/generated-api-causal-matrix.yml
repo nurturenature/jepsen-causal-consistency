@@ -1,4 +1,4 @@
-name: electric-sqlite
+name: generated-api - Causal Matrix
 
 on:
   workflow_dispatch:
@@ -6,14 +6,14 @@ on:
     - cron:  '0 0 * * *'
 
 jobs:
-  electric-sqlite:
+  gen-api-causal:
     uses: nurturenature/jepsen-causal-consistency/.github/workflows/run-jepsen-tests.yml@main
     with:
       workloads: >
-        [ 'electric-sqlite' ]
+        [ 'electric-sqlite', 'electric-pglite' ]
       nemeses: >
         [ 'none' ]
       rates: >
-        [ '50' ]
+        [ '5', '10', '15', '20', '25' ]
       time-limits: >
-        ['100' ]
+        ['60', '180', '300', '600' ]
