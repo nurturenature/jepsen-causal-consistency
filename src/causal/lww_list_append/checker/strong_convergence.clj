@@ -10,18 +10,20 @@
    Check:
      - final read from all nodes
      - final read values the same for all nodes
-     - all read values were actually written"
+     - all read values were actually written, :ok or :info"
   []
   (reify checker/Checker
     (check [_this {:keys [nodes] :as _test} history _opts]
       (let [nodes           (->> nodes (into (sorted-set)))
             history         (->> history
                                  h/client-ops)
+            history-possible (->> history
+                                  h/possible)
             history-oks     (->> history
                                  h/oks)
             history-reads   (->> history-oks
                                  (h/filter :final-read?))
-            write-index     (cc-g/write-index history-oks)
+            write-index     (cc-g/write-index history-possible)
 
             ; {k {v #{node}}}
             summary         (->> history-reads

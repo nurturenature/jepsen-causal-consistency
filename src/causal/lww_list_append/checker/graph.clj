@@ -85,8 +85,8 @@
    for all writes, including intermediate writes.
    Intermediate writes will be observed in the prefix of reads
    so can be used for causal ordering."
-  [history-oks]
-  (->> history-oks
+  [history]
+  (->> history
        ct/op-mops
        (reduce (fn [index [op [f k v :as mop]]]
                  (case f
