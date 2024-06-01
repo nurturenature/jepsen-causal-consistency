@@ -307,10 +307,10 @@
             (catch (or (instance? java.net.SocketException %)
                        (instance? java.net.SocketTimeoutException %)
                        (instance? org.apache.http.NoHttpResponseException %))
-                   {:keys [cause]}
+                   {:keys [cause message]}
               (assoc op
                      :type  :info
-                     :error cause)))))
+                     :error {:cause cause :message message})))))
 
   (teardown!
     [_this _test])
