@@ -1,6 +1,5 @@
 (ns causal.util
-  (:require [jepsen.control :as c]
-            [jepsen.generator :as gen]))
+  (:require [jepsen.control :as c]))
 
 (def causal-opts
   "Opts to configure Elle for causal consistency."
@@ -16,11 +15,8 @@
    :consistency-models [:strong-session-PL-2]
    :anomalies [:G-cursor :G-monotonic :G-single :G-single-item :G-single-item-process :G-single-process :G1-process
                :internal                        ; basic hygiene to read your writes in a transaction
-               ;; TODO: understand spontaneous update bug and enable
-               ;; :garbage-versions             ; lww list append only
-               :cyclic-transactions             ; lww list append only
-               :cac                             ; lww list append only
-               ]
+               :garbage-versions
+               :cyclic-transactions]
 
    ; where to store anomaly explanations, graphs
    :directory "causal"
