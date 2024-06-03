@@ -42,22 +42,6 @@ app.get("/lww/list", async (req: Request, res: Response) => {
     res.send(result);
 });
 
-
-/* note use of foreign key driven updates */
-const doc_update = electric.db.buckets.update({
-    where: { bucket: 0 },
-    data: {
-        v: null,
-        lww: {
-            update: {
-                data: { v: "0" },
-                where: { k: 0 }
-            }
-        }
-    },
-    include: { lww: true }
-})
-
 app.post("/lww/update", async (req: Request, res: Response) => {
     const result = await electric.db.buckets.update(req.body)
     res.send(result)
