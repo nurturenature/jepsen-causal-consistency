@@ -15,7 +15,9 @@
    :consistency-models [:strong-session-PL-2]
    :anomalies [:G-cursor :G-monotonic :G-single :G-single-item :G-single-item-process :G-single-process :G1-process
                :internal                        ; basic hygiene to read your writes in a transaction
-               :garbage-versions
+               ; TODO: implement garbage reads as an independent step in checker
+               ;       remove detection from graph building
+               ; :garbage-versions
                :cyclic-transactions]
 
    ; where to store anomaly explanations, graphs

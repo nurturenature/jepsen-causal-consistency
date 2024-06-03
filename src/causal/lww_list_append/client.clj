@@ -308,6 +308,7 @@
                        (instance? java.net.SocketTimeoutException %)
                        (instance? org.apache.http.NoHttpResponseException %))
                    {:keys [cause message]}
+              ; TODO: info ops that write need value converted from json -> txn format
               (assoc op
                      :type  :info
                      :error {:cause cause :message message})))))
