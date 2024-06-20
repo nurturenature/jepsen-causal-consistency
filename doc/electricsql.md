@@ -1,3 +1,5 @@
+## This project is on hold.  It is not up to date with the newer versions of ElectricSQL.  Work will resume in the Fall of 2024.
+
 ## Testing ElectricSQL, Preliminary Results
 
 ### Using Different APIs

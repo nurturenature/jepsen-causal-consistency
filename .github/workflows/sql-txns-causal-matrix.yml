@@ -2,8 +2,6 @@ name: sql-txns - Causal Matrix
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron:  '0 0 * * *'
 
 jobs:
   sql-txns-causal:

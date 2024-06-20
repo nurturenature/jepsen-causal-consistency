@@ -2,8 +2,6 @@ name: generated-api - Strong Matrix
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron:  '0 0 * * *'
 
 jobs:
   gen-api-strong:
