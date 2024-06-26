@@ -410,15 +410,3 @@ Look for `strong-session-PL-2+`:
    :anomalies-ignored  [:lost-update]                    ; `lost-update`s are causally Ok, but they are PL-2+, Adya 4.1.3 ?!?
    })
 ```
-
-----
-
-### Testing ElectricSQL
-
-The test will be developed using [ElectricSQL](https://electric-sql.com/):
-  - transactional causal+ consistency
-  - local first
-  - active/active SQLite3/PostgreSQL CRDT based sync
-  - strong research team
-
-Initial [results](doc/electricsql.md).
