@@ -559,7 +559,11 @@
   (explain-pair-data [_ a b]
     (let [a-txn     (:value a)
           b-txn     (:value b)
-          read-kvs  (read-kvs-txn  a-txn)
+          read-kvs  (->> a-txn
+                         ext-reads
+                         (map (fn [[k vs]]
+                                [k (last vs)]))
+                         (into #{}))
           write-kvs (write-kvs-txn b-txn)]
       (->> read-kvs
            (reduce (fn [_ [r-k _r-v :as read-kv]]

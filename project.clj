@@ -14,7 +14,7 @@
              "-Djava.awt.headless=true"
              "-server"]
   :main causal.cli
-  :repl-options {:init-ns causal.checker.adya}
+  :repl-options {:init-ns causal.repl}
   :plugins [[lein-codox "0.10.8"]
             [lein-localrepo "0.5.4"]]
   :codox {:output-path "target/doc/"
