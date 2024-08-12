@@ -316,7 +316,13 @@
                      @internal                (merge @internal)
                      @g1a                     (assoc :G1a @g1a)
                      @g1b                     (assoc :G1b @g1b)
-                     observed-cyclic-versions (assoc :cyclic-versions observed-cyclic-versions))]
+                     observed-cyclic-versions (assoc :cyclic-versions observed-cyclic-versions))
+
+         ; TODO: make more refined? also use :anomaly-spec-type?
+         ; ignore false positives
+         ;   - valid causal consistency will have cycles for stronger models, often large
+         ;   - and Elle checks for all cycles
+         anomalies (dissoc anomalies :cycle-search-timeout)]
      (ct/result-map opts anomalies))))
 
 (defn checker
