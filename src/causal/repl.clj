@@ -1,4 +1,6 @@
 (ns causal.repl
+  "A namespace designed to be an entry into the REPL.
+   Requires most commonly needed namespaces."
   (:require [bifurcan-clj
              [graph :as bg]]
             [causal.checker
@@ -8,6 +10,7 @@
              [lww :as lww]
              [opts :as causal-opts]
              [strong-convergence :as strong-convergence]]
+            [clojure.set :as set]
             [elle
              [core :as e-core]
              [graph :as e-graph]

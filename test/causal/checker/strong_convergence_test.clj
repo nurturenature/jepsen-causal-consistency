@@ -50,11 +50,12 @@
            (checker/check (sc/final-reads) {:nodes ["n1" "n2"]}
                           missing-nodes {})))
     (is (= {:valid? false
-            :divergent-reads {1 {[1] #{"n1"}, nil #{"n2"}}}}
+            :divergent-reads {1 {["n1"] [1], ["n2"] nil}}}
            (checker/check (sc/final-reads) {:nodes ["n1" "n2"]}
                           divergent-final-reads {})))
     (is (= {:valid? false
-            :divergent-reads {1 {[1] #{"n2" "n1"}, [2] #{"n2"}}}, :invalid-reads {1 {2 #{"n2"}}}}
+            :divergent-reads {1 {["n1" "n2"] [1], ["n2"] [2]}},
+            :invalid-reads {1 {2 #{"n2"}}}}
            (checker/check (sc/final-reads) {:nodes ["n1" "n2"]}
                           invalid-final-reads {})))))
 

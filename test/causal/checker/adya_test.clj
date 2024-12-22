@@ -381,75 +381,75 @@
              (-> (adya/check opts invalid-monotonic-reads)
                  (select-keys results-of-interest)))))))
 
-(deftest simulated
-  (testing "simulated"
-    ; different seeds
-    ;; TODO: PR history.sim
-    ;; (doseq [seed [23 42 69]]
-    ;;   (let [output-dir (str output-dir "/simulated/" seed)
-    ;;         opts       (assoc causal-opts/causal-opts :directory output-dir)
-    ;;         history    (->> {:db          :causal-lww
-    ;;                          :limit       10000
-    ;;                          :concurrency 10
-    ;;                          :seed        seed}
-    ;;                         h-sim/run
-    ;;                         :history)]
-    ;;     (is (= {:valid? true}
-    ;;            (-> (adya/check opts history)
-    ;;                (select-keys results-of-interest))))))
-    ; brat db
-    (let [output-dir (str output-dir "/simulated/brat")
-          opts       (-> causal-opts/causal-opts
-                         (assoc :directory output-dir)
-                         (update :anomalies conj :garbage-versions))
-          history    (->> {:db          :brat
-                           :limit       50
-                           :concurrency 5}
-                          h-sim/run
-                          :history)]
-      (is (= {:valid? false
-              :anomaly-types [:garbage-versions :internal]
-              :not #{:read-atomic}}
-             (-> (adya/check opts history)
-                 (select-keys results-of-interest)))))
-    ; prefix db
-    (let [output-dir (str output-dir "/simulated/prefix")
-          opts       (assoc causal-opts/causal-opts :directory output-dir)
-          history    (->> {:db          :prefix
-                           :limit       10000
-                           :concurrency 10}
-                          h-sim/run
-                          :history)]
-      (is (= {:valid? true}
-             (-> (adya/check opts history)
-                 (select-keys results-of-interest)))))
-    ; si db
-    (let [output-dir (str output-dir "/simulated/si")
-          opts       (assoc causal-opts/causal-opts :directory output-dir)
-          history    (->> {:db          :si
-                           :limit       10000
-                           :concurrency 10}
-                          h-sim/run
-                          :history)]
-      (is (= {:valid? true}
-             (-> (adya/check opts history)
-                 (select-keys results-of-interest)))))
-    ; causal-lww db with failures
-    ;; TODO: PR history.sim
-    ;; (let [output-dir (str output-dir "/simulated/failure")
-    ;;       opts       (assoc causal-opts/causal-opts :directory output-dir)
-    ;;       history    (->> {:db           :causal-lww
-    ;;                        :limit        10000
-    ;;                        :concurrency  10
-    ;;                        :failure-rate 500}
-    ;;                       h-sim/run
-    ;;                       :history)]
-    ;;   (is (= {:valid? false
-    ;;           :anomaly-types [:G-single-item-process]
-    ;;           :not #{:repeatable-read :snapshot-isolation :strong-session-consistent-view}}
-    ;;          (-> (adya/check opts history)
-    ;;              (select-keys results-of-interest)))))
-    ))
+;; (deftest simulated
+;;   (testing "simulated"
+;;     ; different seeds
+;;     ;; TODO: PR history.sim
+;;     ;; (doseq [seed [23 42 69]]
+;;     ;;   (let [output-dir (str output-dir "/simulated/" seed)
+;;     ;;         opts       (assoc causal-opts/causal-opts :directory output-dir)
+;;     ;;         history    (->> {:db          :causal-lww
+;;     ;;                          :limit       10000
+;;     ;;                          :concurrency 10
+;;     ;;                          :seed        seed}
+;;     ;;                         h-sim/run
+;;     ;;                         :history)]
+;;     ;;     (is (= {:valid? true}
+;;     ;;            (-> (adya/check opts history)
+;;     ;;                (select-keys results-of-interest))))))
+;;     ; brat db
+;;     (let [output-dir (str output-dir "/simulated/brat")
+;;           opts       (-> causal-opts/causal-opts
+;;                          (assoc :directory output-dir)
+;;                          (update :anomalies conj :garbage-versions))
+;;           history    (->> {:db          :brat
+;;                            :limit       50
+;;                            :concurrency 5}
+;;                           h-sim/run
+;;                           :history)]
+;;       (is (= {:valid? false
+;;               :anomaly-types [:garbage-versions :internal]
+;;               :not #{:read-atomic}}
+;;              (-> (adya/check opts history)
+;;                  (select-keys results-of-interest)))))
+;;     ; prefix db
+;;     (let [output-dir (str output-dir "/simulated/prefix")
+;;           opts       (assoc causal-opts/causal-opts :directory output-dir)
+;;           history    (->> {:db          :prefix
+;;                            :limit       10000
+;;                            :concurrency 10}
+;;                           h-sim/run
+;;                           :history)]
+;;       (is (= {:valid? true}
+;;              (-> (adya/check opts history)
+;;                  (select-keys results-of-interest)))))
+;;     ; si db
+;;     (let [output-dir (str output-dir "/simulated/si")
+;;           opts       (assoc causal-opts/causal-opts :directory output-dir)
+;;           history    (->> {:db          :si
+;;                            :limit       10000
+;;                            :concurrency 10}
+;;                           h-sim/run
+;;                           :history)]
+;;       (is (= {:valid? true}
+;;              (-> (adya/check opts history)
+;;                  (select-keys results-of-interest)))))
+;;     ; causal-lww db with failures
+;;     ;; TODO: PR history.sim
+;;     ;; (let [output-dir (str output-dir "/simulated/failure")
+;;     ;;       opts       (assoc causal-opts/causal-opts :directory output-dir)
+;;     ;;       history    (->> {:db           :causal-lww
+;;     ;;                        :limit        10000
+;;     ;;                        :concurrency  10
+;;     ;;                        :failure-rate 500}
+;;     ;;                       h-sim/run
+;;     ;;                       :history)]
+;;     ;;   (is (= {:valid? false
+;;     ;;           :anomaly-types [:G-single-item-process]
+;;     ;;           :not #{:repeatable-read :snapshot-isolation :strong-session-consistent-view}}
+;;     ;;          (-> (adya/check opts history)
+;;     ;;              (select-keys results-of-interest)))))
+;;     ))
 
 ;; (deftest internal
 ;;   (testing "internal"

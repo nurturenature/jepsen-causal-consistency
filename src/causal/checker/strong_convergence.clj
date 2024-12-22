@@ -46,9 +46,15 @@
                                                missing-nodes)))
                                          (sorted-map)))
 
-            divergent-reads (->> summary
+            ; {k {[node] v}} sorted by k, sorted by node->v, with nodes sorted
+            divergent-reads (->> summary ; {k {v #{node}}}
+                                 ; filter to k's with multiple {v #{node}}
                                  (filter (fn [[_k v->nodes]]
                                            (not= 1 (count v->nodes))))
+                                 ; reverse map of v->nodes to nodes->v
+                                 (map (fn [[k v->nodes]]
+                                        [k (->> (zipmap (map vec (map sort (vals v->nodes))) (keys v->nodes))
+                                                (into (sorted-map-by (fn [x y] (compare (first x) (first y))))))]))
                                  (into (sorted-map)))
 
             invalid-reads   (->> summary
