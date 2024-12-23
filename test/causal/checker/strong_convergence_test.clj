@@ -71,20 +71,21 @@
 
 (deftest strong-convergence
   (testing "strong-convergence"
-    (let [opts (assoc causal-opts/causal-opts :directory output-dir)]
+    (let [opts     (assoc causal-opts/causal-opts :directory output-dir)
+          test-map {:name "strong-convergence" :start-time "" :nodes ["n1" "n2"]}]
       (is (= {:valid? true}
-             (checker/check (sc/final-reads) {:nodes ["n1" "n2"]}
+             (checker/check (sc/final-reads opts) test-map
                             valid-final-reads opts)))
       (is (= {:valid? false
               :missing-nodes {0 #{"n2"} 1 #{"n2"}}}
-             (checker/check (sc/final-reads) {:nodes ["n1" "n2"]}
+             (checker/check (sc/final-reads opts) test-map
                             missing-nodes opts)))
       (is (= {:valid? false
               :divergent-reads {1 {["n1"] [1], ["n2"] nil}}}
-             (checker/check (sc/final-reads) {:nodes ["n1" "n2"]}
+             (checker/check (sc/final-reads opts) test-map
                             divergent-final-reads opts)))
       (is (= {:valid? false
               :divergent-reads {1 {["n1" "n2"] [1], ["n2"] [2]}},
               :invalid-reads {1 {2 #{"n2"}}}}
-             (checker/check (sc/final-reads) {:nodes ["n1" "n2"]}
+             (checker/check (sc/final-reads opts) test-map
                             invalid-final-reads opts))))))

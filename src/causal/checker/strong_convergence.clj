@@ -15,7 +15,7 @@
      - all read values were actually written, :ok or :info"
   [defaults]
   (reify checker/Checker
-    (check [_this {:keys [nodes] :as _test} history opts]
+    (check [_this {:keys [nodes] :as test} history opts]
       (let [opts             (merge defaults opts)
             opts             (update opts :directory (fn [old]
                                                        (if (nil? old)
