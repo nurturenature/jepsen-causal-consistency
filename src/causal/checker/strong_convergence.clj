@@ -1,5 +1,6 @@
 (ns causal.checker.strong-convergence
-  (:require [causal.checker.graph :as cc-g]
+  (:require [causal.checker.cyclic-versions :as cyclic-versions]
+            [causal.checker.graph :as cc-g]
             [clojure.set :as set]
             [jepsen
              [checker :as checker]
@@ -13,7 +14,7 @@
      - all read values were actually written, :ok or :info"
   []
   (reify checker/Checker
-    (check [_this {:keys [nodes] :as _test} history _opts]
+    (check [_this {:keys [nodes] :as _test} history opts]
       (let [nodes           (->> nodes (into (sorted-set)))
             history         (->> history
                                  h/client-ops)
@@ -76,6 +77,24 @@
                                                               invalid-reads)))
                                                         invalid-reads)))
                                          (sorted-map)))]
+
+        ; visualize transactions for keys with divergent reads, 3 keys with smallest # total values
+        (when (seq divergent-reads)
+          (let [divergent-keys (->> divergent-reads ; {k {[node] v}}
+                                    (map (fn [[k node->v]]
+                                           (let [num-vs (->> node->v
+                                                             (reduce (fn [acc [_node v]]
+                                                                       (+ acc (count v)))
+                                                                     0))]
+                                             [num-vs k])))
+                                    sort
+                                    (take 3)
+                                    (map second)
+                                    (into (sorted-set)))
+                output-dir     (str (:directory opts) "/divergent-keys")]
+            (cyclic-versions/viz-keys divergent-keys output-dir history)))
+
+        ; result map
         (cond-> {:valid? true}
           (seq missing-nodes)
           (assoc :valid? false
