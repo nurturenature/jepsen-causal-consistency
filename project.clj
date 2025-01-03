@@ -4,12 +4,12 @@
   :license {:name "Apache License Version 2.0, January 2004"
             :url "http://www.apache.org/licenses/"}
   :dependencies [[org.clojure/clojure "1.12.0"]
-                 [jepsen "0.3.7"]
+                 [jepsen "0.3.8-SNAPSHOT"]
                  ;; TODO: PR elle or revert
                  ;; [elle "0.2.2-SNAPSHOT"]
                  ;; TODO: PR history.sim or revert
                  ;; [io.jepsen/history.sim "0.1.1-SNAPSHOT"]
-                 [io.jepsen/history.sim "0.1.0"]]
+                 [io.jepsen/history.sim "0.1.4"]]
   :jvm-opts ["-Xmx8g"
              "-Djava.awt.headless=true"
              "-server"]
