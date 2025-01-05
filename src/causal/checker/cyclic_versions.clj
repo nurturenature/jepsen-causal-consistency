@@ -115,16 +115,16 @@
        [:th {:colspan 5} thead]]
       [:tr
        [:th "Index"]
-       [:th "Process"]
+       [:th "P#/Node"]
        [:th "Type"]
        [:th "Fn"]
        [:th "Mops"]]]
      [:tbody
       (->> history-filtered
-           (map (fn [{:keys [index process type f value] :as _op}]
+           (map (fn [{:keys [index process node type f value] :as _op}]
                   [:tr
                    [:td {:class "centered"} index]
-                   [:td {:class "centered"} process]
+                   [:td {:class "centered"} (str process "/" node)]
                    [:td {:class "centered"} type]
                    [:td {:class "centered"} f]
                    [:td {:class "centered"} (->> value
