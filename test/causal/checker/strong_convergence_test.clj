@@ -22,6 +22,20 @@
         {:process 1, :type :ok, :f :txn, :value [[:r 1 [1]]], :final-read? true, :node "n2", :index 11, :time -1}]
        h/history))
 
+(def valid-final-reads-multi-mop
+  (->> [{:process 0, :type :invoke, :f :txn, :value [[:append 0 0] [:append 0 1]], :node "n1", :index 0, :time -1}
+        {:process 0, :type :ok, :f :txn, :value [[:append 0 0] [:append 0 1]], :node "n1", :index 1, :time -1}
+
+        {:process 1, :type :invoke, :f :txn, :value [[:append 1 1] [:append 1 2]], :node "n2", :index 2, :time -1}
+        {:process 1, :type :ok, :f :txn, :value [[:append 1 1]  [:append 1 2]], :node "n2", :index 3, :time -1}
+
+        {:process 0, :type :invoke, :f :txn, :value [[:r 0 nil] [:r 1 nil]], :final-read? true, :node "n1", :index 4, :time -1}
+        {:process 0, :type :ok, :f :txn, :value [[:r 0 [0 1]] [:r 1 [1 2]]], :final-read? true, :node "n1", :index 5, :time -1}
+
+        {:process 1, :type :invoke, :f :txn, :value [[:r 0 nil] [:r 1 nil]], :final-read? true, :node "n2", :index 6, :time -1}
+        {:process 1, :type :ok, :f :txn, :value [[:r 0 [0 1]] [:r 1 [1 2]]], :final-read? true, :node "n2", :index 7, :time -1}]
+       h/history))
+
 (def missing-nodes
   (->> [{:process 0, :type :invoke, :f :txn, :value [[:append 0 0]], :node "n1", :index 0, :time -1}
         {:process 0, :type :ok, :f :txn, :value [[:append 0 0]], :node "n1", :index 1, :time -1}
@@ -46,6 +60,20 @@
         {:process 1, :type :ok, :f :txn, :value [[:r 0 [0]]], :final-read? true, :node "n2", :index 9, :time -1}
         {:process 1, :type :invoke, :f :txn, :value [[:r 1 nil]], :final-read? true, :node "n2", :index 10, :time -1}
         {:process 1, :type :ok, :f :txn, :value [[:r 1 nil]], :final-read? true, :node "n2", :index 11, :time -1}]
+       h/history))
+
+(def divergent-final-reads-multi-mop
+  (->> [{:process 0, :type :invoke, :f :txn, :value [[:append 0 0] [:append 0 1]], :node "n1", :index 0, :time -1}
+        {:process 0, :type :ok, :f :txn, :value [[:append 0 0] [:append 0 1]], :node "n1", :index 1, :time -1}
+
+        {:process 1, :type :invoke, :f :txn, :value [[:append 1 1] [:append 1 2]], :node "n2", :index 2, :time -1}
+        {:process 1, :type :ok, :f :txn, :value [[:append 1 1]  [:append 1 2]], :node "n2", :index 3, :time -1}
+
+        {:process 0, :type :invoke, :f :txn, :value [[:r 0 nil] [:r 1 nil]], :final-read? true, :node "n1", :index 4, :time -1}
+        {:process 0, :type :ok, :f :txn, :value [[:r 0 [0 1]] [:r 1 [1 2]]], :final-read? true, :node "n1", :index 5, :time -1}
+
+        {:process 1, :type :invoke, :f :txn, :value [[:r 0 nil] [:r 1 nil]], :final-read? true, :node "n2", :index 6, :time -1}
+        {:process 1, :type :ok, :f :txn, :value [[:r 0 [0]] [:r 1 [1]]], :final-read? true, :node "n2", :index 7, :time -1}]
        h/history))
 
 (def invalid-final-reads
@@ -76,6 +104,9 @@
       (is (= {:valid? true}
              (checker/check (sc/final-reads opts) test-map
                             valid-final-reads opts)))
+      (is (= {:valid? true}
+             (checker/check (sc/final-reads opts) test-map
+                            valid-final-reads-multi-mop opts)))
       (is (= {:valid? false
               :missing-nodes {0 #{"n2"} 1 #{"n2"}}}
              (checker/check (sc/final-reads opts) test-map
@@ -84,6 +115,12 @@
               :divergent-reads {1 {["n1"] [1], ["n2"] nil}}}
              (checker/check (sc/final-reads opts) test-map
                             divergent-final-reads opts)))
+      (is (= {:valid? false
+              :divergent-reads {0 {["n1"] [0 1], ["n2"] [0]}
+                                1 {["n1"] [1 2], ["n2"] [1]}}}
+             (checker/check (sc/final-reads opts) test-map
+                            divergent-final-reads-multi-mop opts)))
+
       (is (= {:valid? false
               :divergent-reads {1 {["n1" "n2"] [1], ["n2"] [2]}},
               :invalid-reads {1 {2 #{"n2"}}}}
