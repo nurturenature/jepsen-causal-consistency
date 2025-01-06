@@ -115,7 +115,7 @@
        [:th {:colspan 5} thead]]
       [:tr
        [:th "Index"]
-       [:th "P#/Node"]
+       [:th "Node (P#)"]
        [:th "Type"]
        [:th "Fn"]
        [:th "Mops"]]]
@@ -124,7 +124,7 @@
            (map (fn [{:keys [index process node type f value] :as _op}]
                   [:tr
                    [:td {:class "centered"} index]
-                   [:td {:class "centered"} (str process "/" node)]
+                   [:td {:class "centered"} (str node " (" process ")")]
                    [:td {:class "centered"} type]
                    [:td {:class "centered"} f]
                    [:td {:class "centered"} (->> value
