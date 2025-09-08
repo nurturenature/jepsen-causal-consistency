@@ -1,24 +1,24 @@
-### Max Write Wins Data Model
+# Max Write Wins Data Model
 
 Database is a Max Write Wins key/value register of integer/integer:
+
 ```SQL
 CREATE TABLE IF NOT EXISTS public.mww (
-    id TEXT NOT NULL,
-    k INTEGER NOT NULL UNIQUE,
+    k INTEGER NOT NULL,
     v INTEGER NOT NULL,
-    CONSTRAINT mww_pkey PRIMARY KEY (id)
+    CONSTRAINT mww_pkey PRIMARY KEY (k)
 );
 ```
 
 On writes the maximum, transaction or row, value wins.
 Example PostgreSQL update:
-```dart
-// max write wins, so GREATEST() value of v
-final v = crudEntry.opData!['v'] as int;
-patch = await tx.execute(
-  'UPDATE ${table.name} SET v = GREATEST($v, ${table.name}.v) WHERE id = \'${crudEntry.id}\' RETURNING *',
-);
+
+```SQL
+-- txn-k and txn-v are key and value from txn
+UPDATE mww SET v = GREATEST(txn-v, mww.v) WHERE k = txn-k RETURNING *;
 ```
+
+----
 
 Values written in a transaction are monotonic per key.
 
