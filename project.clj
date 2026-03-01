@@ -3,12 +3,8 @@
   :url "https://github.com/nurturenature/jepsen-causal-consistency"
   :license {:name "Apache License Version 2.0, January 2004"
             :url "http://www.apache.org/licenses/"}
-  :dependencies [[org.clojure/clojure "1.12.1"]
-                 [jepsen "0.3.9"]
-                 ;; TODO: PR elle or revert
-                 ;; [elle "0.2.2-SNAPSHOT"]
-                 ;; TODO: PR history.sim or revert
-                 ;; [io.jepsen/history.sim "0.1.1-SNAPSHOT"]
+  :dependencies [[org.clojure/clojure "1.12.4"]
+                 [jepsen "0.3.10"]
                  [io.jepsen/history.sim "0.1.1"]]
   :jvm-opts ["-Xmx8g"
              "-Djava.awt.headless=true"
